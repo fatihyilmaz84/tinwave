@@ -78,11 +78,12 @@ mod tests {
     use crate::payload::RepeatModePayload;
 
     fn event(payload: SignalPayload) -> SignalEvent {
+        let at = UtcMillis::new(1_700_000_000_000);
         SignalEvent {
-            id: SignalEventId::new(DeviceId::new(), 7),
-            ts: UtcMillis::new(1_700_000_000_000),
-            session: SessionId::new(),
-            recording: Some(RecordingId::new()),
+            id: SignalEventId::new(DeviceId::from_parts(at, [1; 10]).unwrap(), 7),
+            ts: at,
+            session: SessionId::from_parts(at, [2; 10]).unwrap(),
+            recording: Some(RecordingId::from_parts(at, [3; 10]).unwrap()),
             source: None,
             pos_ds: Some(1_234),
             payload,
