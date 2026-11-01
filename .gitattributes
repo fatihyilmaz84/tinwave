@@ -1,0 +1,24 @@
+# Line endings are pinned to LF in the index and in the working tree on every OS,
+# so `cargo fmt --check`, diffs and snapshot tests behave the same everywhere.
+* text=auto eol=lf
+
+# Text files: always LF.
+*.rs    text eol=lf
+*.toml  text eol=lf
+*.md    text eol=lf
+*.qml   text eol=lf
+*.sql   text eol=lf
+*.json  text eol=lf
+*.html  text eol=lf
+*.svg   text eol=lf
+
+# Binary files: never touched by line-ending conversion or textual diff/merge.
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.flac  binary
+*.mp3   binary
+*.m4a   binary
+*.wav   binary
+*.ogg   binary
+*.db    binary
