@@ -3,7 +3,7 @@ id: T-0022
 title: Signal bus hardening after review — sink contract, retry backoff, seek threshold, UUID-keyed counters
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -54,3 +54,6 @@ tinwave-db (T-0006), enums.rs / frozen.rs / Cargo files (T-0015), the schema or 
 
 ## Signals & storage
 No new kinds. Counter rows are keyed by (day, kind, entity_kind, entity) per database.md.
+
+## Merged
+2026-11-02, merge commit a8b64dc (branch head 9b8750d). Review: review-1 (APPROVE). Gates green on main (171 tests; emit p99 200-400 ns). Non-blocking 1-3 -> T-0015.
