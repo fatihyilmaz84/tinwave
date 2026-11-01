@@ -38,3 +38,12 @@ questions for lead:
 Lead answers (2026-11-02): poll() is owned by the playback controller that wires PlaybackEvents to signals (later
 E-01 ticket), not T-0017; document it on `Engine`. Drop-without-join / shutdown-joins confirmed; document both.
 Branch must merge main (T-0005 landed first) before review.
+
+---
+HANDOFF T-0016 (round 1, merged main)
+status: done
+branch: t/T-0016-playback-engine-core   commit: 2f0f9e9 (merge; first commit 0a168bc)
+summary: Merged main (T-0005). Cargo.toml auto-merged (crossbeam-channel, criterion + rtrb, symphonia). Cargo.lock: took main and regenerated with cargo build, no hand edits. Engine docs now state poll() ~100 ms by the host (no timer in core) and Drop-signals/shutdown-joins semantics.
+checks: fmt pass, clippy pass, tests 190 passed / 0 failed (gapless 7/7, seek 3/3, rt_alloc 2/2 after merge), deny pass (only MPL allowance = 15 per-crate symphonia* exceptions; no lame in Cargo.lock)
+files changed since 0a168bc: Cargo.lock (regenerated), crates/tinwave-playback/src/engine.rs (docs only)
+deviations/proposals/questions: none new

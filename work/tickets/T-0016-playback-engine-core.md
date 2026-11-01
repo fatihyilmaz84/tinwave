@@ -3,7 +3,7 @@ id: T-0016
 title: tinwave-playback engine core from the T-0003 design (reader, ring, renderer, seek, position)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []          # D-0003 decided; the engine emits PlaybackEvents, not signals
@@ -15,7 +15,7 @@ scope:
   - deny.toml             # MPL-2.0 exception scoped to symphonia* (D-0003)
 owner: tw-builder (round 1)
 branch: t/T-0016-playback-engine-core
-review_round: 0
+review_round: 1
 created_by: from P-0022
 ---
 

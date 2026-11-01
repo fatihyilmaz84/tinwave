@@ -19,7 +19,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0022](tickets/T-0022-signal-bus-hardening.md) Signal bus hardening (T-0005 review) | tw-builder r1 | `t/T-0022-signal-bus-hardening` · `D:\dev\Tinwave-worktrees\T-0022-signal-bus-hardening` |
-| [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-builder r1 — built (0a168bc, [build-1](reports/T-0016/build-1.md)); merging main, then review | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
+| [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-reviewer r1 — 2f0f9e9 ([build-1](reports/T-0016/build-1.md)) | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | tw-spike r1 | `t/T-0009-spike-time-stretch` · `D:\dev\Tinwave-worktrees\T-0009-spike-time-stretch` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
