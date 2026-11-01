@@ -22,8 +22,8 @@ Common enums:
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
 | `VolumeChanged` | T0 | In-app volume gesture ends | `from`, `to` (linear 0–1), `gesture_ms`, `input`, `section`, `ms_since_track_start`, `ms_since_section_start` | Up early (< 15 s) ⇒ strong like (+0.5). Up at a section ⇒ hook marker for that section. Down ⇒ weak dislike **only** if context is neutral. |
-| `SystemVolumeChanged` | T0 | OS master/endpoint volume changes while Tinwave plays | same as above + `endpoint_class` | Most users use the keyboard volume keys, not our slider. Windows `IAudioEndpointVolume::RegisterControlChangeNotify`, macOS `kAudioDevicePropertyVolumeScalar` listener, Linux PipeWire/PulseAudio sink events. |
-| `MuteToggled` | T0 | Mute on/off (app or system) | `muted`, `input` | Mute + resume within 60 s ⇒ interruption, not dislike. |
+| `SystemVolumeChanged` | T0 | OS master/endpoint volume gesture ends while Tinwave plays (400 ms trailing coalescing — the OS sends one event per step) | same as above + `endpoint_class`; `input` = `System` on Windows (keys/flyout/mixer not distinguishable, ADR 0004) | Most users use the keyboard volume keys, not our slider. Windows `IAudioEndpointVolume::RegisterControlChangeNotify` with Tinwave's event-context GUID to drop its own changes (ADR 0004), macOS `kAudioDevicePropertyVolumeScalar` listener, Linux PipeWire/PulseAudio sink events. |
+| `MuteToggled` | T0 | Mute on/off (app or system); system mute is derived from the same OS notification as `SystemVolumeChanged` (mute changed, scalar unchanged) | `muted`, `input` | Mute + resume within 60 s ⇒ interruption, not dislike. |
 | `PerceivedLevel` | derived | Computed per play | `effective_db = 20·log10(volume) + endpoint_gain_db − track_lufs + replaygain_db` | Learns **preferred listening loudness** per track, artist, genre, context. Feeds Auto-loudness memory. |
 
 Interpretation rules:
@@ -88,7 +88,7 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
-| `OutputDeviceChanged` | T1 | Default or chosen device changes | `class` (`Headphones|Speakers|Bluetooth|UsbDac|Hdmi|Builtin`), `device_hash` | Splits taste by device: headphone music ≠ speaker music. |
+| `OutputDeviceChanged` | T1 | Default or chosen device changes | `class` (`Headphones|Speakers|Bluetooth|UsbDac|Hdmi|Builtin|Virtual|Unknown`; `UsbDac` = external DAC, USB or digital out), `transport` (`Bluetooth|Usb|Hda|Virtual|Other`), `form_factor` (OS enum, `u8`), `device_hash` | Splits taste by device: headphone music ≠ speaker music. Class = f(transport, form factor, internal jack) — rule order in ADR 0004. |
 | `EqChanged` | T0 | EQ preset/band change | `preset`, `bass_db`, `treble_db` | Bass boost on a track/genre ⇒ energy preference. |
 | `ExclusiveModeToggled` | T0 | WASAPI exclusive / bit-perfect | `on` | Audiophile session: favor lossless sources. |
 | `CrossfadeChanged` | T0 | Crossfade/gapless setting | `ms` | Party vs album listening style. |
