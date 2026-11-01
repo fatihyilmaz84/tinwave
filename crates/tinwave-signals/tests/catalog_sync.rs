@@ -17,8 +17,8 @@
 //! - A quantized field keeps its catalog name in `FieldSpec::catalog` (`gesture_ms` is stored as
 //!   50 ms steps, `listened_ms` as deciseconds); `SearchNoResult.query` is stored as a hash.
 //! - `SignalDropped` (tier `meta`) is in-memory diagnostics and has no kind.
-//! - Derived signals have no tier of their own in the catalog; the code assigns T0 (the tier of
-//!   their inputs).
+//! - Derived signals have no tier of their own in the catalog; they take the highest tier among
+//!   their inputs (`SignalKind::derived_inputs`), so `PerceivedLevel` is T1 and `RateSession` T0.
 
 // Test code: a failed unwrap is the failure report. clippy.toml only exempts `#[test]` bodies, not
 // helpers in integration-test crates.
@@ -245,7 +245,10 @@ fn storage_class_and_tier_match_the_catalog() {
             );
 
             if row.tier == "derived" {
-                assert_eq!(kind.tier(), Tier::T0, "{name}: derived signals use T0");
+                // The catalog gives no tier for derived rows; the rule is "highest tier among
+                // the inputs" (`SignalKind::derived_inputs`).
+                let highest = kind.derived_inputs().iter().map(|i| i.tier()).max();
+                assert_eq!(Some(kind.tier()), highest, "{name}: derived tier");
             } else {
                 let number: u8 = row
                     .tier

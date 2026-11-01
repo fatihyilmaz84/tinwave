@@ -277,7 +277,9 @@ payload_struct! {
 payload_struct! {
     /// `PlaylistAdded` and `PlaylistRemoved`.
     PlaylistEditPayload {
-        /// Local integer surrogate of the playlist (not its UUID).
+        /// The signals.db dictionary id of the playlist's UUID (the same dictionary as
+        /// recording/album/artist ids, `docs/rules/database.md` "Dictionaries"), not a
+        /// library.db rowid.
         playlist_id: u32 => "playlist_id",
         /// Kind of playlist.
         playlist_kind: PlaylistKind => "playlist_kind",

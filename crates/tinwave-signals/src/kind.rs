@@ -16,6 +16,16 @@ pub enum StorageClass {
     Derived,
 }
 
+/// `Some(tier)` for a declared tier; `None` for `Inputs`, meaning "derived from the inputs".
+macro_rules! declared_tier {
+    (Inputs) => {
+        None
+    };
+    ($tier:ident) => {
+        Some(Tier::$tier)
+    };
+}
+
 macro_rules! signal_kinds {
     ($(
         $(#[$meta:meta])*
@@ -52,10 +62,9 @@ macro_rules! signal_kinds {
                 match self { $(Self::$name => StorageClass::$class,)* }
             }
 
-            /// Privacy tier of the kind. Tier is derived from the kind and never stored.
-            #[must_use]
-            pub const fn tier(self) -> Tier {
-                match self { $(Self::$name => Tier::$tier,)* }
+            /// The tier written in the table, `None` for derived kinds.
+            const fn declared_tier(self) -> Option<Tier> {
+                match self { $(Self::$name => declared_tier!($tier),)* }
             }
         }
     };
@@ -70,13 +79,13 @@ signal_kinds! {
     /// Mute switched on or off (app or system).
     MuteToggled = 3, Event, T0;
     /// Derived: effective loudness of a play.
-    PerceivedLevel = 4, Derived, T0;
+    PerceivedLevel = 4, Derived, Inputs;
 
     // 2. Speed
     /// Playback-rate gesture ended.
     RateChanged = 17, Event, T0;
     /// Derived: time-weighted rate of a play.
-    RateSession = 18, Derived, T0;
+    RateSession = 18, Derived, Inputs;
 
     // 3. Seek, skip, replay
     /// Next / track change before the end.
@@ -164,6 +173,50 @@ signal_kinds! {
 }
 
 impl SignalKind {
+    /// Privacy tier of the kind. Tier is derived from the kind and never stored.
+    ///
+    /// Rule: a derived kind takes the **highest tier among its inputs**
+    /// ([`derived_inputs`](Self::derived_inputs)), because it can reveal everything its inputs
+    /// reveal. Every other kind has the tier written in the table above.
+    #[must_use]
+    pub const fn tier(self) -> Tier {
+        match self.declared_tier() {
+            Some(tier) => tier,
+            None => {
+                let inputs = self.derived_inputs();
+                let mut highest = Tier::T0;
+                let mut i = 0;
+                while i < inputs.len() {
+                    let tier = inputs[i].tier();
+                    if tier.number() > highest.number() {
+                        highest = tier;
+                    }
+                    i += 1;
+                }
+                highest
+            }
+        }
+    }
+
+    /// The raw-event kinds a derived kind is computed from; empty for events and counters.
+    ///
+    /// These drive [`tier`](Self::tier). Inputs must be raw events (never other derived kinds).
+    /// - `PerceivedLevel` = volume, system volume and the output device (its endpoint gain is
+    ///   device context, T1).
+    /// - `RateSession` = rate changes.
+    #[must_use]
+    pub const fn derived_inputs(self) -> &'static [SignalKind] {
+        match self {
+            Self::PerceivedLevel => &[
+                Self::VolumeChanged,
+                Self::SystemVolumeChanged,
+                Self::OutputDeviceChanged,
+            ],
+            Self::RateSession => &[Self::RateChanged],
+            _ => &[],
+        }
+    }
+
     /// The stable value stored in `signal_event.kind`.
     #[must_use]
     pub const fn discriminant(self) -> u8 {
@@ -309,6 +362,26 @@ mod tests {
         assert_eq!(SignalKind::OutputDeviceChanged.tier(), Tier::T1);
         assert_eq!(SignalKind::VolumeChanged.tier(), Tier::T0);
         assert!(SignalKind::ALL.iter().all(|kind| kind.tier() <= Tier::T1));
+    }
+
+    #[test]
+    fn derived_kinds_take_the_highest_tier_of_their_inputs() {
+        assert_eq!(SignalKind::PerceivedLevel.tier(), Tier::T1);
+        assert_eq!(SignalKind::RateSession.tier(), Tier::T0);
+        for &kind in SignalKind::ALL {
+            let inputs = kind.derived_inputs();
+            if kind.storage_class() == StorageClass::Derived {
+                assert!(!inputs.is_empty(), "{kind} has no inputs");
+                assert!(
+                    inputs.iter().all(|i| i.is_event()),
+                    "{kind}: inputs are raw events"
+                );
+                let highest = inputs.iter().map(|i| i.tier()).max().unwrap();
+                assert_eq!(kind.tier(), highest, "{kind}");
+            } else {
+                assert!(inputs.is_empty(), "{kind} is not derived");
+            }
+        }
     }
 
     #[test]
