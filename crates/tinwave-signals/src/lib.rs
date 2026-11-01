@@ -1,7 +1,8 @@
-//! Tinwave signal schema: kinds, tiers, quantized payloads and the packed payload codec.
+//! Tinwave signals: the schema, the packed payload codec and the in-memory signal bus.
 //!
-//! This crate defines *what* a signal is and how its payload becomes a handful of bytes. It has
-//! no IO, no bus and no storage; those live in later crates. The catalog in
+//! This crate defines *what* a signal is, how its payload becomes a handful of bytes, and how
+//! signals travel from producers to the writer without ever blocking them. It does no IO and
+//! knows no database: the writer (a later crate) implements [`SignalSink`]. The catalog in
 //! `docs/guides/signal-catalog.md` is the source of truth, and `tests/catalog_sync.rs` fails
 //! when this crate and the catalog disagree.
 //!
@@ -9,10 +10,19 @@
 //! - [`SignalPayload`]: one variant per raw-event kind, encoded to at most
 //!   [`MAX_PAYLOAD_LEN`] bytes (`None` when a kind has no fields).
 //! - [`SignalEvent`]: the in-memory shape of a `signal_event` row.
+//! - [`SignalBus`] / [`SignalDrain`] / [`SignalSink`]: bounded, non-blocking transport with a
+//!   priority drop policy ([`Priority`]); [`SignalSettings`] toggles are checked before an event
+//!   is constructed.
+//! - [`UiCounters`]: in-memory aggregation of the counter-class signals.
+//! - [`GestureCoalescer`]: one event per volume / rate / system-volume gesture and per burst of
+//!   seeks.
 
 #![forbid(unsafe_code)]
 
+mod bus;
+mod coalesce;
 mod codec;
+mod counters;
 mod enums;
 mod error;
 mod event;
@@ -20,7 +30,20 @@ mod event;
 mod frozen;
 mod kind;
 mod payload;
+mod priority;
 mod quant;
+mod settings;
+#[cfg(test)]
+mod test_support;
+
+pub use bus::{BusConfig, EmitOutcome, EventStamp, PumpReport, SignalBus, SignalDrain, SignalSink};
+pub use coalesce::{
+    coalesce_window_ms, EventContext, GestureCoalescer, GestureTick, TickOutcome, RATE_WINDOW_MS,
+    SEEK_MIN_NET_DS, SEEK_WINDOW_MS, SYSTEM_VOLUME_WINDOW_MS, VOLUME_WINDOW_MS,
+};
+pub use counters::{CountOutcome, CounterEntity, CounterRow, LocalDay, UiCounters};
+pub use priority::Priority;
+pub use settings::{SignalCategory, SignalSettings};
 
 pub use codec::{EncodedPayload, MAX_PAYLOAD_LEN};
 pub use enums::{
