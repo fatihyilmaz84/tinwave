@@ -1,6 +1,6 @@
 //! Measurement commands built on the engine: gapless boundary, seek/volume, device switch, CPU/RSS.
 use crate::backends::*;
-use crate::engine::{Backend, Engine, OpenFn, Renderer};
+use crate::engine::{Backend as _, Engine, OpenFn, Renderer};
 use crate::probe::{best_lag, compare, load_ref};
 use crate::sys;
 use anyhow::{anyhow, bail, Result};
@@ -221,65 +221,72 @@ pub fn cmd_seekvol(dir: &Path, backend: &str, fmt: &str, rate: u32) -> Result<()
     println!("[{backend}/{fmt}/{rate}] seek+volume test (device latency {lat_ms:.1} ms, max render {cb_max:.1} us)");
     println!("   seek-to-first-audio latencies (ms, command -> first callback with data): {:?}", seek_lat.iter().map(|x| (x * 10.0).round() / 10.0).collect::<Vec<_>>());
     println!("   reporter: {}", tick_stats(&ticks));
-    // Verify seeks: after each seek the recorded audio must match reference at the target.
+    // Verify seeks: the recording must contain the reference audio from the seek target on.
     let left = left_of(&rec);
-    // Locate each seek landing by searching for the signal matching reference at the target frame.
-    for (i, (_t, track, frame, _)) in seek_log.iter().enumerate() {
+    let rms = |s: &[f32]| (s.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / s.len().max(1) as f64).sqrt();
+    let _ = (total, &vol_log);
+    for (i, (t_seek, track, frame, _)) in seek_log.iter().enumerate() {
         let ref_off = if *track == 0 { *frame as usize } else { split + *frame as usize };
-        // search the recording for the best match of reference[ref_off+3000 .. +8000] (volume-normalised correlation)
-        let needle: Vec<f32> = reference[ref_off + 3000..ref_off + 3000 + 6000].to_vec();
-        let en: f64 = needle.iter().map(|v| (*v as f64).powi(2)).sum::<f64>().sqrt();
-        let mut best = (0usize, -1.0f64);
-        // coarse stride 16 then refine
-        let lo = ((i as f64 + 1.0) * 0.0) as usize;
-        let mut idx = lo;
-        while idx + 6000 < left.len() {
-            let mut c = 0.0f64;
-            let mut ed = 0.0f64;
-            for k in (0..6000).step_by(7) {
-                let d = left[idx + k] as f64;
-                c += d * needle[k] as f64;
-                ed += d * d;
-            }
-            let n = c / (en * 0.378 + 1e-9) / (ed.sqrt() + 1e-9) * 1.0;
-            let _ = n;
-            let norm = c / ((ed.sqrt() * (needle.iter().step_by(7).map(|v| (*v as f64).powi(2)).sum::<f64>().sqrt())) + 1e-12);
-            if norm > best.1 {
-                best = (idx, norm);
-            }
-            idx += 16;
-        }
-        // refine
-        let mut refined = best;
-        for idx in best.0.saturating_sub(16)..(best.0 + 16).min(left.len() - 6000) {
-            let mut c = 0.0f64;
-            let mut ed = 0.0f64;
-            let mut er = 0.0f64;
+        let needle = &reference[ref_off + 3000..ref_off + 9000];
+        let nr = rms(needle);
+        let corr_at = |idx: usize| -> f64 {
+            let (mut c, mut ed) = (0.0f64, 0.0f64);
             for k in 0..6000 {
                 let d = left[idx + k] as f64;
                 c += d * needle[k] as f64;
                 ed += d * d;
-                er += (needle[k] as f64).powi(2);
             }
-            let norm = c / (ed.sqrt() * er.sqrt() + 1e-12);
-            if norm > refined.1 {
-                refined = (idx, norm);
+            c / (ed.sqrt() * nr * (6000f64).sqrt() + 1e-12)
+        };
+        // coarse search (stride 16, subsampled) then exact refinement
+        let mut best = (0usize, -2.0f64);
+        let lo = ((*t_seek * rate as f64) as usize).saturating_sub(4000);
+        let hi = (lo + 40000).min(left.len() - 6000);
+        let mut idx = lo;
+        while idx < hi {
+            let (mut c, mut ed) = (0.0f64, 0.0f64);
+            for k in 0..2000 {
+                let d = left[idx + k] as f64;
+                c += d * needle[k] as f64;
+                ed += d * d;
+            }
+            let n = c / (ed.sqrt() * nr * 1.0 + 1e-12);
+            if n > best.1 {
+                best = (idx, n);
+            }
+            idx += 1;
+        }
+        let _ = &corr_at;
+        // refine by least squares with a free gain (exact-copy detection)
+        let mut refined = (best.0, f64::MAX);
+        for idx in best.0.saturating_sub(12)..(best.0 + 12).min(hi) {
+            let (mut c, mut nn) = (0.0f64, 0.0f64);
+            for k in 0..6000 {
+                c += left[idx + k] as f64 * needle[k] as f64;
+                nn += (needle[k] as f64).powi(2);
+            }
+            let g = c / nn;
+            let mut e = 0.0f64;
+            for k in 0..6000 {
+                e += (left[idx + k] as f64 - g * needle[k] as f64).powi(2);
+            }
+            if e < refined.1 {
+                refined = (idx, e);
             }
         }
-        // Expected: audio for ref_off begins 3000 frames earlier than where the needle was found.
-        let start_in_rec = refined.0 as i64 - 3000;
-        // Gain at that point (rms ratio) tells us the volume in effect.
-        let rms = |s: &[f32]| (s.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / s.len() as f64).sqrt();
-        let g = rms(&left[refined.0..refined.0 + 6000]) / rms(&needle);
+        let g = rms(&left[refined.0..refined.0 + 6000]) / nr;
+        let maxd = (0..6000).map(|k| (left[refined.0 + k] - g as f32 * needle[k]).abs()).fold(0.0f32, f32::max);
+
         println!(
-            "   seek#{i} -> track {track} frame {frame}: matched at recording frame {start_in_rec} (corr {:.4}), gain there = {g:.3}",
-            refined.1
+            "   seek#{i} -> track {track} frame {frame}: audio found at recording frame {} = {:.0} ms after the command ; max |recorded - gain*reference| over 6000 frames = {maxd:.1e}; gain {g:.3}",
+            refined.0 as i64 - 3000,
+            (refined.0 as f64 - 3000.0) * 1000.0 / rate as f64 - t_seek * 1000.0,
         );
-        let _ = total;
     }
-    // Volume: gain should be ~0.25 between t=2..4 and ~1.0 outside; also check for discontinuities at the ramp.
-    let rms = |s: &[f32]| (s.iter().map(|v| (*v as f64).powi(2)).sum::<f64>() / s.len() as f64).sqrt();
-    let _ = (rms, &vol_log);
+    // Volume ramp smoothness: largest sample-to-sample step of the recording around the 0.25 and 1.0 changes
+    // relative to the signal's own largest step (a click would exceed it).
+    let steps = |s: &[f32]| s.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    println!("   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): {:.4}", steps(&left));
     for l in logs {
         println!("   log: {l}");
     }

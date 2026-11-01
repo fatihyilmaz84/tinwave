@@ -1,0 +1,120 @@
+[cpal/wav16/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 27.5 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.8 us max 22.8 us | process CPU 0.62% over 10.0 s | working set 10.2 -> 18.6 MB, private 10.0 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 12.4 ms (within one track)
+[cpal/wav24/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 7.45e-8, within +-64 frames of boundary 6.71e-8, SNR 126.0 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 18.5 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.5 us max 13.9 us | process CPU 0.94% over 10.0 s | working set 9.2 -> 18.7 MB, private 10.1 MB
+   10 Hz reporter: 100 ticks, interval 99.4..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 12.0 ms (within one track)
+[cpal/flac16/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 20.9 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.4 us max 13.7 us | process CPU 0.94% over 10.0 s | working set 10.2 -> 18.9 MB, private 10.1 MB
+   10 Hz reporter: 100 ticks, interval 99.6..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 11.8 ms (within one track)
+[cpal/flac24/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 7.45e-8, within +-64 frames of boundary 6.71e-8, SNR 126.0 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 23.7 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.5 us max 11.8 us | process CPU 0.78% over 10.0 s | working set 9.2 -> 18.8 MB, private 10.2 MB
+   10 Hz reporter: 100 ticks, interval 99.4..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 11.9 ms (within one track)
+[cpal/mp3lame/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.06e-2, within +-64 frames of boundary 1.06e-2, SNR 30.4 dB | longest exact-zero run 0 frames
+   cold start (Engine::start -> first real audio callback): 25.5 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.5 us max 9.4 us | process CPU 0.78% over 10.0 s | working set 10.2 -> 19.1 MB, private 10.2 MB
+   10 Hz reporter: 100 ticks, interval 87.6..113.0 ms, position went backwards 0 times, max |pos_step - wall_step| = 11.5 ms (within one track)
+[cpal/mp3notag/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 325 | lag(A)=+780 corr 1.0000 | BOUNDARY GAP = +2295 frames = 47.812 ms (corr 1.0000) | max err overall 1.97e-1, within +-64 frames of boundary 1.01e-1, SNR 0.2 dB | longest exact-zero run 97 frames
+   cold start (Engine::start -> first real audio callback): 25.9 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 483840 (expected 480000)
+   callbacks 1010, render time avg 1.4 us max 9.2 us | process CPU 0.15% over 10.1 s | working set 9.2 -> 19.1 MB, private 10.1 MB
+   10 Hz reporter: 101 ticks, interval 97.8..101.7 ms, position went backwards 0 times, max |pos_step - wall_step| = 31.7 ms (within one track)
+[cpal/alac/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 25.5 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.4 us max 8.9 us | process CPU 0.62% over 10.0 s | working set 10.2 -> 18.9 MB, private 10.1 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 12.0 ms (within one track)
+[cpal/aac/48000] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 447 | lag(A)=-447 corr 1.0000 | BOUNDARY GAP = +887 frames = 18.479 ms (corr 1.0000) | max err overall 2.02e-1, within +-64 frames of boundary 1.03e-1, SNR 0.0 dB | longest exact-zero run 448 frames
+   cold start (Engine::start -> first real audio callback): 25.7 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 481280 (expected 480000)
+   callbacks 1010, render time avg 1.3 us max 8.0 us | process CPU 0.77% over 10.1 s | working set 10.2 -> 19.7 MB, private 10.4 MB
+   10 Hz reporter: 101 ticks, interval 99.6..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 85.3 ms (within one track)
+[cpal/aac/48000+ext-trim] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 447 | lag(A)=-447 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.00e-1, within +-64 frames of boundary 1.00e-1, SNR 29.7 dB | longest exact-zero run 448 frames
+   cold start (Engine::start -> first real audio callback): 26.2 ms; device/buffer latency reported: 32.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1000, render time avg 1.4 us max 8.8 us | process CPU 0.94% over 10.0 s | working set 9.2 -> 19.6 MB, private 10.4 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 11.8 ms (within one track)
+[cpal/flac16/44100] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.78e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 26.1 ms; device/buffer latency reported: 33.4 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1000, render time avg 1.3 us max 10.0 us | process CPU 0.47% over 10.0 s | working set 9.0 -> 18.4 MB, private 9.6 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 13.1 ms (within one track)
+[cpal/mp3lame/44100] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.62e-2, within +-64 frames of boundary 1.62e-2, SNR 30.4 dB | longest exact-zero run 0 frames
+   cold start (Engine::start -> first real audio callback): 21.8 ms; device/buffer latency reported: 33.4 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1000, render time avg 1.4 us max 14.7 us | process CPU 0.62% over 10.0 s | working set 10.0 -> 18.7 MB, private 9.6 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 13.4 ms (within one track)
+[cpal/alac/44100] device=cpal:Luidsprekers (High Definition Audio Device) (shared)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.78e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 20.5 ms; device/buffer latency reported: 33.4 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1000, render time avg 1.3 us max 8.8 us | process CPU 0.47% over 10.0 s | working set 10.1 -> 18.5 MB, private 9.6 MB
+   10 Hz reporter: 100 ticks, interval 99.6..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 13.5 ms (within one track)
+[wasapi/wav16/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 17.1 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 1.5 us max 10.5 us | process CPU 0.47% over 10.0 s | working set 10.2 -> 17.1 MB, private 9.4 MB
+   10 Hz reporter: 100 ticks, interval 99.4..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 22.0 ms (within one track)
+[wasapi/wav24/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 7.45e-8, within +-64 frames of boundary 6.71e-8, SNR 126.0 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 16.8 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 1.9 us max 12.5 us | process CPU 0.94% over 10.0 s | working set 10.2 -> 17.1 MB, private 9.8 MB
+   10 Hz reporter: 100 ticks, interval 89.4..112.0 ms, position went backwards 0 times, max |pos_step - wall_step| = 22.2 ms (within one track)
+[wasapi/flac16/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 10.5 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 2.3 us max 16.5 us | process CPU 0.16% over 10.0 s | working set 10.2 -> 17.3 MB, private 9.8 MB
+   10 Hz reporter: 100 ticks, interval 91.0..106.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 21.9 ms (within one track)
+[wasapi/flac24/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 7.45e-8, within +-64 frames of boundary 6.71e-8, SNR 126.0 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 11.1 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 2.0 us max 17.7 us | process CPU 0.62% over 10.0 s | working set 10.2 -> 17.2 MB, private 9.8 MB
+   10 Hz reporter: 100 ticks, interval 96.3..106.1 ms, position went backwards 0 times, max |pos_step - wall_step| = 22.3 ms (within one track)
+[wasapi/mp3lame/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.06e-2, within +-64 frames of boundary 1.06e-2, SNR 30.4 dB | longest exact-zero run 0 frames
+   cold start (Engine::start -> first real audio callback): 17.9 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1003, render time avg 2.3 us max 20.9 us | process CPU 1.71% over 10.0 s | working set 9.2 -> 17.6 MB, private 9.9 MB
+   10 Hz reporter: 100 ticks, interval 93.1..107.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 38.4 ms (within one track)
+[wasapi/mp3notag/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 325 | lag(A)=+780 corr 1.0000 | BOUNDARY GAP = +2295 frames = 47.812 ms (corr 1.0000) | max err overall 1.97e-1, within +-64 frames of boundary 1.01e-1, SNR 0.2 dB | longest exact-zero run 97 frames
+   cold start (Engine::start -> first real audio callback): 16.3 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 483840 (expected 480000)
+   callbacks 1012, render time avg 1.8 us max 16.1 us | process CPU 1.24% over 10.1 s | working set 10.2 -> 17.5 MB, private 9.8 MB
+   10 Hz reporter: 101 ticks, interval 82.6..114.7 ms, position went backwards 0 times, max |pos_step - wall_step| = 52.0 ms (within one track)
+[wasapi/alac/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.83e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 11.2 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 1.5 us max 10.2 us | process CPU 0.16% over 10.0 s | working set 10.2 -> 17.3 MB, private 9.7 MB
+   10 Hz reporter: 100 ticks, interval 99.3..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 22.3 ms (within one track)
+[wasapi/aac/48000] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 447 | lag(A)=-447 corr 1.0000 | BOUNDARY GAP = +887 frames = 18.479 ms (corr 1.0000) | max err overall 2.02e-1, within +-64 frames of boundary 1.03e-1, SNR 0.0 dB | longest exact-zero run 448 frames
+   cold start (Engine::start -> first real audio callback): 10.4 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 481280 (expected 480000)
+   callbacks 1011, render time avg 1.5 us max 16.8 us | process CPU 0.77% over 10.1 s | working set 10.2 -> 18.1 MB, private 10.0 MB
+   10 Hz reporter: 101 ticks, interval 98.5..101.7 ms, position went backwards 0 times, max |pos_step - wall_step| = 95.0 ms (within one track)
+[wasapi/aac/48000+ext-trim] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 447 | lag(A)=-447 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.00e-1, within +-64 frames of boundary 1.00e-1, SNR 29.7 dB | longest exact-zero run 448 frames
+   cold start (Engine::start -> first real audio callback): 13.8 ms; device/buffer latency reported: 12.0 ms; underruns 0; frames consumed 480000 (expected 480000)
+   callbacks 1001, render time avg 1.8 us max 12.4 us | process CPU 1.09% over 10.0 s | working set 10.2 -> 18.1 MB, private 10.1 MB
+   10 Hz reporter: 100 ticks, interval 98.8..100.9 ms, position went backwards 0 times, max |pos_step - wall_step| = 22.1 ms (within one track)
+[wasapi/flac16/44100] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.78e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 19.3 ms; device/buffer latency reported: 13.5 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1001, render time avg 1.5 us max 62.6 us | process CPU 0.62% over 10.0 s | working set 9.1 -> 16.9 MB, private 9.2 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 24.3 ms (within one track)
+[wasapi/mp3lame/44100] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.62e-2, within +-64 frames of boundary 1.62e-2, SNR 30.4 dB | longest exact-zero run 0 frames
+   cold start (Engine::start -> first real audio callback): 16.7 ms; device/buffer latency reported: 13.5 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1001, render time avg 1.4 us max 15.4 us | process CPU 0.62% over 10.0 s | working set 9.1 -> 17.1 MB, private 9.2 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 24.0 ms (within one track)
+[wasapi/alac/44100] device=wasapi:Luidsprekers (High Definition Audio Device) (shared f32 period 10000 us)
+   first audio at rec frame 0 | lag(A)=+0 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.83e-5, within +-64 frames of boundary 1.78e-5, SNR 77.8 dB | longest exact-zero run 1 frames
+   cold start (Engine::start -> first real audio callback): 16.6 ms; device/buffer latency reported: 13.5 ms; underruns 0; frames consumed 441000 (expected 441000)
+   callbacks 1001, render time avg 1.5 us max 11.2 us | process CPU 0.62% over 10.0 s | working set 9.1 -> 16.8 MB, private 9.1 MB
+   10 Hz reporter: 100 ticks, interval 99.5..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 24.4 ms (within one track)

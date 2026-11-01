@@ -5,6 +5,7 @@ mod gen;
 mod mf_aac;
 mod probe;
 mod reader;
+mod resamp;
 mod sys;
 
 use std::path::PathBuf;
@@ -53,6 +54,7 @@ fn main() -> anyhow::Result<()> {
         Some("follow") => bench::cmd_follow(&dir, &a(2, "cpal"), a(3, "48000").parse()?, a(4, "60").parse()?)?,
         // cpu <backend> <fmt> <rate> [secs]
         Some("cpu") => bench::cmd_cpu(&dir, &a(2, "cpal"), &a(3, "flac16"), a(4, "48000").parse()?, a(5, "10").parse()?)?,
+        Some("resamp") => resamp::run()?,
         Some("excl") => bench::cmd_excl(a(2, "48000").parse()?)?,
         _ => eprintln!("usage: gen | genlong | probe | devices | gapless | seekvol | switch | follow | cpu | excl"),
     }

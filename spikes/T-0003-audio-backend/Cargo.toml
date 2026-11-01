@@ -17,6 +17,8 @@ flacenc = "0.5"
 mp3lame-encoder = "0.2"
 alac-encoder = "0.3"
 rubato = "5"
+audioadapter = "5"
+audioadapter-buffers = "5"
 anyhow = "1"
 windows = { version = "0.62", features = [
   "Win32_Foundation", "Win32_System_Threading", "Win32_System_ProcessStatus",

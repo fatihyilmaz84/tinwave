@@ -1,0 +1,70 @@
+[cpal/wav16/48000] seek+volume test (device latency 32.0 ms, max render 16.5 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [1.0, 11.0, 0.6]
+   reporter: 100 ticks, interval 99.5..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 1967.7 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145056 = 22 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241536 = 31 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1192
+[cpal/flac16/48000] seek+volume test (device latency 32.0 ms, max render 12.1 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.9, 0.8, 0.6]
+   reporter: 100 ticks, interval 99.4..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 1967.8 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241536 = 31 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1192
+[cpal/mp3lame/48000] seek+volume test (device latency 32.0 ms, max render 10.9 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.8, 0.7, 0.8]
+   reporter: 100 ticks, interval 99.4..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 1967.7 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 5.1e-5; gain 0.970
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.2e-5; gain 0.242
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 4.1e-5; gain 0.970
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1156
+[cpal/alac/48000] seek+volume test (device latency 32.0 ms, max render 10.0 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.6, 0.9, 0.7]
+   reporter: 100 ticks, interval 99.6..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 1968.0 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1192
+[cpal/aac/48000] seek+volume test (device latency 32.0 ms, max render 7.7 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.8, 0.8, 11.0]
+   reporter: 100 ticks, interval 99.6..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 1968.2 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.1e-3; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 4.3e-4; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241056 = 22 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.7e-3; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1192
+[wasapi/wav16/48000] seek+volume test (device latency 12.0 ms, max render 8.6 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.9, 10.7, 0.8]
+   reporter: 100 ticks, interval 99.5..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 1957.6 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 50016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 145536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 242016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1197
+[wasapi/flac16/48000] seek+volume test (device latency 12.0 ms, max render 12.5 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.6, 0.8, 0.6]
+   reporter: 100 ticks, interval 99.4..100.5 ms, position went backwards 0 times, max |pos_step - wall_step| = 1958.0 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 50016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 146016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 242016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1197
+[wasapi/mp3lame/48000] seek+volume test (device latency 12.0 ms, max render 16.5 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [10.9, 0.8, 0.8]
+   reporter: 100 ticks, interval 99.5..100.7 ms, position went backwards 0 times, max |pos_step - wall_step| = 1968.0 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 5.1e-5; gain 0.970
+   seek#1 -> track 1 frame 48000: audio found at recording frame 146016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.2e-5; gain 0.242
+   seek#2 -> track 0 frame 216777: audio found at recording frame 242016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 4.1e-5; gain 0.970
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1161
+[wasapi/alac/48000] seek+volume test (device latency 12.0 ms, max render 9.3 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [11.0, 0.8, 0.7]
+   reporter: 100 ticks, interval 99.6..100.4 ms, position went backwards 0 times, max |pos_step - wall_step| = 1967.8 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 49536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 146016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.8e-6; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 242016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.5e-5; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1197
+[wasapi/aac/48000] seek+volume test (device latency 12.0 ms, max render 8.2 us)
+   seek-to-first-audio latencies (ms, command -> first callback with data): [0.5, 0.9, 11.0]
+   reporter: 100 ticks, interval 99.6..100.6 ms, position went backwards 0 times, max |pos_step - wall_step| = 1958.2 ms (within one track)
+   seek#0 -> track 0 frame 144000: audio found at recording frame 50016 = 41 ms after the command ; max |recorded - gain*reference| over 6000 frames = 1.1e-3; gain 1.000
+   seek#1 -> track 1 frame 48000: audio found at recording frame 146016 = 42 ms after the command ; max |recorded - gain*reference| over 6000 frames = 4.3e-4; gain 0.250
+   seek#2 -> track 0 frame 216777: audio found at recording frame 241536 = 32 ms after the command ; max |recorded - gain*reference| over 6000 frames = 3.7e-3; gain 1.000
+   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): 0.1192

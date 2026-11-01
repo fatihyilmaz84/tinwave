@@ -1134,6 +1134,8 @@ version = "0.0.0"
 dependencies = [
  "alac-encoder",
  "anyhow",
+ "audioadapter",
+ "audioadapter-buffers",
  "cpal",
  "flacenc",
  "hound",
