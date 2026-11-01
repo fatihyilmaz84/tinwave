@@ -10,13 +10,18 @@ use std::sync::Arc;
 use proptest::prelude::*;
 use tinwave_core::{DeviceId, ManualClock, RecordingId, SessionId, Tier, UtcMillis};
 use tinwave_signals::{
-    BusConfig, CounterEntity, CounterRow, ElapsedDs, EmitOutcome, EventContext, EventStamp,
-    GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, Priority, Section,
-    SignalBus, SignalCategory, SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings,
-    SignalSink, SignalsError, TickOutcome, View, ViewOpenedPayload, Volume, VolumePayload,
+    BusConfig, CounterEntity, CounterRow, ElapsedDs, EmitOutcome, EntityKind, EventContext,
+    EventStamp, GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, Priority,
+    Section, SignalBus, SignalCategory, SignalDrain, SignalEvent, SignalKind, SignalPayload,
+    SignalSettings, SignalSink, SignalsError, TickOutcome, View, ViewOpenedPayload, Volume,
+    VolumePayload,
 };
 
 const T0: i64 = 1_793_577_600_000; // 2026-11-02T00:00:00Z
+
+fn entity(kind: EntityKind, n: u8) -> CounterEntity {
+    CounterEntity::new(kind, [n; 16])
+}
 
 fn at() -> UtcMillis {
     UtcMillis::new(T0)
@@ -207,7 +212,7 @@ fn counters_respect_the_toggles_too() {
     let (bus, mut drain, _) = setup(|_| {});
     bus.settings().set_category(SignalCategory::Browsing, false);
     for _ in 0..1_000 {
-        let _ = bus.counters().impression(CounterEntity(1));
+        let _ = bus.counters().impression(entity(EntityKind::Track, 1));
     }
     assert!(drain_all(&mut drain).rows.is_empty());
 }
@@ -255,16 +260,56 @@ fn forty_slider_ticks_in_500_ms_make_one_event_first_from_last_to() {
 fn one_thousand_impressions_on_one_entity_are_one_counter_row_with_count_1000() {
     let (bus, mut drain, _) = setup(|_| {});
     for _ in 0..1_000 {
-        let _ = bus.counters().impression(CounterEntity(77));
+        let _ = bus.counters().impression(entity(EntityKind::Album, 77));
     }
     let sink = drain_all(&mut drain);
     assert_eq!(sink.rows.len(), 1);
     let row = sink.rows[0];
     assert_eq!(
-        (row.kind, row.entity, row.count, row.day.yyyymmdd()),
-        (SignalKind::Impression, CounterEntity(77), 1_000, 20_261_102)
+        (
+            row.kind,
+            row.entity_kind,
+            row.entity,
+            row.count,
+            row.day.yyyymmdd()
+        ),
+        (
+            SignalKind::Impression,
+            EntityKind::Album,
+            [77; 16],
+            1_000,
+            20_261_102
+        )
     );
     assert!(sink.events.is_empty(), "impressions are never raw events");
+}
+
+#[test]
+fn counters_are_keyed_by_entity_kind_and_uuid_so_equal_uuids_of_two_kinds_stay_apart() {
+    let (bus, mut drain, _) = setup(|_| {});
+    for _ in 0..3 {
+        let _ = bus.counters().impression(entity(EntityKind::Track, 9));
+    }
+    for _ in 0..2 {
+        let _ = bus.counters().impression(entity(EntityKind::Playlist, 9));
+    }
+    let _ = bus
+        .counters()
+        .artwork_hover(entity(EntityKind::Track, 9), 900);
+    let sink = drain_all(&mut drain);
+    let got: Vec<_> = sink
+        .rows
+        .iter()
+        .map(|r| (r.kind, r.entity_kind, r.entity, r.count))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (SignalKind::ArtworkHover, EntityKind::Track, [9; 16], 1),
+            (SignalKind::Impression, EntityKind::Track, [9; 16], 3),
+            (SignalKind::Impression, EntityKind::Playlist, [9; 16], 2),
+        ]
+    );
 }
 
 #[test]
