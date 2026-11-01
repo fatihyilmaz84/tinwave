@@ -3,7 +3,7 @@ resolver = "2"
 # apps/* is added when apps/ exists: Cargo errors on a glob whose parent directory is missing.
 members = ["crates/*"]
 # Spike prototypes live outside the workspace and never join it.
-exclude = ["spikes/*"]
+exclude = ["spikes"]
 
 [workspace.package]
 version = "0.1.0"
