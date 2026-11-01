@@ -1,6 +1,6 @@
 [package]
 name = "tinwave-signals"
-description = "Tinwave signal schema: kinds, tiers, quantized payloads and the packed payload codec. No IO."
+description = "Tinwave signals: schema, packed payload codec, and the in-memory signal bus (priority drop policy, toggles, UI counters, gesture coalescing). No IO."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,12 +9,18 @@ publish.workspace = true
 
 [dependencies]
 tinwave-core = { workspace = true }
+crossbeam-channel = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
+criterion = { workspace = true }
 proptest = { workspace = true }
 serde_json = { workspace = true }
+
+[[bench]]
+name = "emit"
+harness = false
 
 [lints]
 workspace = true

@@ -54,4 +54,25 @@ pub enum SignalsError {
     /// The encoded payload would exceed the 12-byte budget.
     #[error("encoded payload exceeds {} bytes", crate::MAX_PAYLOAD_LEN)]
     PayloadTooLong,
+    /// A producer built an event whose payload is not the kind it announced to the bus.
+    #[error("event built for {expected} carries a {actual} payload")]
+    KindMismatch {
+        /// The kind passed to the bus (and checked against the category toggles).
+        expected: SignalKind,
+        /// The kind of the payload the constructor returned.
+        actual: SignalKind,
+    },
+    /// A bus configuration value is outside its valid range.
+    #[error("invalid bus configuration: {what}")]
+    InvalidConfig {
+        /// What is wrong.
+        what: &'static str,
+    },
+    /// The sink (the signals.db writer) failed to persist a batch. The batch is kept and
+    /// offered again on the next pump.
+    #[error("signal sink failed: {reason}")]
+    Sink {
+        /// The sink's own error message.
+        reason: String,
+    },
 }
