@@ -24,7 +24,9 @@ playlists — and open the Signal Center to watch every interaction being record
 - T1 context providers: clock, power, idle, output device, system volume (Windows first)
 - `Theme.qml` tokens + style selection (from T-0011), then the `Tw*` component catalog (design-system.md §5) as
   small design tickets before the screens that use them
-- Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views
+- Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views. The ticket that
+  creates `apps/tinwave-desktop` must add `"apps/*"` to workspace `members` (T-0001 left it out: Cargo rejects an
+  empty glob)
 - OS media integration: SMTC first (D-0001), then MPNowPlaying and MPRIS
 - UI counters (dwell/hover/impressions) through `SignalEmitter`
 - Signal Center screen with storage panel, export, wipe

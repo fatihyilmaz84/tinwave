@@ -9,7 +9,7 @@ size: S
 depends_on: []
 scope:
   - spikes/T-0008-win-volume/
-owner:
+owner: tw-spike (round 1)
 branch: t/T-0008-spike-windows-volume-device
 review_round: 0
 created_by: lead

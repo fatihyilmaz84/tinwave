@@ -9,7 +9,7 @@ size: M
 depends_on: []
 scope:
   - spikes/T-0003-audio-backend/
-owner:
+owner: tw-spike (round 1)
 branch: t/T-0003-spike-audio-backend
 review_round: 0
 created_by: lead

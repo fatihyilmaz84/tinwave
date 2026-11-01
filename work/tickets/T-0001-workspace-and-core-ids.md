@@ -3,21 +3,22 @@ id: T-0001
 title: Create Cargo workspace, quality gates, and core id types
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []
 scope:
   - Cargo.toml
+  - Cargo.lock            # added after review round 1
   - rust-toolchain.toml
   - deny.toml
   - rustfmt.toml
   - clippy.toml
   - .gitignore
   - crates/tinwave-core/
-owner:
+owner: tw-builder (round 2)
 branch: t/T-0001-workspace-and-core-ids
-review_round: 0
+review_round: 2
 created_by: lead
 ---
 
@@ -27,7 +28,7 @@ docs/rules/storage-budget.md (compact ids), docs/guides/desktop-dev-setup.md.
 
 ## Scope
 - Root virtual workspace `Cargo.toml` with `[workspace.dependencies]`, `members = ["crates/*", "apps/*"]`,
-  `exclude = ["spikes/*"]` so spike prototypes never join the workspace.
+  `exclude = ["spikes"]` so spike prototypes never join the workspace (a path prefix — Cargo does not expand globs in `exclude`).
 - `rust-toolchain.toml` pinning a current stable with rustfmt + clippy.
 - `deny.toml` allowing MIT/Apache-2.0/BSD/ISC/Zlib/Unicode licenses; deny GPL/AGPL by default; advisories on.
 - `.gitignore` for Rust, Qt build dirs, local data dirs.

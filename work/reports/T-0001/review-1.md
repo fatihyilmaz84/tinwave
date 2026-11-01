@@ -1,0 +1,34 @@
+REVIEW T-0001 (round 1)
+verdict: CHANGES_REQUESTED
+checks (run by reviewer, worktree D:\dev\Tinwave-worktrees\T-0001-workspace-and-core-ids @ dab50d6, rustc/cargo 1.92.0): fmt pass (exit 0), clippy pass (`--workspace --all-targets -- -D warnings`, exit 0), build pass, tests 21 passed / 0 failed (`cargo test --workspace`), deny pass ("advisories ok, bans ok, licenses ok, sources ok"; only `license-not-encountered` warnings for BSD-2/BSD-3/ISC/Zlib/Unicode-DFS-2016)
+
+acceptance criteria:
+- [x] `cargo build --workspace` and `cargo test --workspace` pass — verified by: my own runs, both exit 0, 21/0.
+- [x] fmt and clippy `-D warnings` pass — verified by: my own runs, exit 0.
+- [x] `cargo deny check` passes with the license policy — verified by: my run, exit 0. deny.toml:13-26 allows MIT, Apache-2.0 (+LLVM-exception), BSD-2/3, ISC, Zlib, Unicode-3.0, Unicode-DFS-2016. In licenses v2 anything not on the allow list is denied, so GPL/AGPL/LGPL are denied. `[advisories] version = 2` means vulnerabilities and unmaintained crates are denied by default, and yanked is set to deny.
+- [x] Ids are time-ordered UUIDv7 and SignalEventId orders by (device, seq) — verified by: id.rs tests `generated_ids_are_uuid_v7`, `ids_generated_over_time_sort_in_creation_order`, `ids_in_a_tight_loop_are_unique_and_monotonic`, `new_at_embeds_and_orders_by_the_given_time`, `signal_event_id_orders_by_device_then_seq` (the derived Ord at id.rs:162 uses field order device, then seq).
+- [x] Ids implement Copy/Eq/Ord/Hash/Debug/Display and serde round-trips — verified by: `all_ids_implement_required_traits` (compile-time bound check), `uuid_ids_serde_round_trip_as_plain_strings` (all 4 uuid ids), `signal_event_id_serde_round_trip_and_display`, `display_and_parse_round_trip`.
+- [x] No unwrap/expect outside tests — verified by: grep. The only non-test hit is id.rs:91 `unwrap_or`, which is not a panic. All other hits are inside the `#[cfg(test)]` modules (id.rs:184, tier.rs:64, time.rs:89). The workspace lints `unwrap_used`/`expect_used` plus clippy `-D warnings` enforce this.
+- [ ] Ticket scope item "`exclude = ["spikes/*"]` so spike prototypes never join the workspace" — problem: the exclusion does not work (see blocking finding).
+
+blocking findings:
+- D:\dev\Tinwave-worktrees\T-0001-workspace-and-core-ids\Cargo.toml:6 — `exclude = ["spikes/*"]` does nothing. Cargo's `workspace.exclude` compares path prefixes and does not expand globs, so `spikes/*` is read as a literal directory name. — Reproduced on a scratch copy of the branch with a plain package at `spikes/probe` (no `[workspace]` table). `cargo build` inside it fails with exit 101: "current package believes it's in a workspace when it's not … add the package to the `workspace.exclude` array, or add an empty `[workspace]` table". Also, `cargo new spikes/probe` added `"spikes/probe"` to `members` and gave it workspace-inherited fields. The handoff says the exclusion was "verified with a throwaway package"; that probe almost certainly had its own `[workspace]` table, which hides the bug. — Fix: `exclude = ["spikes"]`. I verified on the same scratch copy that the probe then builds standalone (exit 0) and `cargo build --workspace` still works. Keep the comment.
+
+design check: n/a
+
+non-blocking findings (deviations judged):
+- Cargo.toml:4 `members = ["crates/*"]` only: acceptable. I confirmed that adding `"apps/*"` while apps/ is missing makes Cargo fail with "failed to load manifest for workspace member …\apps/*". The comment says when to add it. Whoever creates apps/ must add it.
+- Cargo.lock committed although it is not in scope: acceptable and correct for a workspace that will ship binaries, and it makes `cargo deny` reproducible. Lead should add Cargo.lock to the scope after the fact (and to future tickets that add deps).
+- The extra `[workspace.package]`, `[workspace.lints]`, CoreError, helpers (new_at, created_at, from_bytes/as_bytes), Tier::{ALL, number, is_opt_in} and TzOffsetMin::{MIN, MAX, UTC}: acceptable. rust.md:12 requires one thiserror enum per crate, so CoreError is required, not extra. as_bytes/from_bytes serve the dictionary `uuid BLOB` in database.md:30-32. The new deps stay within the ticket's list (uuid/serde/thiserror; serde_json is dev-only).
+- Rejecting non-v7 UUIDs on parse/deserialize/from_bytes: acceptable. database.md:8 says UUIDv7 is for Tinwave-created entities and external provider ids are stored separately. The tests cover parse, serde and bytes rejection.
+- TzOffsetMin range -720..=840 (time.rs:42-44): acceptable. It covers every current real-world offset, and serde goes through `try_from`, so invalid stored values are rejected (tested). Minor: `MIN`/`MAX` are `i16`, not `Self`, which is a little inconsistent with `UTC: Self`.
+- id.rs:29-31 `new()` reads the system clock (`Uuid::now_v7`) and id.rs:95-99 `Default` calls it. testing.md:26 forbids `SystemTime::now()` in domain code. I judge this **not blocking for T-0001**: no Clock abstraction exists yet, no domain logic in the crate calls `new()`, and `new_at(UtcMillis)` is the injection seam. The follow-up Clock ticket should (a) make domain callers use `new_at(clock.now())`, (b) consider removing `Default` on ids, because a `#[derive(Default)]` on any struct holding an id would quietly read the clock and RNG, and (c) cover randomness too. `new_at` still draws its 74 random bits from getrandom, so ids are not reproducible under an injected `Rng`, and replay/golden tests (testing.md:11-13) cannot pin ids.
+- deny.toml: the `license-not-encountered` warnings are harmless noise. `unused-allowed-license = "allow"` would silence them.
+- id.rs:213-224 `ids_generated_over_time_sort_in_creation_order` sleeps on the real clock. It is deterministic in practice because uuid's v7 context is monotonic within a process, but it adds wall-clock dependence to the suite. Acceptable for now.
+- rust-toolchain.toml pins 1.92.0, which matches the only stable installed on this machine. Edition 2021 meets rust.md ("2021+").
+
+proposals:
+- P: Injectable Clock + Rng for id generation (`new_at_with(at, &mut impl Rng)` or `from_parts(at, [u8; 10])`), drop `Default` on ids | why: testing.md:26 determinism; replay tests need stable ids | size: S
+- P: Correct the ticket template / T-0001 text that says `exclude = ["spikes/*"]` | why: the bug came from the ticket wording; other tickets will copy it | size: S
+
+notes for lead: Merging this as-is is risky for the two spikes running now. If their prototypes live under `spikes/` without an empty `[workspace]` table, they stop building once this Cargo.toml lands on main, and `cargo new` there would silently add them to `members`. Round 2 only needs the one-line exclude fix plus re-running the checks. Everything else is approvable. Worktree left untouched (clean status, HEAD dab50d6). The scratch copy I used for the exclude tests has been deleted.

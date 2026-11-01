@@ -6,7 +6,7 @@ epic: E-00
 status: backlog
 priority: P0
 size: M
-depends_on: [T-0004]
+depends_on: [T-0004, T-0013]
 scope:
   - crates/tinwave-signals/
 owner:
@@ -25,7 +25,7 @@ docs/rules/privacy-and-signals.md (toggles at the source), docs/rules/testing.md
 - `SignalSettings` category/tier toggles checked **before** an event is constructed (`bus.enabled(kind)`).
 - `UiCounters`: in-memory aggregation for Counter-class signals keyed by `(day, kind, entity)`, drained by the writer.
 - `GestureCoalescer` for volume/rate/system-volume (600 ms) and seek merging (2 s).
-- Injected `Clock`.
+- Injected `Clock` from `tinwave-core` (T-0013).
 
 ## Acceptance criteria
 - [ ] Producer emit < 50 µs p99 — criterion bench.
