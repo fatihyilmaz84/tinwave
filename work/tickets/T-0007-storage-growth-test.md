@@ -26,6 +26,8 @@ docs/rules/testing.md "Storage growth test", docs/rules/storage-budget.md, signa
 - Run v1 without compaction (compaction is an E-01 ticket) for 90 simulated days and extrapolate; structure
   the harness so the 5-year run with compaction plugs in later.
 - Report per-table sizes and bytes/day per signal group vs the catalog table.
+- Generate events as real `tinwave-signals` `SignalPayload`s and encode them with the T-0004 codec, so sizes are
+  measured, not estimated (P-0013).
 
 ## Acceptance criteria
 - [ ] Deterministic with a fixed seed — same sizes across runs.
