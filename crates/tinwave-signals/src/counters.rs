@@ -3,7 +3,7 @@
 //! `docs/rules/storage-budget.md` section 1: a signal expected to fire more than ~50 times per
 //! hour is a counter, not an event. The UI calls [`UiCounters`] on every impression; the
 //! writer drains the aggregated rows every few seconds and **adds** them to the `ui_counter`
-//! table (`docs/rules/database.md`), keyed `(day, kind, entity)`.
+//! table (`docs/rules/database.md`), keyed `(day, kind, entity_kind, entity)`.
 //!
 //! # Assumptions
 //!
@@ -11,9 +11,11 @@
 //!   timezone offset the bus was given ([`UiCounters::set_tz_offset`]). The bus has no session
 //!   of its own, so whoever starts a session (and therefore knows its offset) calls the setter;
 //!   until then the offset is the one in the bus configuration.
-//! - `entity` is the `signals.db` dictionary id of the recording, album or artist, resolved by
-//!   the caller. UUIDs are mapped to those small integers by the dictionary (see
-//!   `docs/rules/storage-budget.md` section 3), never by this crate.
+//! - The entity is a [`CounterEntity`]: an [`EntityKind`] and the entity's 16-byte UUID, which is
+//!   all a UI producer has. This crate never sees a dictionary id: the writer (T-0006) maps
+//!   `(entity_kind, uuid)` to the small integer `ui_counter.entity` when it flushes (`dict_recording`
+//!   for [`EntityKind::Track`], `dict_entity` for the rest; `docs/rules/database.md`,
+//!   `docs/rules/storage-budget.md` section 3), inside the same transaction as the rows.
 //! - A counter row is *added* to the stored row on flush, not replaced: the writer flushes many
 //!   times a day, so [`CounterRow::count`] and [`CounterRow::total_ms`] are deltas since the
 //!   previous drain and `max_scrolled` is a running maximum.
@@ -22,9 +24,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicI16, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tinwave_core::{Clock, TzOffsetMin, UtcMillis};
+use tinwave_core::{Clock, RecordingId, TzOffsetMin, UtcMillis};
 
-use crate::{Fraction, SignalKind, SignalSettings};
+use crate::{EntityKind, Fraction, SignalKind, SignalSettings};
 
 /// A local calendar day as `yyyymmdd` (the `ui_counter.day` column), e.g. `20261102`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -61,19 +63,48 @@ impl LocalDay {
     }
 }
 
-/// The dictionary id of the entity (recording, album, artist) a counter row is about.
+/// What a counter row is about: the kind of entity and its UUID.
+///
+/// This is what the UI knows. Dictionary ids are the writer's business: `kind` selects the
+/// dictionary (`EntityKind::Track` is a recording UUID, resolved through `dict_recording`; every
+/// other kind through `dict_entity`), so two entities of different kinds never collide.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CounterEntity(pub u32);
+pub struct CounterEntity {
+    /// Track, album, artist or playlist.
+    pub kind: EntityKind,
+    /// The entity's UUID (16 raw bytes, as stored in the dictionaries).
+    pub uuid: [u8; 16],
+}
+
+impl CounterEntity {
+    /// An entity of `kind` with the given UUID bytes.
+    #[must_use]
+    pub const fn new(kind: EntityKind, uuid: [u8; 16]) -> Self {
+        Self { kind, uuid }
+    }
+
+    /// A track: the UUID is the recording's.
+    #[must_use]
+    pub const fn track(recording: RecordingId) -> Self {
+        Self::new(EntityKind::Track, *recording.as_bytes())
+    }
+}
 
 /// One aggregated `ui_counter` row, as handed to the sink.
+///
+/// The sink resolves `(entity_kind, entity)` to a dictionary id and adds the deltas to the row
+/// `(day, kind, dictionary entity_kind, dictionary id)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CounterRow {
     /// Local day the interactions happened on.
     pub day: LocalDay,
     /// `Impression`, `ArtworkHover` or `PageDwell`.
     pub kind: SignalKind,
-    /// The entity the interactions were about.
-    pub entity: CounterEntity,
+    /// Kind of the entity the interactions were about; selects the dictionary
+    /// (`dict_recording` for `Track`, `dict_entity` otherwise).
+    pub entity_kind: EntityKind,
+    /// UUID of that entity (16 raw bytes).
+    pub entity: [u8; 16],
     /// Interactions since the previous drain; the sink adds this to the stored count.
     pub count: u64,
     /// Total milliseconds (hover or dwell time) since the previous drain; 0 for impressions.
@@ -90,7 +121,7 @@ pub enum CountOutcome {
     Counted,
     /// The category or tier is off; nothing was recorded.
     Disabled,
-    /// The key table is full and this `(day, kind, entity)` is new; the interaction was lost
+    /// The key table is full and this `(day, kind, entity_kind, entity)` is new; the interaction was lost
     /// and counted in [`UiCounters::keys_dropped`]. Existing keys keep counting.
     KeysFull,
 }
@@ -102,6 +133,8 @@ struct CounterKey {
     entity: CounterEntity,
 }
 
+type CounterMap = HashMap<CounterKey, Totals>;
+
 #[derive(Debug, Default, Clone, Copy)]
 struct Totals {
     count: u64,
@@ -110,13 +143,16 @@ struct Totals {
 }
 
 /// Aggregates `Impression`, `ArtworkHover` and `PageDwell` interactions per
-/// `(day, kind, entity)`. Cheap and thread-safe: one short mutex hold per interaction.
+/// `(day, kind, entity_kind, entity)`. Cheap and thread-safe: one short mutex hold per interaction.
 pub struct UiCounters {
     clock: Arc<dyn Clock>,
     settings: Arc<SignalSettings>,
     tz_offset_min: AtomicI16,
     max_keys: usize,
-    rows: Mutex<HashMap<CounterKey, Totals>>,
+    rows: Mutex<CounterMap>,
+    /// An empty map swapped in by [`drain_into`](Self::drain_into) so that the hot mutex is held
+    /// for a pointer swap only. Touched by the drain alone.
+    spare: Mutex<CounterMap>,
     keys_dropped: AtomicU64,
 }
 
@@ -131,7 +167,8 @@ impl std::fmt::Debug for UiCounters {
 
 impl UiCounters {
     /// Counters on `clock`, honouring `settings`, holding at most `max_keys` distinct rows
-    /// between drains (each row is about 48 bytes, so 16 384 keys is under 1 MB).
+    /// between drains (each row is about 64 bytes and the drain keeps a spare table of the same
+    /// size, so 16 384 keys is about 2 MB at most).
     #[must_use]
     pub fn new(
         clock: Arc<dyn Clock>,
@@ -145,6 +182,7 @@ impl UiCounters {
             tz_offset_min: AtomicI16::new(tz_offset.minutes()),
             max_keys,
             rows: Mutex::new(HashMap::new()),
+            spare: Mutex::new(HashMap::new()),
             keys_dropped: AtomicU64::new(0),
         }
     }
@@ -211,22 +249,30 @@ impl UiCounters {
         LocalDay::from_utc(self.clock.now(), tz)
     }
 
-    /// Moves every aggregated row into `out`, ordered by `(day, kind, entity)`, and resets the
-    /// counters. Returns the number of rows appended. The table keeps its allocation.
+    /// Moves every aggregated row into `out`, ordered by `(day, kind, entity_kind, entity)`, and
+    /// resets the counters. Returns the number of rows appended.
+    ///
+    /// The mutex the UI threads count under is held for one pointer swap, not for building up to
+    /// `max_keys` rows: the full table is swapped for an empty spare and emptied afterwards, outside
+    /// the lock. Both tables keep their allocation.
     pub fn drain_into(&self, out: &mut Vec<CounterRow>) -> usize {
         let start = out.len();
+        // Held for the whole drain so two drains cannot fight over the spare; producers never take it.
+        let mut spare = self.spare.lock().unwrap_or_else(PoisonError::into_inner);
         {
             let mut rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
-            out.extend(rows.drain().map(|(key, totals)| CounterRow {
-                day: key.day,
-                kind: key.kind,
-                entity: key.entity,
-                count: totals.count,
-                total_ms: totals.total_ms,
-                max_scrolled: Fraction::from_raw(totals.max_scrolled),
-            }));
+            std::mem::swap(&mut *rows, &mut *spare);
         }
-        out[start..].sort_unstable_by_key(|r| (r.day, r.kind, r.entity));
+        out.extend(spare.drain().map(|(key, totals)| CounterRow {
+            day: key.day,
+            kind: key.kind,
+            entity_kind: key.entity.kind,
+            entity: key.entity.uuid,
+            count: totals.count,
+            total_ms: totals.total_ms,
+            max_scrolled: Fraction::from_raw(totals.max_scrolled),
+        }));
+        out[start..].sort_unstable_by_key(|r| (r.day, r.kind, r.entity_kind.code(), r.entity));
         out.len() - start
     }
 
@@ -270,6 +316,15 @@ mod tests {
             1_000,
         );
         (c, settings)
+    }
+
+    /// An entity of the given kind whose UUID is `n` repeated.
+    fn of(kind: EntityKind, n: u8) -> CounterEntity {
+        CounterEntity::new(kind, [n; 16])
+    }
+
+    fn ent(n: u8) -> CounterEntity {
+        of(EntityKind::Track, n)
     }
 
     fn drain(c: &UiCounters) -> Vec<CounterRow> {
@@ -321,7 +376,7 @@ mod tests {
         let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
         let (c, _) = counters(&clock);
         for _ in 0..1_000 {
-            assert_eq!(c.impression(CounterEntity(7)), CountOutcome::Counted);
+            assert_eq!(c.impression(ent(7)), CountOutcome::Counted);
         }
         assert_eq!(c.len(), 1);
         let rows = drain(&c);
@@ -330,7 +385,8 @@ mod tests {
             [CounterRow {
                 day: LocalDay(20_261_102),
                 kind: SignalKind::Impression,
-                entity: CounterEntity(7),
+                entity_kind: EntityKind::Track,
+                entity: [7; 16],
                 count: 1_000,
                 total_ms: 0,
                 max_scrolled: Fraction::MIN,
@@ -344,7 +400,7 @@ mod tests {
     fn hover_and_dwell_accumulate_time_and_keep_the_deepest_scroll() {
         let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
         let (c, _) = counters(&clock);
-        let e = CounterEntity(1);
+        let e = ent(1);
         let _ = c.artwork_hover(e, 900);
         let _ = c.artwork_hover(e, 1_100);
         let _ = c.page_dwell(e, 5_000, Fraction::from_raw(100));
@@ -365,15 +421,15 @@ mod tests {
     fn rows_are_keyed_by_entity_kind_and_day() {
         let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
         let (c, _) = counters(&clock);
-        let _ = c.impression(CounterEntity(2));
-        let _ = c.impression(CounterEntity(1));
-        let _ = c.artwork_hover(CounterEntity(1), 900);
+        let _ = c.impression(ent(2));
+        let _ = c.impression(ent(1));
+        let _ = c.artwork_hover(ent(1), 900);
         clock.advance(86_400_000);
-        let _ = c.impression(CounterEntity(1));
+        let _ = c.impression(ent(1));
         let rows = drain(&c);
         let keys: Vec<_> = rows
             .iter()
-            .map(|r| (r.day.yyyymmdd(), r.kind, r.entity.0))
+            .map(|r| (r.day.yyyymmdd(), r.kind, r.entity[0]))
             .collect();
         assert_eq!(
             keys,
@@ -387,11 +443,99 @@ mod tests {
     }
 
     #[test]
+    fn the_same_uuid_under_another_entity_kind_is_another_row() {
+        let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
+        let (c, _) = counters(&clock);
+        let _ = c.impression(of(EntityKind::Playlist, 5));
+        let _ = c.impression(of(EntityKind::Track, 5));
+        let _ = c.impression(of(EntityKind::Album, 5));
+        let _ = c.impression(of(EntityKind::Album, 5));
+        let _ = c.impression(of(EntityKind::Artist, 5));
+        let rows = drain(&c);
+        let got: Vec<_> = rows
+            .iter()
+            .map(|r| (r.entity_kind, r.entity, r.count))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                (EntityKind::Track, [5; 16], 1),
+                (EntityKind::Album, [5; 16], 2),
+                (EntityKind::Artist, [5; 16], 1),
+                (EntityKind::Playlist, [5; 16], 1),
+            ],
+            "one row per (entity_kind, uuid), ordered by entity kind code"
+        );
+    }
+
+    #[test]
+    fn a_track_counter_carries_the_recording_uuid_bytes() {
+        let id = RecordingId::from_parts(UtcMillis::new(NOV_2_2026), [4; 10]).unwrap();
+        let entity = CounterEntity::track(id);
+        assert_eq!(entity.kind, EntityKind::Track);
+        assert_eq!(&entity.uuid, id.as_bytes());
+        let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
+        let (c, _) = counters(&clock);
+        let _ = c.impression(entity);
+        let rows = drain(&c);
+        assert_eq!(
+            (rows[0].entity_kind, &rows[0].entity),
+            (EntityKind::Track, id.as_bytes())
+        );
+    }
+
+    #[test]
+    fn counting_continues_across_drains_and_reuses_the_swapped_tables() {
+        let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
+        let (c, _) = counters(&clock);
+        for round in 1..=3_u64 {
+            for n in 0..50_u8 {
+                for _ in 0..round {
+                    let _ = c.impression(ent(n));
+                }
+            }
+            assert_eq!(c.len(), 50);
+            let rows = drain(&c);
+            assert_eq!(rows.len(), 50);
+            assert!(rows.iter().all(|r| r.count == round), "deltas, not totals");
+            assert!(c.is_empty());
+            assert!(drain(&c).is_empty());
+        }
+    }
+
+    #[test]
+    fn no_interaction_is_lost_or_doubled_when_draining_while_counting() {
+        let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
+        let (c, _) = counters(&clock);
+        let c = Arc::new(c);
+        let per_thread = 5_000_u64;
+        let handles: Vec<_> = (0..3)
+            .map(|_| {
+                let c = c.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..per_thread {
+                        let _ = c.impression(ent(1));
+                    }
+                })
+            })
+            .collect();
+        let mut seen = 0;
+        while !handles.iter().all(std::thread::JoinHandle::is_finished) {
+            seen += drain(&c).iter().map(|r| r.count).sum::<u64>();
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        seen += drain(&c).iter().map(|r| r.count).sum::<u64>();
+        assert_eq!(seen, 3 * per_thread);
+    }
+
+    #[test]
     fn the_day_rolls_over_at_local_midnight() {
         let clock = ManualClock::new(UtcMillis::new(NOV_2_2026 + 23 * 3_600_000)); // 23:00 UTC
         let (c, _) = counters(&clock);
         c.set_tz_offset(TzOffsetMin::new(120).unwrap()); // local 01:00 on the 3rd
-        let _ = c.impression(CounterEntity(1));
+        let _ = c.impression(ent(1));
         assert_eq!(drain(&c)[0].day.yyyymmdd(), 20_261_103);
     }
 
@@ -400,19 +544,16 @@ mod tests {
         let clock = ManualClock::new(UtcMillis::new(NOV_2_2026));
         let (c, settings) = counters(&clock);
         settings.set_category(SignalCategory::Browsing, false);
-        assert_eq!(c.impression(CounterEntity(1)), CountOutcome::Disabled);
+        assert_eq!(c.impression(ent(1)), CountOutcome::Disabled);
+        assert_eq!(c.artwork_hover(ent(1), 900), CountOutcome::Disabled);
         assert_eq!(
-            c.artwork_hover(CounterEntity(1), 900),
-            CountOutcome::Disabled
-        );
-        assert_eq!(
-            c.page_dwell(CounterEntity(1), 900, Fraction::MAX),
+            c.page_dwell(ent(1), 900, Fraction::MAX),
             CountOutcome::Disabled
         );
         assert!(c.is_empty());
         settings.set_category(SignalCategory::Browsing, true);
         settings.set_tier(Tier::T0, false);
-        assert_eq!(c.impression(CounterEntity(1)), CountOutcome::Disabled);
+        assert_eq!(c.impression(ent(1)), CountOutcome::Disabled);
         assert!(c.is_empty());
     }
 
@@ -425,15 +566,15 @@ mod tests {
             TzOffsetMin::UTC,
             2,
         );
-        assert_eq!(c.impression(CounterEntity(1)), CountOutcome::Counted);
-        assert_eq!(c.impression(CounterEntity(2)), CountOutcome::Counted);
-        assert_eq!(c.impression(CounterEntity(3)), CountOutcome::KeysFull);
-        assert_eq!(c.impression(CounterEntity(1)), CountOutcome::Counted);
+        assert_eq!(c.impression(ent(1)), CountOutcome::Counted);
+        assert_eq!(c.impression(ent(2)), CountOutcome::Counted);
+        assert_eq!(c.impression(ent(3)), CountOutcome::KeysFull);
+        assert_eq!(c.impression(ent(1)), CountOutcome::Counted);
         assert_eq!(c.keys_dropped(), 1);
         let rows = drain(&c);
         assert_eq!(rows.iter().map(|r| r.count).sum::<u64>(), 3);
         // Draining frees the table.
-        assert_eq!(c.impression(CounterEntity(3)), CountOutcome::Counted);
+        assert_eq!(c.impression(ent(3)), CountOutcome::Counted);
     }
 
     #[test]
@@ -446,7 +587,7 @@ mod tests {
                 let c = c.clone();
                 std::thread::spawn(move || {
                     for _ in 0..500 {
-                        let _ = c.impression(CounterEntity(9));
+                        let _ = c.impression(ent(9));
                     }
                 })
             })
