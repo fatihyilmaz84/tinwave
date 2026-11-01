@@ -3,7 +3,7 @@ id: T-0022
 title: Signal bus hardening after review — sink contract, retry backoff, seek threshold, UUID-keyed counters
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P0
 size: S
 depends_on: []
@@ -17,7 +17,7 @@ scope:
   - crates/tinwave-signals/benches/emit.rs
 owner: tw-builder (round 1)
 branch: t/T-0022-signal-bus-hardening
-review_round: 0
+review_round: 1
 created_by: from T-0005 review-1 non-blocking findings, P-0034, P-0035
 ---
 

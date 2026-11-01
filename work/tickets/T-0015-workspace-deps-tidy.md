@@ -17,6 +17,8 @@ scope:
   - crates/tinwave-signals/Cargo.toml
   - crates/tinwave-signals/src/enums.rs
   - crates/tinwave-signals/src/frozen.rs
+  - crates/tinwave-signals/src/coalesce.rs   # constant rename only
+  - crates/tinwave-signals/src/lib.rs        # re-export rename only
 owner:
 branch:
 review_round: 0
@@ -36,6 +38,7 @@ is dead weight. `getrandom` is a direct dependency of tinwave-core only. docs/ru
   opus, sqlite, db-wal, db-shm.
 - `InputSource::NAMES` and its frozen list come from an exhaustive match (no wildcard), so a new variant fails to
   compile until it is named and frozen (P-0028).
+- Rename `SEEK_MIN_NET_DS` to `SEEK_MIN_TOTAL_DS` (it thresholds the summed jumps since T-0022; P-0038).
 - Fix the doc label in id.rs: the algorithm is RFC 9562 §6.2 **Method 2** (monotonic random), not Method 1.
 
 ## Acceptance criteria

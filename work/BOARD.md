@@ -18,7 +18,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0022](tickets/T-0022-signal-bus-hardening.md) Signal bus hardening (T-0005 review) | tw-builder r1 | `t/T-0022-signal-bus-hardening` · `D:\dev\Tinwave-worktrees\T-0022-signal-bus-hardening` |
+| [T-0022](tickets/T-0022-signal-bus-hardening.md) Signal bus hardening (T-0005 review) | tw-reviewer r1 — 9b8750d ([build-1](reports/T-0022/build-1.md)) | `t/T-0022-signal-bus-hardening` · `D:\dev\Tinwave-worktrees\T-0022-signal-bus-hardening` |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-reviewer r1 — 2f0f9e9 ([build-1](reports/T-0016/build-1.md)) | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | tw-spike r1 | `t/T-0009-spike-time-stretch` · `D:\dev\Tinwave-worktrees\T-0009-spike-time-stretch` |
 
@@ -79,5 +79,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | e6d2cb6 | build-1/2, review-1 (changes), review-2 (approve) |
 | [T-0005](tickets/T-0005-signal-bus.md) Signal bus | ee20850 | build-1, review-1 (approve) |
 
-Proposals P-0001..P-0037 all have outcomes (see work/proposals/). Parked: P-0003 (CI, needs a remote), P-0016
+Proposals P-0001..P-0040 all have outcomes (see work/proposals/). Parked: P-0003 (CI, needs a remote), P-0016
 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0033/P-0037 (bench CI gate).

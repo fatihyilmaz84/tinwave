@@ -37,6 +37,8 @@ docs/rules/database.md (schema, write path, pragmas), docs/rules/storage-budget.
 - Counter rows arrive keyed by (EntityKind, UUID) after T-0022: resolve via `dict_recording` (Track) or
   `dict_entity` (others) with the bounded LRU; migration 0001 includes `dict_entity` and
   `ui_counter.entity_kind` in the primary key (database.md).
+- Writer loop passes its flush interval as the `SignalDrain::wait` timeout; `wait` sleeps the full timeout while a
+  failed batch is retained, so that interval is also the retry interval (P-0040).
 - Coalescers are `&mut self`: in-app volume (UI thread) and system volume (provider thread) each own one with
   their own bus clone.
 

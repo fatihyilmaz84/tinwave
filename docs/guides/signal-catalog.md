@@ -52,8 +52,8 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 |---|---|---|---|---|
 | `Skipped` | T0 | Next / track change before end | `pos_ds`, `fraction`, `input`, `section`, `queue_origin` (`Manual|Radio|Album|Playlist|Shuffle`) | < 5 s: −1.0 · 5–30 s: −0.6 · 30 s–50 %: −0.2 · > 80 %: +0.2. Skips of radio picks also train radio. |
 | `Completed` | T0 | Reached end (or within last 3 %) | `listened_ms`, `paused_ms` | +1.0 |
-| `SeekForward` | T0 | Seek > 2 s forward | `from_ms`, `to_ms`, `section_from`, `section_to`, `input` | Over intro ⇒ intro-intolerance for this track/artist. Mid-track ⇒ skipping a section (that section −). |
-| `SeekBack` | T0 | Seek > 2 s backward | same | Replay of a segment ⇒ +0.6 and adds to the **replay heatmap** (64 bins per track). |
+| `SeekForward` | T0 | Seek gesture whose jumps add up to > 2 s forward (playback between merged seeks does not count) | `from_ms`, `to_ms`, `section_from`, `section_to`, `input` | Over intro ⇒ intro-intolerance for this track/artist. Mid-track ⇒ skipping a section (that section −). |
+| `SeekBack` | T0 | Seek gesture whose jumps add up to > 2 s backward | same | Replay of a segment ⇒ +0.6 and adds to the **replay heatmap** (64 bins per track). |
 | `Replayed` | T0 | Previous / restart within 30 s of finishing, or repeat-one loop | `loop_count` | +0.8 per loop, diminishing. |
 | `RepeatModeChanged` | T0 | Repeat off/all/one | `mode` (`Off|All|One`) | Repeat-one on a track ⇒ obsession phase marker. |
 | `Paused` / `Resumed` | T0 | Pause/resume | `pause_ms` (on resume), `input` | Long pause then resume same track ⇒ neutral. Pause then quit ⇒ session end. |
