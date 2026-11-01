@@ -1,0 +1,4 @@
+# unwrap/expect are denied in library code; tests may use them.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+msrv = "1.92"
