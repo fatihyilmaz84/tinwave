@@ -3,14 +3,14 @@ id: T-0013
 title: Add an injectable Clock and Rng seam to tinwave-core and use them for id generation
 type: chore
 epic: E-00
-status: ready
+status: in_progress
 priority: P0
 size: S
 depends_on: [T-0001]
 scope:
   - crates/tinwave-core/
-owner:
-branch:
+owner: tw-builder (round 1)
+branch: t/T-0013-injectable-clock
 review_round: 0
 created_by: from P-0002, P-0004
 ---

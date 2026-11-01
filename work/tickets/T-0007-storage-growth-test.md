@@ -32,6 +32,8 @@ docs/rules/testing.md "Storage growth test", docs/rules/storage-budget.md, signa
 - [ ] 90-day hot window ≤ 6 MB — assertion.
 - [ ] Per-group bytes/day within +50 % of the catalog estimates — assertion with a readable report.
 - [ ] Runs in < 60 s in release mode.
+- [ ] Volume-gesture bursts are in the simulation: a 60-step system-volume burst within 200 ms stores exactly one
+      `SystemVolumeChanged` (P-0010, ADR 0004) — assertion.
 
 ## Signals & storage
 Validates ADR 0002 early. If estimates are wrong, propose catalog/budget updates rather than loosening asserts.
