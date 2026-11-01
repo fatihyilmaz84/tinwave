@@ -22,8 +22,6 @@ Dispatched 2026-11-01. Worktrees are made by the lead with `git worktree add` un
 (the Agent tool's built-in worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
 _none_
 
 ## Ready (dispatch order)
