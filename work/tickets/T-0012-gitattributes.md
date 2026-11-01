@@ -3,7 +3,7 @@ id: T-0012
 title: Add .gitattributes that pins LF line endings and marks binaries
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0001]
@@ -39,3 +39,6 @@ None.
 ## Notes for the builder
 Spike branches are in flight; this file only affects checkout, not stored blobs (already LF), so it must not
 cause merge conflicts. Confirm that with `git ls-files --eol` before and after.
+
+## Merged
+2026-11-01, merge commit d43431e (branch head 9d1a3f8). Review: reports/T-0012/review-1.md (APPROVE). Gates green on main.

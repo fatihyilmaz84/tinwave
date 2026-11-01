@@ -27,7 +27,6 @@ in reports/T-0004/build-1.md.
 ## In review
 | Ticket | Reviewer | Build report |
 |---|---|---|
-| [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | tw-reviewer r1 | [build-1](reports/T-0012/build-1.md) · 9d1a3f8 |
 | [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-reviewer r1 | [build-1](reports/T-0004/build-1.md) (incl. lead answers, rebased) · dfa71af |
 
 ## Ready (dispatch order)
@@ -46,7 +45,7 @@ Max 3 agents in flight, reviewers included. The Qt spikes go first once the Qt M
 | [T-0007](tickets/T-0007-storage-growth-test.md) Growth test v1 | T-0006 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers (E-01) | T-0005 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | T-0003 |
-| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: drop uuid v7, centralize getrandom, CryptoRng guard (P-0014/15/17) | T-0004 |
+| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: drop uuid v7, centralize getrandom, CryptoRng guard, .bat/.cmd CRLF (P-0014/15/17/19) | T-0004 |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
 ## Design gaps to close before E-01 screen tickets
@@ -66,7 +65,8 @@ Accepted 2026-11-01: [ADR 0004](../docs/adr/0004-windows-volume-device-provider.
 | [T-0001](tickets/T-0001-workspace-and-core-ids.md) Workspace, gates, core ids | 1452c72 | build-1/2, review-1 (changes), review-2 (approve) |
 | [T-0008](tickets/T-0008-spike-windows-volume-device.md) Spike: Windows volume/device | 1479562 | spike-1 → ADR 0004 |
 | [T-0013](tickets/T-0013-injectable-clock.md) Injectable Clock + Rng seam | 0f41479 | build-1, review-1 (approve) |
+| [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | d43431e | build-1, review-1 (approve) |
 
 Proposals: P-0001 → T-0012 · P-0002, P-0004 → T-0013 · P-0003 parked (CI, needs a remote) · P-0005, P-0008 done by
 lead · P-0006 → PO runbook · P-0007 → T-0014 · P-0009 → E-01 playback constraint · P-0010 → T-0007 · P-0011 → lead after T-0004
-merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked · P-0017, P-0018 → T-0015.
+merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked · P-0017, P-0018, P-0019 → T-0015.
