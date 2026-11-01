@@ -100,6 +100,7 @@ CREATE TABLE ui_counter (
   entity   INTEGER NOT NULL,                -- dictionary id (recording/album/artist)
   count    INTEGER NOT NULL,
   total_ms INTEGER NOT NULL DEFAULT 0,
+  max_scrolled INTEGER NOT NULL DEFAULT 0,  -- PageDwell only: running max scrolled fraction, quantized 0-255
   PRIMARY KEY (day, kind, entity)
 ) WITHOUT ROWID;
 ```

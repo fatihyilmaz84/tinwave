@@ -27,6 +27,10 @@ docs/rules/database.md (schema, write path, pragmas), docs/rules/storage-budget.
 - `SignalStore` implementation of the trait from `tinwave-signals`; `SignalWriter` thread draining the bus:
   flush every 2 s or 256 events, immediate flush on play-end; dictionary LRU cache; UI counter upserts.
 - Graceful shutdown flush.
+- Implements T-0005's `SignalSink` (`write(events, counters)`, one transaction per batch; counter rows are deltas:
+  ADD `count`/`total_ms`, keep the larger `max_scrolled`). On startup pass `BusConfig::first_seq = max(seq)+1` for
+  the device; the session starter calls `bus.set_tz_offset`. `ui_counter.max_scrolled` per database.md (P-0030).
+- Typed sink errors (P-0032): keep the database error's source chain instead of a bare string.
 
 ## Acceptance criteria
 - [ ] Migrations apply on an empty DB and are idempotent — integration test.
