@@ -319,6 +319,12 @@ mod tests {
         ("ExplanationOpened", 116),
     ];
 
+    /// Discriminants of kinds that were removed: `(name, discriminant)`.
+    ///
+    /// A discriminant is never reused. When a kind is deleted, move its row from `FROZEN` into
+    /// this list; the tests then fail if any live kind is given that number. Empty for now.
+    const RETIRED: &[(&str, u8)] = &[];
+
     #[test]
     fn discriminants_are_frozen() {
         let actual: Vec<(&str, u8)> = SignalKind::ALL
@@ -329,6 +335,23 @@ mod tests {
             actual, FROZEN,
             "SignalKind discriminants are persisted and must never change"
         );
+    }
+
+    #[test]
+    fn retired_discriminants_are_never_reused() {
+        let mut seen = std::collections::HashSet::new();
+        for (name, d) in RETIRED {
+            assert!(*d != 0 && *d < 128, "retired {name} = {d}");
+            assert!(seen.insert(*d), "retired discriminant {d} listed twice");
+            assert!(
+                FROZEN.iter().all(|(_, live)| live != d),
+                "discriminant {d} was retired as {name} and must not be reused"
+            );
+            assert!(
+                SignalKind::ALL.iter().all(|k| k.discriminant() != *d),
+                "discriminant {d} was retired as {name} but a live kind uses it"
+            );
+        }
     }
 
     #[test]

@@ -16,6 +16,8 @@ mod codec;
 mod enums;
 mod error;
 mod event;
+#[cfg(test)]
+mod frozen;
 mod kind;
 mod payload;
 mod quant;

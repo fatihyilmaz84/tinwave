@@ -350,7 +350,9 @@ payload_struct! {
         class: OutputClass => "class",
         /// How the endpoint is attached.
         transport: OutputTransport => "transport",
-        /// The OS form-factor enum value, quantized to a byte (`0` = unknown).
+        /// The raw OS endpoint form-factor value, stored as-is in one byte. On Windows this is
+        /// `EndpointFormFactor`, where `0` is `RemoteNetworkDevice` and `UnknownFormFactor` is
+        /// `10`: `0` does not mean unknown.
         form_factor: u8 => "form_factor",
         /// 32-bit salted hash of the device identity; never the device name.
         device_hash: Hash32 => "device_hash",

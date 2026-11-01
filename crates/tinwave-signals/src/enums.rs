@@ -471,50 +471,6 @@ impl Pack for ContextScope {
 mod tests {
     use super::*;
 
-    fn codes<T: Copy>(all: &[T], code: impl Fn(T) -> u8) -> Vec<u8> {
-        all.iter().map(|v| code(*v)).collect()
-    }
-
-    /// Codes are persisted inside payloads; these tables are frozen like the kind discriminants.
-    #[test]
-    fn enum_codes_are_frozen() {
-        assert_eq!(
-            codes(SectionKind::ALL, SectionKind::code),
-            [0, 1, 2, 3, 4, 5, 6, 7, 8]
-        );
-        assert_eq!(codes(QueueOrigin::ALL, QueueOrigin::code), [0, 1, 2, 3, 4]);
-        assert_eq!(
-            codes(PlayOrigin::ALL, PlayOrigin::code),
-            [0, 1, 2, 3, 4, 5, 6, 7]
-        );
-        assert_eq!(codes(RepeatMode::ALL, RepeatMode::code), [0, 1, 2]);
-        assert_eq!(
-            codes(OutputClass::ALL, OutputClass::code),
-            [0, 1, 2, 3, 4, 5, 6, 7]
-        );
-        assert_eq!(
-            codes(OutputTransport::ALL, OutputTransport::code),
-            [0, 1, 2, 3, 4]
-        );
-        assert_eq!(
-            codes(View::ALL, View::code),
-            [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
-        );
-        assert_eq!(codes(PlaylistKind::ALL, PlaylistKind::code), [0, 1]);
-        assert_eq!(codes(SearchScope::ALL, SearchScope::code), [0, 1, 2, 3, 4]);
-        assert_eq!(codes(EntityKind::ALL, EntityKind::code), [0, 1, 2, 3]);
-        assert_eq!(
-            codes(WindowStateKind::ALL, WindowStateKind::code),
-            [0, 1, 2, 3]
-        );
-        assert_eq!(
-            codes(RadioFeedbackKind::ALL, RadioFeedbackKind::code),
-            [0, 1, 2, 3]
-        );
-        assert_eq!(MetadataFields::ALL_BITS, 0x07ff);
-        assert_eq!(ContextScope::ALL_BITS, 0x007f);
-    }
-
     #[test]
     fn codes_round_trip_and_unknown_codes_fail() {
         for &v in View::ALL {

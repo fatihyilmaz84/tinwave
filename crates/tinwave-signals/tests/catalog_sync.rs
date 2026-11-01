@@ -6,9 +6,11 @@
 //! `tinwave-signals`, this test fails; the same holds the other way round.
 //!
 //! What is read from the catalog:
-//! - every row of a table whose header starts with `Signal`: the names in the first column, the
-//!   tier (`T0`..`T3`, `derived`, `meta`) and the payload column (field names are the lowercase
-//!   backticked words; a backticked `A|B|C` after a field lists that field's enum values);
+//! - every row of a table whose header starts with `Signal`. Columns are found by header name
+//!   (`Signal`, `Tier`, `Payload`), so an extra column cannot shift them. From a row: the names,
+//!   the tier (`T0`..`T3`, `derived`, `meta`) and the payload column (field names are the
+//!   lowercase backticked words; a backticked `A|B|C` after a field lists that field's enum
+//!   values, which must be compared with the code or the test fails);
 //! - the sentence naming the storage class **C** signals;
 //! - the "Common enums" bullets for `InputSource` and `Section`.
 //!
@@ -32,7 +34,7 @@ use tinwave_signals::*;
 const CATALOG: &str = include_str!("../../../docs/guides/signal-catalog.md");
 
 /// Words in the payload column that look like field names but are types.
-const TYPE_WORDS: &[&str] = &["u8", "u16", "u32"];
+const TYPE_WORDS: &[&str] = &["bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64"];
 
 #[derive(Debug, Clone)]
 struct Row {
@@ -88,30 +90,62 @@ fn is_field_name(span: &str) -> bool {
         && !TYPE_WORDS.contains(&span)
 }
 
+/// Column positions of a signal table, looked up by header name so a new column (for example
+/// "bytes/day") cannot shift the ones we read.
+struct Columns {
+    count: usize,
+    signal: usize,
+    tier: usize,
+    payload: usize,
+}
+
+impl Columns {
+    fn from_header(header: &[String]) -> Self {
+        let find = |name: &str| {
+            let mut matches = header.iter().enumerate().filter(|(_, h)| *h == name);
+            let (index, _) = matches.next().unwrap_or_else(|| {
+                panic!("signal table header has no {name:?} column: {header:?}")
+            });
+            assert!(matches.next().is_none(), "duplicate {name:?} column");
+            index
+        };
+        Self {
+            count: header.len(),
+            signal: find("Signal"),
+            tier: find("Tier"),
+            payload: find("Payload"),
+        }
+    }
+}
+
 fn parse_rows() -> Vec<Row> {
     let mut rows: Vec<Row> = Vec::new();
-    let mut in_signal_table = false;
+    let mut columns: Option<Columns> = None;
     for line in CATALOG.lines() {
         if !line.trim_start().starts_with('|') {
-            in_signal_table = false;
+            columns = None;
             continue;
         }
         let cells = split_cells(line);
         if cells.first().map(String::as_str) == Some("Signal") {
-            in_signal_table = true;
+            columns = Some(Columns::from_header(&cells));
             continue;
         }
-        if !in_signal_table
-            || cells
-                .iter()
-                .all(|c| c.chars().all(|ch| ch == '-' || ch == ':'))
+        let Some(columns) = &columns else { continue };
+        if cells
+            .iter()
+            .all(|c| c.chars().all(|ch| ch == '-' || ch == ':'))
         {
             continue;
         }
-        assert!(cells.len() >= 5, "signal row with too few cells: {line}");
+        assert_eq!(
+            cells.len(),
+            columns.count,
+            "signal row does not have one cell per header column: {line}"
+        );
 
-        let names = code_spans(&cells[0]);
-        let payload = &cells[3];
+        let names = code_spans(&cells[columns.signal]);
+        let payload = &cells[columns.payload];
         let mut fields = BTreeSet::new();
         let mut enum_values: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
@@ -137,7 +171,7 @@ fn parse_rows() -> Vec<Row> {
 
         rows.push(Row {
             names,
-            tier: cells[1].clone(),
+            tier: cells[columns.tier].clone(),
             fields,
             enum_values,
         });
@@ -261,11 +295,47 @@ fn storage_class_and_tier_match_the_catalog() {
     }
 }
 
+/// Rows that cover several kinds but have a single payload column, where the catalog does not say
+/// which kind carries which field. This is the documented reading of those rows:
+/// `Paused` has no `pause_ms` ("on resume"), and a session's `start_origin` is known at the
+/// start while `tracks` and `minutes` only exist at the end.
+///
+/// Every other multi-kind row (`QueuedNext / QueuedLater`, `PlaylistAdded / PlaylistRemoved`,
+/// `Favorited / Unfavorited`) is checked strictly: **each** kind must carry **every** field the
+/// row lists. A kind listed here must still cover the row together with its siblings.
+const SPLIT_ROWS: &[(&str, &[&str])] = &[
+    ("Paused", &["input"]),
+    ("Resumed", &["pause_ms", "input"]),
+    ("SessionStarted", &["start_origin"]),
+    ("SessionEnded", &["tracks", "minutes"]),
+];
+
+fn split_fields(name: &str) -> Option<BTreeSet<String>> {
+    SPLIT_ROWS
+        .iter()
+        .find(|(kind, _)| *kind == name)
+        .map(|(_, fields)| fields.iter().map(|f| (*f).to_owned()).collect())
+}
+
 #[test]
 fn payload_fields_match_the_catalog() {
     let rows = parse_rows();
     let kinds = kinds_by_name();
+    let mut used_splits = BTreeSet::new();
     for row in rows.iter().filter(|r| r.tier != "meta") {
+        let split_names: Vec<&String> = row
+            .names
+            .iter()
+            .filter(|n| split_fields(n).is_some())
+            .collect();
+        if !split_names.is_empty() {
+            assert_eq!(
+                split_names.len(),
+                row.names.len(),
+                "{:?}: a row is either fully listed in SPLIT_ROWS or not at all",
+                row.names
+            );
+        }
         let mut union = BTreeSet::new();
         for name in &row.names {
             let kind = kinds[name.as_str()];
@@ -274,23 +344,34 @@ fn payload_fields_match_the_catalog() {
                 .iter()
                 .map(|f| f.catalog.to_owned())
                 .collect();
-            if kind.is_event() {
-                assert!(
-                    code_fields.is_subset(&row.fields),
-                    "{name}: payload stores {:?}, which the catalog row does not list ({:?})",
-                    code_fields.difference(&row.fields).collect::<Vec<_>>(),
-                    row.fields
-                );
-                union.extend(code_fields);
-            } else {
+            if !kind.is_event() {
                 assert!(
                     code_fields.is_empty(),
                     "{name}: only raw events have a packed payload"
                 );
+                continue;
             }
+            // Expected catalog fields of this kind: its SPLIT_ROWS entry, otherwise everything the
+            // row lists.
+            let expected = match split_fields(name) {
+                Some(split) => {
+                    used_splits.insert(name.clone());
+                    assert!(
+                        split.is_subset(&row.fields),
+                        "{name}: SPLIT_ROWS lists fields the catalog row does not: {:?}",
+                        split.difference(&row.fields).collect::<Vec<_>>()
+                    );
+                    split
+                }
+                None => row.fields.clone(),
+            };
+            assert_eq!(
+                code_fields, expected,
+                "{name}: packed payload fields differ from the catalog row {:?}",
+                row.fields
+            );
+            union.extend(code_fields);
         }
-        // Rows covering several kinds (`Paused / Resumed`) may split the fields between them,
-        // but together they must cover the whole catalog payload.
         if row.names.iter().all(|n| kinds[n.as_str()].is_event()) {
             assert_eq!(
                 union, row.fields,
@@ -299,6 +380,8 @@ fn payload_fields_match_the_catalog() {
             );
         }
     }
+    let all_splits: BTreeSet<String> = SPLIT_ROWS.iter().map(|(k, _)| (*k).to_owned()).collect();
+    assert_eq!(used_splits, all_splits, "stale SPLIT_ROWS entry");
 }
 
 #[test]
@@ -315,35 +398,56 @@ fn names_of<T: Copy>(all: &[T], name: impl Fn(T) -> &'static str) -> BTreeSet<St
     all.iter().map(|v| name(*v).to_owned()).collect()
 }
 
+/// The code enum behind a payload field, for catalog value lists `field (`A|B|C`)`.
+///
+/// Every enum-valued payload field is mapped here even when the catalog does not list its values
+/// yet, so the moment a list appears it is compared with the code. `input` is the one field
+/// handled elsewhere (`common_enums_match_the_code` merges its values with the Common enums
+/// bullet). A value list for any other field fails the test instead of being skipped.
+fn enum_names_for(row: &Row, field: &str) -> Option<BTreeSet<String>> {
+    Some(match field {
+        "queue_origin" => names_of(QueueOrigin::ALL, QueueOrigin::name),
+        "origin" | "start_origin" => names_of(PlayOrigin::ALL, PlayOrigin::name),
+        "class" | "endpoint_class" => names_of(OutputClass::ALL, OutputClass::name),
+        "transport" => names_of(OutputTransport::ALL, OutputTransport::name),
+        "mode" => names_of(RepeatMode::ALL, RepeatMode::name),
+        "from_view" | "view" => names_of(View::ALL, View::name),
+        "playlist_kind" => names_of(PlaylistKind::ALL, PlaylistKind::name),
+        "scope" => names_of(SearchScope::ALL, SearchScope::name),
+        "entity_kind" => names_of(EntityKind::ALL, EntityKind::name),
+        "state" => names_of(WindowStateKind::ALL, WindowStateKind::name),
+        // `kind` is also a field of the in-memory `SignalDropped`; only RadioFeedback's is an enum.
+        "kind" if row.names.iter().any(|n| n == "RadioFeedback") => {
+            names_of(RadioFeedbackKind::ALL, RadioFeedbackKind::name)
+        }
+        _ => return None,
+    })
+}
+
 #[test]
 fn enum_values_listed_in_payload_columns_match_the_code() {
     let rows = parse_rows();
-    let expected: BTreeMap<&str, BTreeSet<String>> = BTreeMap::from([
-        (
-            "queue_origin",
-            names_of(QueueOrigin::ALL, QueueOrigin::name),
-        ),
-        ("origin", names_of(PlayOrigin::ALL, PlayOrigin::name)),
-        ("class", names_of(OutputClass::ALL, OutputClass::name)),
-        (
-            "transport",
-            names_of(OutputTransport::ALL, OutputTransport::name),
-        ),
-    ]);
     let mut checked = BTreeSet::new();
-    for row in &rows {
+    for row in rows.iter().filter(|r| r.tier != "meta") {
         for (field, values) in &row.enum_values {
-            if let Some(code_values) = expected.get(field.as_str()) {
-                assert_eq!(values, code_values, "{:?}.{field}", row.names);
-                checked.insert(field.clone());
+            if field == "input" {
+                continue;
             }
+            let code_values = enum_names_for(row, field).unwrap_or_else(|| {
+                panic!(
+                    "{:?}.{field}: the catalog lists values {values:?} for a field this test \
+                     does not know; map it in enum_names_for",
+                    row.names
+                )
+            });
+            assert_eq!(values, &code_values, "{:?}.{field}", row.names);
+            checked.insert(field.clone());
         }
     }
-    assert_eq!(
-        checked,
-        expected.keys().map(|k| (*k).to_owned()).collect(),
-        "every enum with a value list in the catalog must be checked"
-    );
+    // Value lists the catalog has today; if one is dropped the parser is probably broken.
+    for field in ["queue_origin", "origin", "class", "transport"] {
+        assert!(checked.contains(field), "no value list found for {field}");
+    }
 }
 
 #[test]
