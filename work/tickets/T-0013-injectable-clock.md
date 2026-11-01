@@ -3,7 +3,7 @@ id: T-0013
 title: Add an injectable Clock and Rng seam to tinwave-core and use them for id generation
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P0
 size: S
 depends_on: [T-0001]
@@ -50,3 +50,6 @@ None. Enables deterministic signal timestamps in T-0005 and the growth test (T-0
 
 ## Notes for the builder
 Reuse `UtcMillis` and `new_at` from T-0001. Keep `tinwave-core` dependency-light.
+
+## Merged
+2026-11-01, merge commit 0f41479 (branch head e925140). Review: reports/T-0013/review-1.md (APPROVE). Gates green on main (39 tests).

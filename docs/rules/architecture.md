@@ -4,7 +4,8 @@
 
 ```
 crates/
-  tinwave-core        Domain types & ids (Artist, Recording, MediaFile, PlaybackSource…). No IO, no async runtime.
+  tinwave-core        Domain types & ids (Artist, Recording, MediaFile, PlaybackSource…), Clock/Rng seams.
+                      No IO beyond the system clock/RNG seams (SystemClock, SystemRng), no async runtime.
   tinwave-db          SQLite (rusqlite), migrations, FTS5, repositories. Only crate that writes SQL.
   tinwave-library     Scanning, tag read/write, file organization (journal, dry-run, recovery).
   tinwave-playback    Playback engine, queue, output devices, time-stretch. Emits PlaybackEvents.

@@ -17,7 +17,7 @@ _Maintained by the lead. Last updated: 2026-11-01._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | tw-spike r1 | `t/T-0003-spike-audio-backend` · `D:\dev\Tinwave-worktrees\T-0003-spike-audio-backend` |
-| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder r1 — **done (9bb84ee), waits for T-0013 merge, then adapts tests and goes to review** | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
+| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder r1 — **merging main (T-0013 landed) and adapting tests to the new id API, then review** | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -28,7 +28,6 @@ T-0004 merges main and switches to `IdGenerator`/`from_parts` before its review.
 ## In review
 | Ticket | Reviewer | Build report |
 |---|---|---|
-| [T-0013](tickets/T-0013-injectable-clock.md) Injectable Clock + Rng seam | tw-reviewer r1 | [build-1](reports/T-0013/build-1.md) · e925140 |
 | [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | tw-reviewer r1 | [build-1](reports/T-0012/build-1.md) · 9d1a3f8 |
 
 ## Ready (dispatch order)
@@ -42,12 +41,12 @@ Max 3 agents in flight, reviewers included. The Qt spikes go first once the Qt M
 ## Backlog
 | Ticket | Depends on |
 |---|---|
-| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | T-0004, T-0013 |
+| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | T-0004 (T-0013 done) |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & writer | T-0005 |
 | [T-0007](tickets/T-0007-storage-growth-test.md) Growth test v1 | T-0006 |
-| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers (E-01) | T-0005, T-0013 |
+| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers (E-01) | T-0005 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | T-0003 |
-| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Workspace deps tidy: drop uuid v7, centralize getrandom (P-0014/15) | T-0013, T-0004 |
+| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: drop uuid v7, centralize getrandom, CryptoRng guard (P-0014/15/17) | T-0004 |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
 ## Design gaps to close before E-01 screen tickets
@@ -66,7 +65,8 @@ Accepted 2026-11-01: [ADR 0004](../docs/adr/0004-windows-volume-device-provider.
 |---|---|---|
 | [T-0001](tickets/T-0001-workspace-and-core-ids.md) Workspace, gates, core ids | 1452c72 | build-1/2, review-1 (changes), review-2 (approve) |
 | [T-0008](tickets/T-0008-spike-windows-volume-device.md) Spike: Windows volume/device | 1479562 | spike-1 → ADR 0004 |
+| [T-0013](tickets/T-0013-injectable-clock.md) Injectable Clock + Rng seam | 0f41479 | build-1, review-1 (approve) |
 
 Proposals: P-0001 → T-0012 · P-0002, P-0004 → T-0013 · P-0003 parked (CI, needs a remote) · P-0005, P-0008 done by
 lead · P-0006 → PO runbook · P-0007 → T-0014 · P-0009 → E-01 playback constraint · P-0010 → T-0007 · P-0011 → lead after T-0004
-merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked.
+merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked · P-0017, P-0018 → T-0015.
