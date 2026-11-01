@@ -3,7 +3,7 @@ id: T-0001
 title: Create Cargo workspace, quality gates, and core id types
 type: chore
 epic: E-00
-status: ready
+status: in_progress
 priority: P0
 size: M
 depends_on: []
@@ -16,7 +16,7 @@ scope:
   - .gitignore
   - crates/tinwave-core/
 owner:
-branch:
+branch: t/T-0001-workspace-and-core-ids
 review_round: 0
 created_by: lead
 ---

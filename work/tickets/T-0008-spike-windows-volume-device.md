@@ -3,14 +3,14 @@ id: T-0008
 title: "Spike: Windows system-volume and output-device change notifications"
 type: spike
 epic: E-00
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: []
 scope:
   - spikes/T-0008-win-volume/
 owner:
-branch:
+branch: t/T-0008-spike-windows-volume-device
 review_round: 0
 created_by: lead
 ---

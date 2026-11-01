@@ -3,14 +3,14 @@ id: T-0003
 title: "Spike: audio backend selection (decode + output + gapless)"
 type: spike
 epic: E-00
-status: ready
+status: in_progress
 priority: P0
 size: M
 depends_on: []
 scope:
   - spikes/T-0003-audio-backend/
 owner:
-branch:
+branch: t/T-0003-spike-audio-backend
 review_round: 0
 created_by: lead
 ---
