@@ -3,7 +3,7 @@ id: T-0009
 title: "Spike: time-stretch library for 0.75×–1.5× playback (quality, CPU, license)"
 type: spike
 epic: E-00
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0003]

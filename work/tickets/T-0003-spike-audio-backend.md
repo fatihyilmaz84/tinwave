@@ -3,7 +3,7 @@ id: T-0003
 title: "Spike: audio backend selection (decode + output + gapless)"
 type: spike
 epic: E-00
-status: in_progress
+status: done
 priority: P0
 size: M
 depends_on: []
@@ -45,3 +45,6 @@ Recommended stack with evidence, known gaps per format, draft ADR.
 
 ## Signals & storage
 None, but confirm the position/volume hooks the signal pipeline needs are available.
+
+## Outcome
+2026-11-02: answered (Symphonia + own engine + direct WASAPI, cpal fallback). Prototype merged. Draft ADR pending PO decisions D-0003 (MPL-2.0, spec) and D-0004 (AAC route). Follow-ups T-0016..T-0020; P-0027 parked.
