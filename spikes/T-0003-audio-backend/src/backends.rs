@@ -323,7 +323,7 @@ fn open_wasapi(device: Option<&str>, rate: u32, mut renderer: Renderer, exclusiv
 
         // Prime the buffer with real data (silence flags are not used: first callback may carry audio).
         let avail = client.get_available_space_in_frames().unwrap_or(0) as usize;
-        if !fill(&mut renderer, avail, 0) {
+        if !fill(&mut renderer, avail, buf_frames) {
             l2.store(true, SeqCst);
             return;
         }
@@ -347,8 +347,9 @@ fn open_wasapi(device: Option<&str>, rate: u32, mut renderer: Renderer, exclusiv
                     break;
                 }
             };
-            let padding = buf_frames.saturating_sub(avail);
-            if avail > 0 && !fill(&mut renderer, avail.min(buf_frames), padding) {
+            // After this write the queue holds the whole buffer (padding + avail), so the latency is constant.
+            let _ = buf_frames.saturating_sub(avail);
+            if avail > 0 && !fill(&mut renderer, avail.min(buf_frames), buf_frames) {
                 l2.store(true, SeqCst);
                 break;
             }

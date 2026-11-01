@@ -19,7 +19,7 @@ impl IAudioEndpointVolumeCallback_Impl for Cb_Impl {
     }
 }
 
-pub fn run() -> Result<()> {
+pub fn run(extra_secs: u64) -> Result<()> {
     unsafe {
         let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
         let en: IMMDeviceEnumerator = CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
@@ -36,6 +36,10 @@ pub fn run() -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(300));
         vol.SetMasterVolumeLevelScalar(orig, std::ptr::null())?;
         std::thread::sleep(std::time::Duration::from_millis(300));
+        if extra_secs > 0 {
+            println!("listening {extra_secs} s more: press the keyboard volume keys / mute now");
+            std::thread::sleep(std::time::Duration::from_secs(extra_secs));
+        }
         vol.UnregisterControlChangeNotify(&cb)?;
         let ev = events.lock().unwrap();
         println!("received {} notifications:", ev.len());

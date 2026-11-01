@@ -10,3 +10,9 @@
 [loopback wasapi/mp3lame/48000] captured 504480 frames at the OS mixer
    mixer-level gain vs engine output: 1.007
    first audio at rec frame 63 | lag(A)=+1 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.04e-2, within +-64 frames of boundary 1.04e-2, SNR 28.7 dB | longest exact-zero run 0 frames
+[loopback cpal/flac16/44100] captured 463460 frames at the OS mixer
+   mixer-level gain vs engine output: 1.010
+   first audio at rec frame 522 | lag(A)=+11 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 0.9989) | max err overall 3.26e-2, within +-64 frames of boundary 4.54e-3, SNR 18.7 dB | longest exact-zero run 0 frames
+[loopback wasapi/flac16/44100] captured 463460 frames at the OS mixer
+   mixer-level gain vs engine output: 1.010
+   first audio at rec frame 49 | lag(A)=+10 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 0.9989) | max err overall 3.26e-2, within +-64 frames of boundary 4.54e-3, SNR 18.7 dB | longest exact-zero run 0 frames

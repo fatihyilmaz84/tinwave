@@ -90,7 +90,7 @@ fn main() -> anyhow::Result<()> {
         Some("cpu") => bench::cmd_cpu(&dir, &a(2, "cpal"), &a(3, "flac16"), a(4, "48000").parse()?, a(5, "10").parse()?)?,
         Some("loopback") => bench::cmd_loopback(&dir, &a(2, "cpal"), &a(3, "flac16"), a(4, "48000").parse()?)?,
         Some("decspeed") => probe::decode_speed(&dir, a(2, "48000").parse()?)?,
-        Some("sysvol") => sysvol::run()?,
+        Some("sysvol") => sysvol::run(a(2, "0").parse()?)?,
         Some("play") => bench::cmd_play(&a(2, "wasapi"), a(3, "0.1").parse()?, args.iter().skip(4).map(PathBuf::from).collect())?,
         Some("resamp") => resamp::run()?,
         Some("excl") => bench::cmd_excl(a(2, "48000").parse()?)?,
