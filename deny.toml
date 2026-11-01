@@ -26,6 +26,69 @@ allow = [
 ]
 # GPL / AGPL / LGPL and anything not listed above is denied by default.
 
+# MPL-2.0 is file-level copyleft. PO decision D-0003 (ADR 0005) allows it ONLY for Symphonia, used
+# unmodified (fixes go upstream or around it in our own code). No global MPL-2.0 allow: any other
+# MPL-2.0 crate is still rejected. A new symphonia-* crate needs an entry here on purpose.
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-bundle-flac"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-bundle-mp3"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-codec-aac"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-codec-adpcm"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-codec-alac"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-codec-pcm"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-codec-vorbis"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-common"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-core"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-format-isomp4"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-format-mkv"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-format-ogg"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-format-riff"
+
+[[licenses.exceptions]]
+allow = ["MPL-2.0"]
+crate = "symphonia-metadata"
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

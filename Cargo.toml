@@ -15,8 +15,11 @@ publish = false
 [workspace.dependencies]
 tinwave-core = { path = "crates/tinwave-core", version = "0.1.0" }
 proptest = { version = "1", default-features = false, features = ["std"] }
+rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# MPL-2.0: allowed only for symphonia* crates (deny.toml exceptions, ADR 0005). Never patched in-tree.
+symphonia = { version = "0.6", features = ["aac", "alac", "isomp4", "mp3", "aiff"] }
 thiserror = "2"
 uuid = { version = "1", features = ["v7", "serde"] }
 
