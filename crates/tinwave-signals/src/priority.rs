@@ -8,15 +8,18 @@
 //!
 //! # The rule
 //!
-//! An event is **reserved** when it belongs to the playback record or is an explicit user action
-//! on the library: catalog sections 1 to 4 and 8 (volume, speed, seek/skip/replay, queue and
-//! library behaviour, session and meta). Losing one corrupts play history or throws away
-//! something the user did on purpose. Every reserved kind is tier T0.
+//! An event is **reserved** when it is in catalog sections 1 to 4 and 8 (volume, speed,
+//! seek/skip/replay, queue and library behaviour, session and meta), plus kinds whose loss would
+//! change how a reserved event is interpreted (`OutputDeviceChanged`: the catalog scores a volume
+//! change within 3 s of a device change as context, weight 0, so losing it under load would turn
+//! context into a false dislike). Losing a reserved event corrupts play history, throws away
+//! something the user did on purpose, or changes how history is read. Every reserved kind is
+//! tier T0 except `OutputDeviceChanged` (T1), which is rare, so it does not strain the capacity.
 //!
-//! An event is **low** when it is ambient: section 5 events (`ViewOpened`, `WindowState`) and
-//! section 6 (output device and sound settings). They are re-derivable from the next
-//! `context_snapshot` or only change a setting, and they are rare, so they only get dropped when
-//! the writer has stalled for a long time.
+//! An event is **low** when it is ambient: section 5 events (`ViewOpened`, `WindowState`) and the
+//! section 6 sound settings (`EqChanged`, `ExclusiveModeToggled`, `CrossfadeChanged`). They are
+//! re-derivable from the next `context_snapshot` or only change a setting, and they are rare, so
+//! they only get dropped when the writer has stalled for a long time.
 //!
 //! Counter-class kinds (`Impression`, `ArtworkHover`, `PageDwell`) never enter a queue (they go
 //! to `UiCounters`), and derived kinds are never emitted; both report `Low` only because the
@@ -77,15 +80,16 @@ impl Priority {
             | SignalKind::SessionStarted
             | SignalKind::SessionEnded
             | SignalKind::RadioFeedback
-            | SignalKind::ExplanationOpened => Self::Reserved,
+            | SignalKind::ExplanationOpened
+            // 6. Output: changes how volume events are read (see module docs)
+            | SignalKind::OutputDeviceChanged => Self::Reserved,
             // 5. Browsing and attention (events only; the counters never queue)
             SignalKind::ViewOpened
             | SignalKind::WindowState
             | SignalKind::PageDwell
             | SignalKind::ArtworkHover
             | SignalKind::Impression
-            // 6. Output and sound
-            | SignalKind::OutputDeviceChanged
+            // 6. Sound settings
             | SignalKind::EqChanged
             | SignalKind::ExclusiveModeToggled
             | SignalKind::CrossfadeChanged
@@ -106,7 +110,6 @@ mod tests {
     const LOW_EVENTS: &[SignalKind] = &[
         SignalKind::ViewOpened,
         SignalKind::WindowState,
-        SignalKind::OutputDeviceChanged,
         SignalKind::EqChanged,
         SignalKind::ExclusiveModeToggled,
         SignalKind::CrossfadeChanged,
@@ -124,11 +127,20 @@ mod tests {
         }
     }
 
+    /// Reserved kinds that are not T0, by name and with the reason.
+    /// `OutputDeviceChanged` (T1): the catalog reads volume events relative to it (a volume change
+    /// within 3 s of a device change is context, weight 0), so losing it would create false dislikes.
+    const RESERVED_NON_T0: &[(SignalKind, Tier)] = &[(SignalKind::OutputDeviceChanged, Tier::T1)];
+
     #[test]
-    fn every_reserved_kind_is_a_t0_event() {
+    fn every_reserved_kind_is_a_t0_event_except_the_named_interpretation_inputs() {
         for kind in SignalKind::events() {
             if Priority::of(kind) == Priority::Reserved {
-                assert_eq!(kind.tier(), Tier::T0, "{kind}");
+                let expected = RESERVED_NON_T0
+                    .iter()
+                    .find(|(k, _)| *k == kind)
+                    .map_or(Tier::T0, |&(_, tier)| tier);
+                assert_eq!(kind.tier(), expected, "{kind}");
             }
         }
     }
@@ -150,6 +162,7 @@ mod tests {
             SignalKind::PlayStarted,
             SignalKind::SessionStarted,
             SignalKind::SessionEnded,
+            SignalKind::OutputDeviceChanged,
         ] {
             assert_eq!(Priority::of(kind), Priority::Reserved, "{kind}");
         }
