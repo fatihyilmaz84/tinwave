@@ -3,7 +3,7 @@ id: T-0004
 title: Signal schema, tier mapping, and packed payload codec
 type: feature
 epic: E-00
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: [T-0001]

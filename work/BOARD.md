@@ -17,7 +17,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | tw-spike r1 | `t/T-0003-spike-audio-backend` · `D:\dev\Tinwave-worktrees\T-0003-spike-audio-backend` |
-| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder **r2** — freeze enum name→code pairs, catalog enum guard ([review-1](reports/T-0004/review-1.md)) | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
+| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-reviewer **r2** — [build-2](reports/T-0004/build-2.md) b13237e | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
