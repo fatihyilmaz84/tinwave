@@ -1,7 +1,7 @@
 ---
 id: D-0004
 title: How should Tinwave decode AAC (M4A) — Rust software decoder or the OS decoder?
-status: open
+status: decided
 blocks: []
 date: 2026-11-02
 ---
@@ -29,3 +29,5 @@ Option 3 now (it doesn't block engine work: AAC sits behind the same decoder tra
 outcome; the real-world corpus spike T-0020 measures Media Foundation as the AAC/HE-AAC route.
 
 ## PO decision
+2026-11-02: **Option 3 — decide later.** Symphonia AAC in development behind the decoder trait;
+revisit at the Phase 9 license review with the OS decoder as the expected route (ADR 0005 decision 2, T-0020).

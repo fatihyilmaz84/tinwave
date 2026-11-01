@@ -69,6 +69,8 @@ backlog ──groom──> ready ──dispatch──> in_progress ──handoff
    or escalate to the PO as a decision. Every proposal gets an outcome line.
 3. **Groom** — keep 3–6 tickets `ready`, in roadmap order.
 4. **Dispatch** — start up to **3 builders in parallel**, only for tickets whose `scope` does not overlap.
+   Root `Cargo.toml` `[workspace.dependencies]` and `Cargo.lock` are shared, append-mostly files and do not count
+   as overlap; the branch that merges second merges `main` and regenerates the lock before its review.
    Spikes count toward the limit.
 5. **Review** — when a builder hands off: save `reports/T-NNNN/build-N.md`, start a reviewer on the branch.
 6. **Integrate** — on APPROVE: merge the branch into `main` locally, run full checks on `main`, mark `done`.

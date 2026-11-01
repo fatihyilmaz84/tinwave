@@ -1,7 +1,7 @@
 ---
 id: D-0003
 title: Adopt the T-0003 audio stack (Symphonia, MPL-2.0) and update spec §2/§7?
-status: open
+status: decided
 blocks: [T-0016, T-0017, T-0019]
 date: 2026-11-02
 ---
@@ -32,3 +32,5 @@ Option 1, with the exception scoped to the `symphonia*` crates only and a rule t
 (upstream fixes or a wrapper instead).
 
 ## PO decision
+2026-11-02: **Option 1 — accept**, MPL-2.0 exception scoped to `symphonia*`, never patched in-tree.
+Applied: ADR 0005, spec §2/§7, architecture.md, testing.md. T-0016 ready; T-0017/T-0019 follow it.

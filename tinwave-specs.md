@@ -40,7 +40,9 @@ Tinwave must be useful without an internet connection, cloud account, or subscri
 - Evaluate CXX-Qt as the Rust–Qt bridge in a Phase 0 proof of concept.
 - SQLite for the local database.
 - SQLite FTS5 for fast text search.
-- A Rust-compatible audio backend selected after format, device, gapless playback, and cross-platform testing.
+- Audio backend (ADR 0005, chosen after real format/device/gapless tests): Symphonia decoding and an in-house playback
+  engine (decoder thread → lock-free ring → real-time renderer), direct WASAPI output on Windows (shared and
+  exclusive), cpal output on macOS/Linux and as the Windows fallback; rubato for resampling.
 - FFmpeg for optional conversion, audio analysis, and format compatibility where appropriate.
 
 The desktop application must not embed a browser-based UI runtime. Avoid unnecessary JavaScript engines, heavyweight frameworks, and always-running background services.
@@ -356,6 +358,10 @@ Required capabilities:
 - Clear error recovery when a file or stream becomes unavailable.
 
 Evaluate playback backends through a real-world format and performance test rather than choosing one solely on theoretical feature coverage.
+
+Backend: see ADR 0005 (spike T-0003). Gapless is sample-exact for WAV, FLAC, ALAC and MP3 with a LAME/Xing tag;
+M4A/AAC gapless requires Tinwave to read iTunSMPB / edit lists itself and pass the trim to the decoder. MP3 files
+without an encoder-delay tag keep a short gap (no guessing). The audio callback never allocates, locks or does IO.
 
 Use FFmpeg for optional conversion or analysis where appropriate, not as a justification for loading large processing libraries unnecessarily in every process.
 

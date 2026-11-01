@@ -21,6 +21,15 @@ Every signal kind needs:
   (e.g. volume-down during `VideoCall` foreground ⇒ no negative score);
 - a **privacy test**: when its category is disabled, nothing is written and the Signal Center shows it as off.
 
+## Playback must be tested (ADR 0005)
+
+- **Gapless sweep test:** a generated −20 dBFS sweep split into two files at a non-codec-aligned frame, per
+  format (WAV, FLAC, ALAC, MP3 with LAME tag; M4A with trim); the recorded renderer output must show a 0-frame gap.
+- **Seek test:** output after a seek matches the reference from exactly the requested frame.
+- **RT allocation test:** a counting global allocator proves zero allocations/frees inside the render callback
+  across play, seek, volume and device changes.
+- Test audio is generated or CC0/self-made; never commit copyrighted music.
+
 ## Determinism
 
 - Inject `Clock`, `Rng` and `ContextProvider`s everywhere. No `SystemTime::now()` or `thread_rng()` in domain code.

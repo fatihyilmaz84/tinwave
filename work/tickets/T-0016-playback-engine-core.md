@@ -3,24 +3,24 @@ id: T-0016
 title: tinwave-playback engine core from the T-0003 design (reader, ring, renderer, seek, position)
 type: feature
 epic: E-01
-status: blocked
+status: in_progress
 priority: P0
 size: M
-depends_on: [D-0003, T-0005]
+depends_on: []          # D-0003 decided; the engine emits PlaybackEvents, not signals
 scope:
   - crates/tinwave-playback/
   - Cargo.toml            # [workspace.dependencies] only
   - Cargo.lock
-  - deny.toml             # MPL-2.0 exception scoped to symphonia* (only if D-0003 option 1)
-owner:
-branch:
+  - deny.toml             # MPL-2.0 exception scoped to symphonia* (D-0003)
+owner: tw-builder (round 1)
+branch: t/T-0016-playback-engine-core
 review_round: 0
 created_by: from P-0022
 ---
 
 ## Context
-Spike T-0003 (work/reports/T-0003/spike-1.md, prototype spikes/T-0003-audio-backend/src/engine.rs) and its draft ADR
-(to become ADR 0005 on D-0003). Spec §7. docs/rules/architecture.md ("playback never blocks"), rust.md (Concurrency,
+Spike T-0003 (work/reports/T-0003/spike-1.md, prototype spikes/T-0003-audio-backend/src/engine.rs) and ADR 0005
+(docs/adr/0005-audio-backend.md). Spec §7. docs/rules/architecture.md ("playback never blocks"), rust.md (Concurrency,
 RT rules), testing.md. Signals need accurate position and volume hooks (signal-catalog §1, §3).
 
 ## Scope

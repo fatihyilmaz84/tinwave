@@ -3,10 +3,10 @@ id: T-0017
 title: Windows output on direct WASAPI (shared + exclusive), cpal fallback output
 type: feature
 epic: E-01
-status: blocked
+status: backlog
 priority: P0
 size: M
-depends_on: [T-0016, D-0003]
+depends_on: [T-0016]
 scope:
   - crates/tinwave-playback/src/output/
   - Cargo.toml            # [workspace.dependencies] only

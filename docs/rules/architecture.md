@@ -8,7 +8,9 @@ crates/
                       No IO beyond the system clock/RNG seams (SystemClock, SystemRng), no async runtime.
   tinwave-db          SQLite (rusqlite), migrations, FTS5, repositories. Only crate that writes SQL.
   tinwave-library     Scanning, tag read/write, file organization (journal, dry-run, recovery).
-  tinwave-playback    Playback engine, queue, output devices, time-stretch. Emits PlaybackEvents.
+  tinwave-playback    Playback engine (Symphonia decode → ring → RT renderer), queue, outputs
+                      (output/windows = WASAPI, output/cpal), resampler, time-stretch. Emits PlaybackEvents.
+                      The render callback never allocates, locks or does IO (ADR 0005).
   tinwave-signals     Signal event schema, bus, batched writer, ContextProvider trait, Signal Center queries.
   tinwave-context     Context providers: clock, holidays, sun, power, idle, audio device,
                       foreground-app category, network place, weather. All OS code for context lives here.
