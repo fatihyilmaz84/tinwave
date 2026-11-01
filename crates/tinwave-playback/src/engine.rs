@@ -61,7 +61,14 @@ struct Pending {
 /// non-blocking and none of them runs on the render callback.
 ///
 /// Drive it from one thread (the app's playback controller): issue commands, and call
-/// [`poll`](Self::poll) about ten times a second.
+/// [`poll`](Self::poll) about every 100 ms. The core has no timer of its own: the host that wires
+/// events to signals owns the cadence, and without `poll` no track-change, end-of-queue or
+/// position-mark events are produced.
+///
+/// # Shutdown
+/// Dropping the engine only signals the decoder thread and closes the stream; it does not wait,
+/// so a stuck read can never hang application exit. [`shutdown`](Self::shutdown) signals and joins
+/// the thread, for tests and orderly teardown.
 pub struct Engine {
     sh: Arc<Shared>,
     tx: SyncSender<Cmd>,

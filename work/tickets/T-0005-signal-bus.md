@@ -3,7 +3,7 @@ id: T-0005
 title: Signal bus with priority drop policy, category toggles, and UI counters
 type: feature
 epic: E-00
-status: in_progress
+status: done
 priority: P0
 size: M
 depends_on: [T-0004, T-0013]
@@ -13,7 +13,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1)
 branch: t/T-0005-signal-bus
-review_round: 0
+review_round: 1
 created_by: lead
 ---
 
@@ -38,3 +38,6 @@ docs/rules/privacy-and-signals.md (toggles at the source), docs/rules/testing.md
 
 ## Signals & storage
 Implements counters and coalescing that keep the storage budget.
+
+## Merged
+2026-11-02, merge commit ee20850 (branch head b921243). Review: review-1 (APPROVE). Gates green on main (159 tests); emit p99 gate 200-400 ns. Non-blocking findings -> T-0022.

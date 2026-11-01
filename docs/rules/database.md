@@ -30,6 +30,8 @@ Separating `signals.db` makes export/wipe simple and keeps the hot write path of
 CREATE TABLE dict_device    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
 CREATE TABLE dict_recording (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
 CREATE TABLE dict_source    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
+-- Albums, artists, playlists (UUIDv7 ids are unique across types; kind = EntityKind code, for readability/export).
+CREATE TABLE dict_entity    (id INTEGER PRIMARY KEY, kind INTEGER NOT NULL, uuid BLOB NOT NULL UNIQUE);
 
 CREATE TABLE session (
   id            INTEGER PRIMARY KEY,
@@ -97,10 +99,12 @@ CREATE TABLE rollup_monthly (
 CREATE TABLE ui_counter (
   day      INTEGER NOT NULL,                -- yyyymmdd local
   kind     INTEGER NOT NULL,                -- Impression | ArtworkHover | PageDwell
-  entity   INTEGER NOT NULL,                -- dictionary id (recording/album/artist)
+  entity_kind INTEGER NOT NULL,             -- EntityKind code: Track -> dict_recording, else dict_entity
+  entity   INTEGER NOT NULL,                -- dictionary id in the table entity_kind selects
   count    INTEGER NOT NULL,
   total_ms INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (day, kind, entity)
+  max_scrolled INTEGER NOT NULL DEFAULT 0,  -- PageDwell only: running max scrolled fraction, quantized 0-255
+  PRIMARY KEY (day, kind, entity_kind, entity)
 ) WITHOUT ROWID;
 ```
 

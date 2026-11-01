@@ -18,7 +18,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | tw-builder r1 | `t/T-0005-signal-bus` · `D:\dev\Tinwave-worktrees\T-0005-signal-bus` |
+| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | tw-reviewer r1 — b921243 ([build-1](reports/T-0005/build-1.md)) | `t/T-0005-signal-bus` · `D:\dev\Tinwave-worktrees\T-0005-signal-bus` |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-builder r1 | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | tw-spike r1 | `t/T-0009-spike-time-stretch` · `D:\dev\Tinwave-worktrees\T-0009-spike-time-stretch` |
 
@@ -49,6 +49,7 @@ Max 3 agents in flight, reviewers included.
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | T-0016 |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & writer | T-0005 |
 | [T-0007](tickets/T-0007-storage-growth-test.md) Growth test v1 | T-0006 |
+| [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | T-0006 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers (E-01) | T-0005 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
@@ -77,5 +78,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | 2edd5dd | spike-1 → D-0003, D-0004, T-0016..T-0020 |
 | [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | e6d2cb6 | build-1/2, review-1 (changes), review-2 (approve) |
 
-Proposals P-0001..P-0028 all have outcomes (see work/proposals/). Parked: P-0003 (CI, needs a remote), P-0016
-(worktree EOL refresh), P-0027 (IAudioClock interpolation).
+Proposals P-0001..P-0033 all have outcomes (see work/proposals/). Parked: P-0003 (CI, needs a remote), P-0016
+(worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0033 (bench CI gate).

@@ -38,7 +38,8 @@ Rule: **a signal expected to fire more than ~50 times per hour is a counter, not
 ### 2. Coalesce gestures
 
 Already required by [qml-ui.md](qml-ui.md): one event per volume/speed gesture, not per slider tick.
-System-volume callbacks are coalesced over 600 ms. Repeated seeks within 2 s merge into one seek
+System-volume callbacks are coalesced over a 400 ms trailing window (ADR 0004); in-app volume and rate gestures
+over 600 ms (design-system.md §5). The windows live in one table in `tinwave-signals` (`coalesce.rs`). Repeated seeks within 2 s merge into one seek
 (first `from`, last `to`).
 
 ### 3. Compact rows
