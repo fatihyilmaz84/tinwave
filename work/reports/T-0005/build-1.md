@@ -45,3 +45,12 @@ Lead answers (2026-11-02), sent before review:
 - OutputDeviceChanged → reserved (catalog §1 interprets volume events relative to it); amend requested.
 - first_seq / set_tz_offset division confirmed; recorded in T-0006.
 - All other decisions accepted. Docs proposals fixed by the lead on main (P-0029, P-0030).
+
+---
+HANDOFF T-0005 (round 1, amended)
+status: done
+branch: t/T-0005-signal-bus   commit: b921243
+summary: OutputDeviceChanged is now reserved priority. Only crates/tinwave-signals/src/priority.rs changed. Rule text: "catalog 1-4 and 8, plus kinds whose loss would change how a reserved event is interpreted (OutputDeviceChanged)". Pinned low list: ViewOpened, WindowState, EqChanged, ExclusiveModeToggled, CrossfadeChanged. Tier test every_reserved_kind_is_a_t0_event_except_the_named_interpretation_inputs allows RESERVED_NON_T0 = [(OutputDeviceChanged, T1)] by name.
+checks: fmt pass, clippy pass, tests 159 passed / 0 failed, deny pass; emit bench gate pass (p99 200 ns draining, 200 ns evicting, 400 ns with 3 flooders).
+files changed: crates/tinwave-signals/src/priority.rs
+deviations: none; proposals: none; questions: none

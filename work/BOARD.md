@@ -18,7 +18,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | tw-builder r1 — built (a4ceaec); amending: OutputDeviceChanged reserved; then review | `t/T-0005-signal-bus` · `D:\dev\Tinwave-worktrees\T-0005-signal-bus` |
+| [T-0005](tickets/T-0005-signal-bus.md) Signal bus | tw-reviewer r1 — b921243 ([build-1](reports/T-0005/build-1.md)) | `t/T-0005-signal-bus` · `D:\dev\Tinwave-worktrees\T-0005-signal-bus` |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-builder r1 | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | tw-spike r1 | `t/T-0009-spike-time-stretch` · `D:\dev\Tinwave-worktrees\T-0009-spike-time-stretch` |
 
