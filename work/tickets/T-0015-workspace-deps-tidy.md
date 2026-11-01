@@ -6,7 +6,7 @@ epic: E-00
 status: backlog
 priority: P2
 size: S
-depends_on: [T-0013, T-0004]
+depends_on: [T-0005]   # T-0013, T-0004 done; waits for T-0005 (same crate)
 scope:
   - .gitattributes
   - Cargo.toml
@@ -15,10 +15,12 @@ scope:
   - crates/tinwave-core/src/rng.rs
   - crates/tinwave-core/src/id.rs
   - crates/tinwave-signals/Cargo.toml
+  - crates/tinwave-signals/src/enums.rs
+  - crates/tinwave-signals/src/frozen.rs
 owner:
 branch:
 review_round: 0
-created_by: from P-0014, P-0015, P-0017, P-0019
+created_by: from P-0014, P-0015, P-0017, P-0019, P-0028
 ---
 
 ## Context
@@ -32,6 +34,8 @@ is dead weight. `getrandom` is a direct dependency of tinwave-core only. docs/ru
   `trait Rng` as required for any secret (e.g. `device_secret`); a compile-time test that `SeededRng: !CryptoRng`.
 - `.gitattributes` (P-0019): `*.bat text eol=crlf`, `*.cmd text eol=crlf`; `binary` for jpeg, gif, webp, ttf, otf, aac,
   opus, sqlite, db-wal, db-shm.
+- `InputSource::NAMES` and its frozen list come from an exhaustive match (no wildcard), so a new variant fails to
+  compile until it is named and frozen (P-0028).
 - Fix the doc label in id.rs: the algorithm is RFC 9562 §6.2 **Method 2** (monotonic random), not Method 1.
 
 ## Acceptance criteria

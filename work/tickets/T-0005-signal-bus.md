@@ -3,14 +3,16 @@ id: T-0005
 title: Signal bus with priority drop policy, category toggles, and UI counters
 type: feature
 epic: E-00
-status: backlog
+status: in_progress
 priority: P0
 size: M
 depends_on: [T-0004, T-0013]
 scope:
   - crates/tinwave-signals/
-owner:
-branch:
+  - Cargo.toml            # [workspace.dependencies] only
+  - Cargo.lock
+owner: tw-builder (round 1)
+branch: t/T-0005-signal-bus
 review_round: 0
 created_by: lead
 ---

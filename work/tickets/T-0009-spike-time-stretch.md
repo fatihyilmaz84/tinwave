@@ -3,14 +3,14 @@ id: T-0009
 title: "Spike: time-stretch library for 0.75×–1.5× playback (quality, CPU, license)"
 type: spike
 epic: E-00
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0003]
 scope:
   - spikes/T-0009-time-stretch/
-owner:
-branch:
+owner: tw-spike (round 1)
+branch: t/T-0009-spike-time-stretch
 review_round: 0
 created_by: lead
 ---

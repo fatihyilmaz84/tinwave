@@ -10,10 +10,15 @@ fields; they are stored as tiny packed, quantized structs (see [storage-budget.m
 
 **Storage class** of each signal: **E** = raw event (hot 90 days, then folded into play records/rollups),
 **C** = counter only (never a raw event), **D** = derived (computed, not stored per occurrence).
+A derived signal's privacy tier is the **highest tier among its inputs** (e.g. `PerceivedLevel` is T1 because it
+uses the output device's gain); the code enforces this through `SignalKind::derived_inputs()`.
 
 Common enums:
-- `InputSource`: `Mouse | Keyboard | MediaKey | Tray | MiniPlayer | Remote(device_id) | Auto`
+- `InputSource`: `Mouse | Keyboard | MediaKey | Tray | MiniPlayer | Remote(device_id) | Auto | System`
 - `Section`: from [audio analysis](audio-analysis.md) — `Intro | Verse | Build | Chorus | Drop | Bridge | Breakdown | Outro | Unknown`, plus `section_index`
+
+Flag sets (`RadioFeedback.context_scope`, `MetadataEdited.fields`) and every enum code are frozen by name in
+`crates/tinwave-signals/src/frozen.rs`; a retired code is listed there and never reused.
 
 ---
 
@@ -50,7 +55,7 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 | `SeekForward` | T0 | Seek > 2 s forward | `from_ms`, `to_ms`, `section_from`, `section_to`, `input` | Over intro ⇒ intro-intolerance for this track/artist. Mid-track ⇒ skipping a section (that section −). |
 | `SeekBack` | T0 | Seek > 2 s backward | same | Replay of a segment ⇒ +0.6 and adds to the **replay heatmap** (64 bins per track). |
 | `Replayed` | T0 | Previous / restart within 30 s of finishing, or repeat-one loop | `loop_count` | +0.8 per loop, diminishing. |
-| `RepeatModeChanged` | T0 | Repeat off/all/one | `mode` | Repeat-one on a track ⇒ obsession phase marker. |
+| `RepeatModeChanged` | T0 | Repeat off/all/one | `mode` (`Off|All|One`) | Repeat-one on a track ⇒ obsession phase marker. |
 | `Paused` / `Resumed` | T0 | Pause/resume | `pause_ms` (on resume), `input` | Long pause then resume same track ⇒ neutral. Pause then quit ⇒ session end. |
 | `PreviousPressed` | T0 | Previous track | `pos_ds` | Going back to the *previous* track ⇒ +0.5 for that track. |
 
@@ -58,17 +63,17 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
-| `QueuedNext` / `QueuedLater` | T0 | Play next / add to queue | `from_view` | Explicit intent +0.4 |
+| `QueuedNext` / `QueuedLater` | T0 | Play next / add to queue | `from_view` (`Home|Library|Album|Artist|Playlist|Search|Queue|Radio|NowPlaying|Lyrics|MiniPlayer|Insights`) | Explicit intent +0.4 |
 | `RemovedFromQueue` | T0 | Removed before it played | `was_radio_pick` | Pre-listen rejection −0.4 (strong for radio picks) |
 | `QueueReordered` | T0 | Drag in queue | `distance` (signed) | Moved earlier ⇒ eager (+0.2) |
 | `PlayStarted` | T0 | Any play start | `origin` (`Search|Album|Artist|Playlist|Radio|Queue|Resume|Remote`), `input` | Manual plays weigh more than radio/shuffle plays. |
 | `Favorited` / `Unfavorited` | T0 | Heart toggle | — | +2.0 / −1.0 |
 | `Rated` | T0 | Rating set | `stars` | Mapped −2…+2 |
-| `PlaylistAdded` / `PlaylistRemoved` | T0 | Edit playlist | `playlist_id`, `playlist_kind` | +1.0 / −0.3; playlist names become user-defined "moods". |
+| `PlaylistAdded` / `PlaylistRemoved` | T0 | Edit playlist | `playlist_id`, `playlist_kind` (`Manual|Smart`) | +1.0 / −0.3; playlist names become user-defined "moods". |
 | `MetadataEdited` | T0 | Tag edit | `fields` (names only) | Caring signal +0.3; genre edits also feed similarity. |
 | `ArtworkChanged` | T0 | Artwork edit | — | Caring +0.2 |
-| `SearchPerformed` | T0 | Search submitted / settled | `query_len`, `query_hash`, `result_count`, `scope` | Query text stored locally for search history only if user enables it (default on, T0). |
-| `SearchResultOpened` | T0 | Result clicked | `rank`, `entity_kind` | Intent; low-rank clicks reveal ranking misses. |
+| `SearchPerformed` | T0 | Search submitted / settled | `query_len`, `query_hash`, `result_count`, `scope` (`All|Tracks|Albums|Artists|Playlists`) | Query text stored locally for search history only if user enables it (default on, T0). |
+| `SearchResultOpened` | T0 | Result clicked | `rank`, `entity_kind` (`Track|Album|Artist|Playlist`) | Intent; low-rank clicks reveal ranking misses. |
 | `SearchNoResult` | T0 | 0 results | `query` | **Wishlist**: music the user wants but does not own. Shown in Insights. |
 
 ## 5. Browsing & attention — "what catches their eye?"
@@ -81,8 +86,8 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 | `PageDwell` | T0 | Leave an album/artist/playlist page | `entity`, `dwell_ms`, `scrolled_fraction` | Long dwell without play ⇒ curiosity candidate for discovery radio. |
 | `ArtworkHover` | T0 | Hover ≥ 800 ms | `entity`, `hover_ms` | Weak interest +0.05 |
 | `Impression` | T0 | Item visible ≥ 500 ms in a settled list | `entity`, `list` | Many impressions, no clicks ⇒ fatigue (−0.02 each, capped). |
-| `ViewOpened` | T0 | Lyrics, Now Playing fullscreen, mini-player, Insights | `view` | Lyrics open ⇒ singing-along/engaged (+0.2). Mini-player ⇒ background listening. |
-| `WindowState` | T1 | App focused / unfocused / minimized / tray | `state` | Foreground vs background listening; skip in background weighs more (user bothered to switch). |
+| `ViewOpened` | T0 | Lyrics, Now Playing fullscreen, mini-player, Insights | `view` (`Home|Library|Album|Artist|Playlist|Search|Queue|Radio|NowPlaying|Lyrics|MiniPlayer|Insights`) | Lyrics open ⇒ singing-along/engaged (+0.2). Mini-player ⇒ background listening. |
+| `WindowState` | T1 | App focused / unfocused / minimized / tray | `state` (`Focused|Unfocused|Minimized|Tray`) | Foreground vs background listening; skip in background weighs more (user bothered to switch). |
 
 ## 6. Output & sound — "how do they listen?"
 
@@ -123,7 +128,7 @@ Captured by [context providers](context-engine.md) into a `ContextSnapshot`, ded
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
 | `SessionStarted` / `SessionEnded` | T0 | First play after ≥ 30 min silence / 30 min silence | `start_origin`, `tracks`, `minutes` | Session-level modeling (first manual pick = session mood). |
-| `RadioFeedback` | T0 | "Not now", "Never in this context", "More like this", "Forget this play" | `kind`, `context_scope` | Direct corrections, strongest weights. |
+| `RadioFeedback` | T0 | "Not now", "Never in this context", "More like this", "Forget this play" | `kind` (`NotNow|NeverInContext|MoreLikeThis|ForgetThisPlay`), `context_scope` | Direct corrections, strongest weights. |
 | `ExplanationOpened` | T0 | User opens "Why this?" | `reason_kind` | Which explanations people care about. |
 | `SignalDropped` | meta | Channel overflow | `kind`, `count` | Health metric shown in Diagnostics (in memory only). |
 

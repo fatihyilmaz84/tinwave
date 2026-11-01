@@ -3,7 +3,7 @@ id: T-0004
 title: Signal schema, tier mapping, and packed payload codec
 type: feature
 epic: E-00
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: [T-0001]
@@ -41,3 +41,6 @@ Bus, storage, emission from playback.
 
 ## Signals & storage
 Defines the schema; storage target ≤ 60 bytes/event depends on these sizes.
+
+## Merged
+2026-11-02, merge commit e6d2cb6 (branch head b13237e). Reviews: review-1 (CHANGES_REQUESTED), review-2 (APPROVE). Gates green on main (93 tests). Lead added the Q5 enum lists and the derived-tier rule to the catalog right after (P-0011); catalog_sync passes against them.
