@@ -3,7 +3,7 @@ id: T-0012
 title: Add .gitattributes that pins LF line endings and marks binaries
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0001]
@@ -11,7 +11,7 @@ scope:
   - .gitattributes
 owner: tw-builder (round 1)
 branch: t/T-0012-gitattributes
-review_round: 0
+review_round: 1
 created_by: from P-0001
 ---
 

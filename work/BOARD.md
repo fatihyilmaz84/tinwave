@@ -18,7 +18,6 @@ _Maintained by the lead. Last updated: 2026-11-01._
 |---|---|---|
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | tw-spike r1 | `t/T-0003-spike-audio-backend` · `D:\dev\Tinwave-worktrees\T-0003-spike-audio-backend` |
 | [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder r1 — **done (9bb84ee), waits for T-0013 merge, then adapts tests and goes to review** | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
-| [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | tw-builder r1 | `t/T-0012-gitattributes` · `D:\dev\Tinwave-worktrees\T-0012-gitattributes` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -30,6 +29,7 @@ T-0004 merges main and switches to `IdGenerator`/`from_parts` before its review.
 | Ticket | Reviewer | Build report |
 |---|---|---|
 | [T-0013](tickets/T-0013-injectable-clock.md) Injectable Clock + Rng seam | tw-reviewer r1 | [build-1](reports/T-0013/build-1.md) · e925140 |
+| [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | tw-reviewer r1 | [build-1](reports/T-0012/build-1.md) · 9d1a3f8 |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -69,4 +69,4 @@ Accepted 2026-11-01: [ADR 0004](../docs/adr/0004-windows-volume-device-provider.
 
 Proposals: P-0001 → T-0012 · P-0002, P-0004 → T-0013 · P-0003 parked (CI, needs a remote) · P-0005, P-0008 done by
 lead · P-0006 → PO runbook · P-0007 → T-0014 · P-0009 → E-01 playback constraint · P-0010 → T-0007 · P-0011 → lead after T-0004
-merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015.
+merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked.
