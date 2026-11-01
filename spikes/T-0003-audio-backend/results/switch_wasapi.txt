@@ -1,0 +1,8 @@
+render endpoints:
+    Luidsprekers (Steam Streaming Microphone) [48000 Hz / 2 ch / 32 bit] id={0.0.0.00000000}.{5761b99b-50ba-407e-b0f0-d7c4898791d6}
+  * Luidsprekers (High Definition Audio Device) [48000 Hz / 2 ch / 32 bit] id={0.0.0.00000000}.{a0ef8a85-bb1e-4132-ae8d-3ea4d14c8c4a}
+    Luidsprekers (Steam Streaming Speakers) [48000 Hz / 2 ch / 32 bit] id={0.0.0.00000000}.{e53b02c4-bd5d-46ae-9c0f-619c9d088725}
+   playing on default at 1510 ms
+   -> Luidsprekers (Steam Streaming Microphone): switch took 574 ms (stop old + open new + first audio); position before 1510 ms, 600 ms after switch 2134 ms (expected ~ +600 + switch)
+   -> Luidsprekers (Steam Streaming Speakers): switch took 113 ms (stop old + open new + first audio); position before 2134 ms, 600 ms after switch 2766 ms (expected ~ +600 + switch)
+   -> (system default): switch took 25 ms (stop old + open new + first audio); position before 2766 ms, 600 ms after switch 3386 ms (expected ~ +600 + switch)

@@ -1,0 +1,15 @@
+default endpoint: Luidsprekers (High Definition Audio Device)
+shared-mode mix format: WaveFormat { nAvgBytesPerSec: 384000, cbSize: 22, nBlockAlign: 8, wBitsPerSample: 32, nSamplesPerSec: 48000, wFormatTag: 65534, wValidBitsPerSample: 32, SubFormat: 00000003-0000-0010-8000-00AA00389B71, nChannel: 2, dwChannelMask: 3 }
+device period default 10000 us, minimum 2666 us
+exclusive-mode IsFormatSupported matrix (rate x format):
+    44100 Hz: i16, i24 in 32, i32
+    48000 Hz: i16, i24 in 32, i32
+    88200 Hz: i16, i24 in 32, i32
+    96000 Hz: i16, i24 in 32, i32
+   176400 Hz: i16, i24 in 32, i32
+   192000 Hz: i16, i24 in 32, i32
+opening exclusive stream at 48000 Hz (briefly takes the device away from other apps)...
+   exclusive stream FAILED: exclusive format: Could not find a compatible format
+   192000 Hz: i16, i24 in 32, i32
+opening exclusive stream at 48000 Hz (briefly takes the device away from other apps)...
+   exclusive OK on [wasapi:Luidsprekers (High Definition Audio Device)], mode exclusive 32b/24vb period 4000 us; position after 1.5 s = 1500 ms; underruns 0; open+first audio 42 ms

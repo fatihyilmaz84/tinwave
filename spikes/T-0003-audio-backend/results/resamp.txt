@@ -1,0 +1,4 @@
+rubato Fft 44100->48000: 10 s of stereo audio resampled in 5.0 ms (2013x realtime, 0.05% of one core when streaming)
+output frames: whole 480001 | A 240846 + B 239155 = 480001 (expected ceil ratio: 240846 + 239155)
+independent per-track resampling vs one continuous resampler: max error within +-400 frames of boundary 2.65e-2, elsewhere 4.76e-2
+  (a continuous resampler across same-rate tracks has no such error; independent ones only matter at rate changes)
