@@ -3,7 +3,7 @@ id: T-0001
 title: Create Cargo workspace, quality gates, and core id types
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: []
@@ -52,3 +52,6 @@ None.
 
 ## Notes for the builder
 Keep `tinwave-core` dependency-light (`uuid`, `serde`, `thiserror`). No async runtime.
+
+## Merged
+2026-11-01, merge commit 1452c72 (branch head bff7afb). Reviews: reports/T-0001/review-1.md (CHANGES_REQUESTED), review-2.md (APPROVE). Gates green on main.

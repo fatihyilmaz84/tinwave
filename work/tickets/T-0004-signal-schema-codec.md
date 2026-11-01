@@ -3,15 +3,16 @@ id: T-0004
 title: Signal schema, tier mapping, and packed payload codec
 type: feature
 epic: E-00
-status: backlog
+status: in_progress
 priority: P0
 size: M
 depends_on: [T-0001]
 scope:
   - crates/tinwave-signals/
-  - Cargo.toml            # add member/deps only
-owner:
-branch:
+  - Cargo.toml            # [workspace.dependencies] only — members glob "crates/*" already covers the crate
+  - Cargo.lock
+owner: tw-builder (round 1)
+branch: t/T-0004-signal-schema-codec
 review_round: 0
 created_by: lead
 ---

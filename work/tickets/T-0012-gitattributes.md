@@ -3,7 +3,7 @@ id: T-0012
 title: Add .gitattributes that pins LF line endings and marks binaries
 type: chore
 epic: E-00
-status: backlog
+status: ready
 priority: P1
 size: S
 depends_on: [T-0001]

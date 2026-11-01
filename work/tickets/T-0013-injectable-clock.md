@@ -3,7 +3,7 @@ id: T-0013
 title: Add an injectable Clock and Rng seam to tinwave-core and use them for id generation
 type: chore
 epic: E-00
-status: backlog
+status: ready
 priority: P0
 size: S
 depends_on: [T-0001]

@@ -9,7 +9,8 @@ size: M
 depends_on: [T-0005]
 scope:
   - crates/tinwave-db/
-  - Cargo.toml            # add member/deps only
+  - Cargo.toml            # [workspace.dependencies] only — members glob "crates/*" already covers the crate
+  - Cargo.lock
 owner:
 branch:
 review_round: 0
