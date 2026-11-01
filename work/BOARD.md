@@ -17,18 +17,18 @@ _Maintained by the lead. Last updated: 2026-11-01._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | tw-spike r1 | `t/T-0003-spike-audio-backend` · `D:\dev\Tinwave-worktrees\T-0003-spike-audio-backend` |
-| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder r1 — **merging main (T-0013 landed) and adapting tests to the new id API, then review** | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 T-0004 was told mid-flight about the ADR 0004 catalog changes (`OutputDeviceChanged` payload, `InputSource::System`).
-T-0013 removes `X::new()`/`new_at`/`Default` from ids; T-0004's tests still use `new()`, so T-0013 merges first and
-T-0004 merges main and switches to `IdGenerator`/`from_parts` before its review. T-0004 lead answers: reports/T-0004/build-1.md.
+T-0004 merged main after T-0013 landed and switched its tests to `from_parts`; lead answers to its 11 catalog questions are
+in reports/T-0004/build-1.md.
 
 ## In review
 | Ticket | Reviewer | Build report |
 |---|---|---|
 | [T-0012](tickets/T-0012-gitattributes.md) .gitattributes, LF endings | tw-reviewer r1 | [build-1](reports/T-0012/build-1.md) · 9d1a3f8 |
+| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-reviewer r1 | [build-1](reports/T-0004/build-1.md) (incl. lead answers, rebased) · dfa71af |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |

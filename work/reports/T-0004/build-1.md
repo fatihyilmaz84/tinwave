@@ -108,3 +108,14 @@ docs updated: none (catalog still needs your rule sentence after merge)
 deviations from ticket: none new
 proposals: none new
 questions for lead: none
+
+---
+HANDOFF T-0004 (round 1, rebased on main)
+status: done
+branch: t/T-0004-signal-schema-codec   commit: dfa71af
+summary: I merged main (0f41479, T-0013) into the branch with `git merge main` (merge commit db8e974). It merged with no conflicts, and the catalog-copy commit ec6479e was a no-op. The only code affected was the `event.rs` tests, which used the removed `DeviceId::new()`, `SessionId::new()` and `RecordingId::new()`. They now use pinned ids from `X::from_parts(at, [n; 10])`, with `at` = 1_700_000_000_000 ms. No system clock or RNG is used in tests.
+checks: fmt pass, clippy pass (workspace, all targets, -D warnings), tests 89 passed / 0 failed (39 core + 29 signals unit + 8 catalog_sync + 7 codec_roundtrip + 6 payload_versions), deny pass (advisories, bans, licenses, sources ok)
+files changed in the latest commit: crates/tinwave-signals/src/event.rs (tests only)
+deviations: none; Cargo.lock needed no regeneration
+proposals: none
+questions for lead: none
