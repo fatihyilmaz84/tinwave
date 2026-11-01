@@ -1,0 +1,86 @@
+=== format matrix @ 48000 Hz (A = 240777 frames, B = 239223 frames) ===
+-- WAV PCM16  (gapless=true)
+   decode: AudioCodecId(264) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.1ms] [12345: off=+0 c=1.000 0.1ms] [96007: off=+0 c=1.000 0.1ms] [192000: off=+0 c=1.000 0.1ms] [215000: off=+0 c=1.000 0.1ms]
+-- WAV PCM24  (gapless=true)
+   decode: AudioCodecId(260) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=7.45e-8 B=7.45e-8 | SNR A=126.0 dB B=126.0 dB
+   seek: [0: off=+0 c=1.000 0.1ms] [12345: off=+0 c=1.000 0.1ms] [96007: off=+0 c=1.000 0.1ms] [192000: off=+0 c=1.000 0.1ms] [215000: off=+0 c=1.000 0.2ms]
+-- WAV float32  (gapless=true)
+   decode: AudioCodecId(284) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=0.00e0 B=0.00e0 | SNR A=330.6 dB B=330.6 dB
+   seek: [0: off=+0 c=1.000 0.1ms] [12345: off=+0 c=1.000 0.1ms] [96007: off=+0 c=1.000 0.1ms] [192000: off=+0 c=1.000 0.1ms] [215000: off=+0 c=1.000 0.1ms]
+-- FLAC 16  (gapless=true)
+   decode: AudioCodecId(8192) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.2ms] [96007: off=+0 c=1.000 0.4ms] [192000: off=+0 c=1.000 0.3ms] [215000: off=+0 c=1.000 0.3ms]
+-- FLAC 24  (gapless=true)
+   decode: AudioCodecId(8192) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=7.45e-8 B=7.45e-8 | SNR A=126.0 dB B=126.0 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.3ms] [96007: off=+0 c=1.000 0.3ms] [192000: off=+0 c=1.000 0.3ms] [215000: off=+0 c=1.000 0.3ms]
+-- MP3 192k (LAME/Xing tag)  (gapless=true)
+   decode: AudioCodecId(4102) 48000Hz 2ch num_frames=Some(240777) delay=Some(1105) padding=Some(1190)
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=3.06e-3 B=3.06e-3 | SNR A=30.5 dB B=30.4 dB
+   decode gapless=false: AudioCodecId(4102) 48000Hz 2ch num_frames=Some(240777) delay=Some(1105) padding=Some(1190)
+      lenErr A=+2295 B=+1545 | lag A=+1105 B=+1105 (corr 1.0000/1.0000) | boundary gap = +2295 frames (47.812 ms) | maxErr A=3.06e-3 B=3.06e-3 | SNR A=30.5 dB B=30.4 dB
+   seek: [0: off=+0 c=1.000 0.4ms] [12345: off=+0 c=1.000 0.3ms] [96007: off=+0 c=1.000 0.3ms] [192000: off=+0 c=1.000 0.5ms] [215000: off=+0 c=1.000 0.3ms]
+-- MP3 192k (no gapless tag)  (gapless=true)
+   decode: AudioCodecId(4102) 48000Hz 2ch num_frames=Some(243072) delay=None padding=None
+      lenErr A=+2295 B=+1545 | lag A=+1105 B=+1105 (corr 1.0000/1.0000) | boundary gap = +2295 frames (47.812 ms) | maxErr A=3.06e-3 B=3.06e-3 | SNR A=30.5 dB B=30.4 dB
+   seek: [0: off=+1105 c=1.000 0.4ms] [12345: off=+1105 c=1.000 0.4ms] [96007: off=+1105 c=1.000 0.4ms] [192000: off=+1105 c=1.000 0.4ms] [215000: off=+1105 c=1.000 0.4ms]
+-- ALAC 16 (own muxer)  (gapless=true)
+   decode: AudioCodecId(8195) 48000Hz 2ch num_frames=Some(240777) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.4ms] [12345: off=+0 c=1.000 0.4ms] [96007: off=+0 c=1.000 0.6ms] [192000: off=+0 c=1.000 0.6ms] [215000: off=+0 c=1.000 0.7ms]
+-- AAC-LC 192k (MF encoder)  (gapless=true)
+   decode: AudioCodecId(4103) 48000Hz 2ch num_frames=Some(241664) delay=None padding=None
+      lenErr A=+887 B=+393 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +887 frames (18.479 ms) | maxErr A=3.74e-3 B=4.06e-3 | SNR A=48.0 dB B=43.1 dB
+   decode gapless=false: AudioCodecId(4103) 48000Hz 2ch num_frames=Some(241664) delay=None padding=None
+      lenErr A=+887 B=+393 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +887 frames (18.479 ms) | maxErr A=3.74e-3 B=4.06e-3 | SNR A=48.0 dB B=43.1 dB
+   decode + external trim (delay=0, valid=exact; what an iTunSMPB/elst-aware library layer would pass): AudioCodecId(4103) 48000Hz 2ch num_frames=Some(241664) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=3.74e-3 B=4.06e-3 | SNR A=48.0 dB B=43.1 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.2ms] [96007: off=+0 c=1.000 0.3ms] [192000: off=+0 c=1.000 0.2ms] [215000: off=+0 c=1.000 0.2ms]
+=== format matrix @ 44100 Hz (A = 221277 frames, B = 219723 frames) ===
+-- WAV PCM16  (gapless=true)
+   decode: AudioCodecId(264) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.1ms] [88207: off=+0 c=1.000 0.1ms] [176400: off=+0 c=1.000 0.1ms] [195500: off=+0 c=1.000 0.1ms]
+-- WAV PCM24  (gapless=true)
+   decode: AudioCodecId(260) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=7.45e-8 B=7.45e-8 | SNR A=126.0 dB B=126.0 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.1ms] [88207: off=+0 c=1.000 0.1ms] [176400: off=+0 c=1.000 0.1ms] [195500: off=+0 c=1.000 0.2ms]
+-- WAV float32  (gapless=true)
+   decode: AudioCodecId(284) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=0.00e0 B=0.00e0 | SNR A=330.2 dB B=330.2 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.1ms] [88207: off=+0 c=1.000 0.1ms] [176400: off=+0 c=1.000 0.1ms] [195500: off=+0 c=1.000 0.1ms]
+-- FLAC 16  (gapless=true)
+   decode: AudioCodecId(8192) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.3ms] [88207: off=+0 c=1.000 0.3ms] [176400: off=+0 c=1.000 0.2ms] [195500: off=+0 c=1.000 0.3ms]
+-- FLAC 24  (gapless=true)
+   decode: AudioCodecId(8192) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=7.45e-8 B=7.45e-8 | SNR A=126.0 dB B=126.0 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.2ms] [88207: off=+0 c=1.000 0.3ms] [176400: off=+0 c=1.000 0.3ms] [195500: off=+0 c=1.000 0.3ms]
+-- MP3 192k (LAME/Xing tag)  (gapless=true)
+   decode: AudioCodecId(4102) 44100Hz 2ch num_frames=Some(221277) delay=Some(1105) padding=Some(1106)
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=3.05e-3 B=3.08e-3 | SNR A=30.4 dB B=30.5 dB
+   decode gapless=false: AudioCodecId(4102) 44100Hz 2ch num_frames=Some(221277) delay=Some(1105) padding=Some(1106)
+      lenErr A=+2211 B=+1461 | lag A=+1105 B=+1105 (corr 1.0000/1.0000) | boundary gap = +2211 frames (50.136 ms) | maxErr A=3.05e-3 B=3.08e-3 | SNR A=30.4 dB B=30.5 dB
+   seek: [0: off=+0 c=1.000 0.4ms] [12345: off=+0 c=1.000 0.4ms] [88207: off=+0 c=1.000 0.3ms] [176400: off=+0 c=1.000 0.4ms] [195500: off=+0 c=1.000 0.4ms]
+-- MP3 192k (no gapless tag)  (gapless=true)
+   decode: AudioCodecId(4102) 44100Hz 2ch num_frames=Some(222336) delay=None padding=None
+      lenErr A=+1059 B=+309 | lag A=+1105 B=+1105 (corr 1.0000/1.0000) | boundary gap = +1059 frames (24.014 ms) | maxErr A=3.05e-3 B=3.08e-3 | SNR A=30.4 dB B=30.5 dB
+   seek: [0: off=+1105 c=1.000 0.4ms] [12345: off=+1105 c=1.000 0.4ms] [88207: off=+1014 c=0.991 0.3ms] [176400: off=+1105 c=1.000 0.4ms] [195500: off=+1105 c=1.000 0.4ms]
+-- ALAC 16 (own muxer)  (gapless=true)
+   decode: AudioCodecId(8195) 44100Hz 2ch num_frames=Some(221277) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=1.83e-5 B=1.83e-5 | SNR A=77.8 dB B=77.8 dB
+   seek: [0: off=+0 c=1.000 0.4ms] [12345: off=+0 c=1.000 0.6ms] [88207: off=+0 c=1.000 0.6ms] [176400: off=+0 c=1.000 0.5ms] [195500: off=+0 c=1.000 0.6ms]
+-- AAC-LC 192k (MF encoder)  (gapless=true)
+   decode: AudioCodecId(4103) 44100Hz 2ch num_frames=Some(222208) delay=None padding=None
+      lenErr A=+931 B=+437 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +931 frames (21.111 ms) | maxErr A=4.81e-3 B=4.14e-3 | SNR A=46.8 dB B=43.0 dB
+   decode gapless=false: AudioCodecId(4103) 44100Hz 2ch num_frames=Some(222208) delay=None padding=None
+      lenErr A=+931 B=+437 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +931 frames (21.111 ms) | maxErr A=4.81e-3 B=4.14e-3 | SNR A=46.8 dB B=43.0 dB
+   decode + external trim (delay=0, valid=exact; what an iTunSMPB/elst-aware library layer would pass): AudioCodecId(4103) 44100Hz 2ch num_frames=Some(222208) delay=None padding=None
+      lenErr A=+0 B=+0 | lag A=+0 B=+0 (corr 1.0000/1.0000) | boundary gap = +0 frames (0.000 ms) | maxErr A=4.81e-3 B=4.14e-3 | SNR A=46.8 dB B=43.0 dB
+   seek: [0: off=+0 c=1.000 0.2ms] [12345: off=+0 c=1.000 0.3ms] [88207: off=+0 c=1.000 0.3ms] [176400: off=+0 c=1.000 0.2ms] [195500: off=+0 c=1.000 0.3ms]

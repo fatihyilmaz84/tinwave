@@ -141,7 +141,7 @@ pub fn open_cpal(device: Option<&str>, rate: u32, mut renderer: Renderer) -> Res
             for d in host.output_devices()? {
                 let id = d.id().map(|i| i.to_string()).unwrap_or_default();
                 let name = d.description().map(|x| x.name().to_string()).unwrap_or_default();
-                if id == sel || name.to_lowercase().contains(&sel.to_lowercase()) {
+                if id == sel || id.contains(sel) || name.to_lowercase().contains(&sel.to_lowercase()) {
                     found = Some(d);
                     break;
                 }
@@ -258,8 +258,15 @@ fn open_wasapi(device: Option<&str>, rate: u32, mut renderer: Renderer, exclusiv
             let (def, min) = client.get_device_period().map_err(|e| e.to_string())?;
             let (fmt, mode, mode_s) = if exclusive {
                 // Ask the driver which integer format it takes at this rate.
-                let want = WaveFormat::new(24, 24, &SampleType::Int, rate as usize, 2, None);
-                let f = client.is_supported_exclusive_with_quirks(&want).map_err(|e| format!("exclusive format: {e}"))?;
+                let mut chosen = None;
+                for (bits, vbits) in [(32usize, 24usize), (32, 32), (16, 16)] {
+                    let want = WaveFormat::new(bits, vbits, &SampleType::Int, rate as usize, 2, None);
+                    if client.is_supported(&want, &ShareMode::Exclusive).is_ok() {
+                        chosen = Some(want);
+                        break;
+                    }
+                }
+                let f = chosen.ok_or_else(|| "exclusive: no supported integer format".to_string())?;
                 let period = client
                     .calculate_aligned_period_near(3 * min / 2, Some(128), &f)
                     .map_err(|e| format!("period: {e}"))?;

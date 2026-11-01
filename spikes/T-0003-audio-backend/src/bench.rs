@@ -166,6 +166,7 @@ pub fn cmd_gapless(dir: &Path, backend: &str, fmt: &str, rate: u32, device: Opti
         mem.private_mb
     );
     println!("   10 Hz reporter: {}", tick_stats(&ticks));
+    println!("   heap allocations/frees performed inside Renderer::render during the run: {}", crate::RT_ALLOCS.load(Relaxed));
     for l in logs {
         println!("   log: {l}");
     }
@@ -286,6 +287,7 @@ pub fn cmd_seekvol(dir: &Path, backend: &str, fmt: &str, rate: u32) -> Result<()
     // Volume ramp smoothness: largest sample-to-sample step of the recording around the 0.25 and 1.0 changes
     // relative to the signal's own largest step (a click would exceed it).
     let steps = |s: &[f32]| s.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    println!("   heap allocations/frees inside Renderer::render (incl. seeks + volume changes): {}", crate::RT_ALLOCS.load(Relaxed));
     println!("   largest sample step in whole recording (clicks would show as outliers vs 2*pi*f/fs*amp): {:.4}", steps(&left));
     for l in logs {
         println!("   log: {l}");
@@ -456,5 +458,134 @@ pub fn cmd_excl(rate: u32) -> Result<()> {
         }
         Err(e) => println!("   exclusive stream FAILED: {e:#}"),
     }
+    Ok(())
+}
+
+/// End-to-end gapless check at the OS mixer: WASAPI loopback capture of the default render endpoint while
+/// the engine plays A|B, then the same boundary analysis as the callback recording.
+pub fn cmd_loopback(dir: &Path, backend: &str, fmt: &str, rate: u32) -> Result<()> {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use wasapi::*;
+    let (paths, split, total) = files(dir, fmt, rate)?;
+    let reference = load_ref(&dir.join(format!("ref_{rate}_full.wav")))?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let s2 = stop.clone();
+    let (rdy_tx, rdy_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let cap_th = std::thread::spawn(move || -> Vec<f32> {
+        let _ = initialize_mta();
+        let mut out: Vec<f32> = Vec::with_capacity(rate as usize * 2 * 20);
+        let setup = || -> Result<_, String> {
+            let en = DeviceEnumerator::new().map_err(|e| e.to_string())?;
+            let dev = en.get_default_device(&Direction::Render).map_err(|e| e.to_string())?;
+            let mut client = dev.get_iaudioclient().map_err(|e| e.to_string())?;
+            let f = WaveFormat::new(32, 32, &SampleType::Float, rate as usize, 2, None);
+            let (def, _min) = client.get_device_period().map_err(|e| e.to_string())?;
+            client
+                .initialize_client(&f, &Direction::Capture, &StreamMode::EventsShared { autoconvert: true, buffer_duration_hns: def })
+                .map_err(|e| e.to_string())?;
+            let ev = client.set_get_eventhandle().map_err(|e| e.to_string())?;
+            let cap = client.get_audiocaptureclient().map_err(|e| e.to_string())?;
+            client.start_stream().map_err(|e| e.to_string())?;
+            Ok((en, client, ev, cap))
+        };
+        let (_en, client, ev, cap) = match setup() {
+            Ok(x) => x,
+            Err(e) => {
+                let _ = rdy_tx.send(Err(e));
+                return out;
+            }
+        };
+        let _ = rdy_tx.send(Ok(()));
+        let mut buf = vec![0u8; rate as usize * 8];
+        while !s2.load(Relaxed) {
+            if ev.wait_for_event(100).is_err() {
+                continue;
+            }
+            while let Ok(Some(n)) = cap.get_next_packet_size() {
+                if n == 0 {
+                    break;
+                }
+                if let Ok((frames, info)) = cap.read_from_device(&mut buf) {
+                    let bytes = frames as usize * 8;
+                    if info.flags.silent {
+                        out.extend(std::iter::repeat(0.0f32).take(frames as usize * 2));
+                    } else {
+                        out.extend(buf[..bytes].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+        let _ = client.stop_stream();
+        out
+    });
+    rdy_rx.recv().map_err(|e| anyhow!("{e}"))?.map_err(|e| anyhow!("{e}"))?;
+    if backend == "rodio" {
+        let handle = rodio::DeviceSinkBuilder::open_default_sink().map_err(|e| anyhow!("{e}"))?;
+        let player = rodio::Player::connect_new(&handle.mixer());
+        for p in &paths {
+            let f = std::fs::File::open(p)?;
+            player.append(rodio::Decoder::try_from(f).map_err(|e| anyhow!("{e}"))?);
+        }
+        let t0 = Instant::now();
+        while !player.empty() && t0.elapsed() < Duration::from_secs(14) {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        std::thread::sleep(Duration::from_millis(500));
+        drop(player);
+        drop(handle);
+    } else {
+        let eng = Engine::start(paths, vec![None, None], rate, None, true, None, opener(backend)?)?;
+        let _ = report_10hz(&eng, Duration::from_secs(14), |_, _| {});
+        std::thread::sleep(Duration::from_millis(500));
+        eng.stop();
+    }
+    stop.store(true, Relaxed);
+    let rec = cap_th.join().map_err(|_| anyhow!("capture thread panicked"))?;
+    println!("[loopback {backend}/{fmt}/{rate}] captured {} frames at the OS mixer", rec.len() / 2);
+    // Normalise gain (endpoint volume / mixer scaling) before analysis.
+    let left = left_of(&rec);
+    let peak = left.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+    if peak < 0.01 {
+        println!("   capture is (near) silent - cannot analyse (peak {peak}); endpoint may be muted or other app owns the mix");
+        return Ok(());
+    }
+    let scale = 0.1 / peak; // reference amplitude is 0.1
+    let norm: Vec<f32> = rec.iter().map(|v| v * scale).collect();
+    println!("   mixer-level gain vs engine output: {:.3}", peak / 0.1);
+    println!("   {}", analyse_gapless(&norm, &reference, split, total, rate));
+    Ok(())
+}
+
+/// Play arbitrary files back to back (for listening tests with a real library). All files must share a sample rate.
+pub fn cmd_play(backend: &str, vol: f32, paths: Vec<PathBuf>) -> Result<()> {
+    if paths.is_empty() {
+        bail!("usage: play <backend> <volume 0..1> <file> [file...]");
+    }
+    let rate = crate::reader::TrackReader::open(&paths[0], true)?.rate;
+    for p in &paths {
+        let r = crate::reader::TrackReader::open(p, true)?;
+        println!("{}: {} {} Hz {} ch, frames {:?}, delay {:?}, padding {:?}", p.display(), r.codec, r.rate, r.src_channels, r.total_frames, r.delay, r.padding);
+    }
+    let n = paths.len();
+    let eng = Engine::start(paths, vec![None; n], rate, None, true, None, opener(backend)?)?;
+    eng.set_volume(vol);
+    println!("playing on {} ({}), latency {} ms", eng.backend.as_ref().unwrap().name(), eng.backend.as_ref().unwrap().mode(), eng.sh.latency_frames.load(Relaxed) * 1000 / rate as u64);
+    let mut last_track = usize::MAX;
+    let t0 = Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        let p = eng.position();
+        if p.track != last_track {
+            println!("  -> track {} at {:.1}s wall (underruns so far {})", p.track, t0.elapsed().as_secs_f64(), p.underruns);
+            last_track = p.track;
+        }
+        if p.ended || t0.elapsed() > Duration::from_secs(3600) {
+            break;
+        }
+    }
+    println!("done; underruns {}; log: {:?}", eng.sh.underruns.load(Relaxed), eng.stop());
     Ok(())
 }

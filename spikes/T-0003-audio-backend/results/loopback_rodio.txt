@@ -1,0 +1,24 @@
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/wav16/48000] captured 505440 frames at the OS mixer
+   mixer-level gain vs engine output: 1.000
+   first audio at rec frame 545 | lag(A)=+255 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 2.44e-5, within +-64 frames of boundary 2.43e-5, SNR 76.2 dB | longest exact-zero run 1 frames
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/flac16/48000] captured 505440 frames at the OS mixer
+   mixer-level gain vs engine output: 1.000
+   first audio at rec frame 545 | lag(A)=+255 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 2.44e-5, within +-64 frames of boundary 2.43e-5, SNR 76.2 dB | longest exact-zero run 1 frames
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/mp3lame/48000] captured 505440 frames at the OS mixer
+   mixer-level gain vs engine output: 1.007
+   first audio at rec frame 543 | lag(A)=+257 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 1.04e-2, within +-64 frames of boundary 1.04e-2, SNR 28.7 dB | longest exact-zero run 0 frames
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/mp3notag/48000] captured 510240 frames at the OS mixer
+   mixer-level gain vs engine output: 1.007
+   first audio at rec frame 1125 | lag(A)=+780 corr 1.0000 | BOUNDARY GAP = +2295 frames = 47.812 ms (corr 1.0000) | max err overall 1.96e-1, within +-64 frames of boundary 1.01e-1, SNR 0.2 dB | longest exact-zero run 97 frames
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/alac/48000] captured 505920 frames at the OS mixer
+   mixer-level gain vs engine output: 1.000
+   first audio at rec frame 545 | lag(A)=+255 corr 1.0000 | BOUNDARY GAP = +0 frames = 0.000 ms (corr 1.0000) | max err overall 2.44e-5, within +-64 frames of boundary 2.43e-5, SNR 76.2 dB | longest exact-zero run 1 frames
+Dropping DeviceSink, audio playing through this sink will stop, to prevent this message from appearing use tracing or call `.log_on_drop(false)` on this DeviceSink
+[loopback rodio/aac/48000] captured 505920 frames at the OS mixer
+   mixer-level gain vs engine output: 1.040
+   first audio at rec frame 1247 | lag(A)=-447 corr 1.0000 | BOUNDARY GAP = +887 frames = 18.479 ms (corr 1.0000) | max err overall 1.98e-1, within +-64 frames of boundary 1.02e-1, SNR 0.2 dB | longest exact-zero run 448 frames

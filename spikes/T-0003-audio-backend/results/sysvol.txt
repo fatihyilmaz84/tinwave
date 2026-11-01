@@ -1,0 +1,5 @@
+endpoint master volume = 0.060; nudging by 1 % and restoring
+received 2 notifications:
+   +1.6 ms: master volume 0.050 muted true
+   +303.1 ms: master volume 0.060 muted true
+restored to 0.060

@@ -7,8 +7,42 @@ mod probe;
 mod reader;
 mod resamp;
 mod sys;
+mod sysvol;
 
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+thread_local! {
+    /// Set while a thread is inside the audio callback (`Renderer::render`).
+    pub static IN_RT: Cell<bool> = const { Cell::new(false) };
+}
+pub static RT_ALLOCS: AtomicU64 = AtomicU64::new(0);
+
+struct CountingAlloc;
+unsafe impl GlobalAlloc for CountingAlloc {
+    unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        if IN_RT.try_with(|c| c.get()).unwrap_or(false) {
+            RT_ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
+        System.alloc(l)
+    }
+    unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        if IN_RT.try_with(|c| c.get()).unwrap_or(false) {
+            RT_ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
+        System.dealloc(p, l)
+    }
+    unsafe fn realloc(&self, p: *mut u8, l: Layout, n: usize) -> *mut u8 {
+        if IN_RT.try_with(|c| c.get()).unwrap_or(false) {
+            RT_ALLOCS.fetch_add(1, Ordering::Relaxed);
+        }
+        System.realloc(p, l, n)
+    }
+}
+#[global_allocator]
+static GLOBAL: CountingAlloc = CountingAlloc;
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -54,6 +88,10 @@ fn main() -> anyhow::Result<()> {
         Some("follow") => bench::cmd_follow(&dir, &a(2, "cpal"), a(3, "48000").parse()?, a(4, "60").parse()?)?,
         // cpu <backend> <fmt> <rate> [secs]
         Some("cpu") => bench::cmd_cpu(&dir, &a(2, "cpal"), &a(3, "flac16"), a(4, "48000").parse()?, a(5, "10").parse()?)?,
+        Some("loopback") => bench::cmd_loopback(&dir, &a(2, "cpal"), &a(3, "flac16"), a(4, "48000").parse()?)?,
+        Some("decspeed") => probe::decode_speed(&dir, a(2, "48000").parse()?)?,
+        Some("sysvol") => sysvol::run()?,
+        Some("play") => bench::cmd_play(&a(2, "wasapi"), a(3, "0.1").parse()?, args.iter().skip(4).map(PathBuf::from).collect())?,
         Some("resamp") => resamp::run()?,
         Some("excl") => bench::cmd_excl(a(2, "48000").parse()?)?,
         _ => eprintln!("usage: gen | genlong | probe | devices | gapless | seekvol | switch | follow | cpu | excl"),

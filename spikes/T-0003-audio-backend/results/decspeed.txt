@@ -1,0 +1,7 @@
+decode throughput, 40 s stereo files @ 48000 Hz, single thread, release build:
+   wav16    open   0.2 ms; 1920000 frames in 8 ms = 5194x realtime (0.02% of one core for playback)
+   flac16   open   0.1 ms; 1920000 frames in 23 ms = 1746x realtime (0.06% of one core for playback)
+   flac24   open   0.1 ms; 1920000 frames in 24 ms = 1680x realtime (0.06% of one core for playback)
+   mp3lame  open   0.1 ms; 1920000 frames in 33 ms = 1196x realtime (0.08% of one core for playback)
+   alac     open   0.2 ms; 1920000 frames in 63 ms = 637x realtime (0.16% of one core for playback)
+   aac      open   0.4 ms; 1920000 frames in 25 ms = 1593x realtime (0.06% of one core for playback)

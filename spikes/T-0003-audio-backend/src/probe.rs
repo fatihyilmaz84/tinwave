@@ -177,3 +177,26 @@ pub fn run(dir: &Path, rate: u32) -> Result<()> {
     }
     Ok(())
 }
+
+/// Pure decode speed (no output): x realtime on one core, per codec.
+pub fn decode_speed(dir: &Path, rate: u32) -> Result<()> {
+    println!("decode throughput, 40 s stereo files @ {rate} Hz, single thread, release build:");
+    for (name, ext) in [("wav16", "wav"), ("flac16", "flac"), ("flac24", "flac"), ("mp3lame", "mp3"), ("alac", "m4a"), ("aac", "m4a")] {
+        let p = dir.join(format!("long_{name}_{rate}.{ext}"));
+        if !p.exists() {
+            continue;
+        }
+        let t0 = Instant::now();
+        let mut rd = TrackReader::open(&p, true)?;
+        let open_ms = t0.elapsed().as_secs_f64() * 1000.0;
+        let mut buf = Vec::new();
+        let mut frames = 0usize;
+        while rd.next_chunk(&mut buf)? {
+            frames += buf.len() / 2;
+            buf.clear();
+        }
+        let dt = t0.elapsed().as_secs_f64();
+        println!("   {name:8} open {open_ms:5.1} ms; {frames} frames in {:.0} ms = {:.0}x realtime ({:.2}% of one core for playback)", dt * 1000.0, frames as f64 / rate as f64 / dt, dt / (frames as f64 / rate as f64) * 100.0);
+    }
+    Ok(())
+}

@@ -92,6 +92,12 @@ impl Renderer {
 
     /// Fill `out` (interleaved stereo f32). `latency_frames` = frames between this write and the speaker.
     pub fn render(&mut self, out: &mut [f32], latency_frames: u64) {
+        crate::IN_RT.with(|c| c.set(true));
+        self.render_inner(out, latency_frames);
+        crate::IN_RT.with(|c| c.set(false));
+    }
+
+    fn render_inner(&mut self, out: &mut [f32], latency_frames: u64) {
         let t0 = Instant::now();
         let sh = &*self.sh;
         sh.latency_frames.store(latency_frames, Relaxed);

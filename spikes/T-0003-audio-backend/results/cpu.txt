@@ -1,0 +1,12 @@
+[cpal/wav16/48000] steady-state CPU 0.70% of one core over 20 s | working set 13.2 MB (peak 13.2), private 2.9 MB (baseline before engine 7.3 MB) | render avg 0.6 us max 6.6 us | underruns 0
+[cpal/flac16/48000] steady-state CPU 0.31% of one core over 20 s | working set 13.3 MB (peak 13.3), private 3.0 MB (baseline before engine 7.3 MB) | render avg 0.5 us max 2.8 us | underruns 0
+[cpal/flac24/48000] steady-state CPU 0.55% of one core over 20 s | working set 13.4 MB (peak 13.4), private 3.2 MB (baseline before engine 7.3 MB) | render avg 0.5 us max 11.3 us | underruns 0
+[cpal/mp3lame/48000] steady-state CPU 0.55% of one core over 20 s | working set 13.6 MB (peak 13.6), private 3.3 MB (baseline before engine 7.3 MB) | render avg 0.7 us max 2.6 us | underruns 0
+[cpal/alac/48000] steady-state CPU 0.86% of one core over 20 s | working set 13.4 MB (peak 13.4), private 3.0 MB (baseline before engine 7.3 MB) | render avg 0.9 us max 3.0 us | underruns 0
+[cpal/aac/48000] steady-state CPU 0.23% of one core over 20 s | working set 14.1 MB (peak 14.1), private 3.5 MB (baseline before engine 7.3 MB) | render avg 0.6 us max 14.2 us | underruns 0
+[wasapi/wav16/48000] steady-state CPU 0.47% of one core over 20 s | working set 11.5 MB (peak 11.5), private 2.5 MB (baseline before engine 7.3 MB) | render avg 0.7 us max 8.5 us | underruns 0
+[wasapi/flac16/48000] steady-state CPU 0.08% of one core over 20 s | working set 11.9 MB (peak 11.9), private 2.9 MB (baseline before engine 7.3 MB) | render avg 0.7 us max 13.4 us | underruns 0
+[wasapi/flac24/48000] steady-state CPU 0.31% of one core over 20 s | working set 11.8 MB (peak 11.8), private 2.7 MB (baseline before engine 7.3 MB) | render avg 0.7 us max 3.3 us | underruns 0
+[wasapi/mp3lame/48000] steady-state CPU 0.62% of one core over 20 s | working set 12.0 MB (peak 12.0), private 2.9 MB (baseline before engine 7.3 MB) | render avg 0.8 us max 171.6 us | underruns 0
+[wasapi/alac/48000] steady-state CPU 0.78% of one core over 20 s | working set 11.7 MB (peak 11.7), private 2.6 MB (baseline before engine 7.3 MB) | render avg 0.8 us max 11.2 us | underruns 0
+[wasapi/aac/48000] steady-state CPU 0.86% of one core over 20 s | working set 12.6 MB (peak 12.6), private 3.2 MB (baseline before engine 7.3 MB) | render avg 0.7 us max 9.6 us | underruns 0
