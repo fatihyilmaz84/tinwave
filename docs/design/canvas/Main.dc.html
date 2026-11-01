@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tinwave foundations</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#0B6E78}a:hover{color:#08525A}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1900px; box-sizing: border-box; padding: 80px; background: #FFFFFF; color: #1B1B1F; font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'SF Pro Text', system-ui, 'Noto Sans', sans-serif; display: flex; flex-direction: column; gap: 64px">
+
+<header style="display: flex; justify-content: space-between; align-items: flex-end; gap: 48px; border-bottom: 1px solid #E4E4E8; padding-bottom: 40px">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 12px">
+<svg width="36" height="36" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#0B6E78"></rect><path d="M7 21c3 0 3-6 6-6s3 9 6 9 3-12 6-12 3 9 4 9" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+<span style="font-size: 20px; font-weight: 600; letter-spacing: -0.01em">tinwave</span>
+</div>
+<h1 style="margin: 0; font-size: 56px; line-height: 1.05; font-weight: 650; letter-spacing: -0.025em">Quiet Native</h1>
+<p style="margin: 0; font-size: 18px; line-height: 1.5; color: #5D5D66; max-width: 760px">The desktop design system for Tinwave. The operating system draws the chrome and the controls; the artwork brings the color; Tinwave adds only what music needs.</p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 13px; color: #5D5D66">
+<span>v0.1 · ADR 0003</span>
+<span>Qt 6.8 LTS · Qt Quick Controls native styles</span>
+<span>Windows · macOS · Linux</span>
+</div>
+</header>
+
+<section style="display: flex; flex-direction: column; gap: 24px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Principles</h2>
+<div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px">
+<sc-for list="{{principles}}" as="p" hint-placeholder-count="5">
+<div style="display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 2px solid #1B1B1F">
+<span style="font-size: 13px; color: #6E6E77; font-variant-numeric: tabular-nums">{{p.n}}</span>
+<span style="font-size: 17px; font-weight: 600; line-height: 1.3">{{p.t}}</span>
+<span style="font-size: 14px; line-height: 1.5; color: #5D5D66">{{p.d}}</span>
+</div>
+</sc-for>
+</div>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 24px">
+<div style="display: flex; justify-content: space-between; align-items: baseline">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Color tokens · semantic only, never raw hex in QML</h2>
+<span style="font-size: 13px; color: #6E6E77">All text pairs ≥ 4.5:1 on their surface</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
+<div style="background: #F3F3F5; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+<span style="font-size: 15px; font-weight: 600">Light</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{light}}" as="c" hint-placeholder-count="12">
+<div style="display: flex; gap: 10px; align-items: center">
+<span style="width: 36px; height: 36px; border-radius: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); background: {{c.hex}}"></span>
+<span style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">{{c.name}}</span>
+<span style="font-size: 12px; color: #5D5D66; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">{{c.hex}}</span>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="background: #161618; color: #F2F2F4; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+<span style="font-size: 15px; font-weight: 600">Dark</span>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{dark}}" as="c" hint-placeholder-count="12">
+<div style="display: flex; gap: 10px; align-items: center">
+<span style="width: 36px; height: 36px; border-radius: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); background: {{c.hex}}"></span>
+<span style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-size: 13px; font-weight: 600; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">{{c.name}}</span>
+<span style="font-size: 12px; color: #A6A6AF; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">{{c.hex}}</span>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 20px; border: 1px solid #E4E4E8; border-radius: 12px">
+<span style="font-size: 15px; font-weight: 600">Accent = the OS accent</span>
+<span style="font-size: 14px; line-height: 1.5; color: #5D5D66">Read from <code>palette.accent</code> (Qt 6.6+). The user can pin Tin Teal instead. Contrast is checked at runtime; if the OS accent fails 4.5:1 on the surface, text uses <code>accentText</code>, a darkened (light) or lightened (dark) step.</span>
+<div style="display: flex; gap: 8px; padding-top: 8px">
+<span style="width: 40px; height: 24px; border-radius: 6px; background: #0B6E78"></span>
+<span style="width: 40px; height: 24px; border-radius: 6px; background: #005FB8"></span>
+<span style="width: 40px; height: 24px; border-radius: 6px; background: #8E44AD"></span>
+<span style="width: 40px; height: 24px; border-radius: 6px; background: #C2410C"></span>
+<span style="width: 40px; height: 24px; border-radius: 6px; background: #3D7A2E"></span>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 20px; border: 1px solid #E4E4E8; border-radius: 12px">
+<span style="font-size: 15px; font-weight: 600">Artwork carries color</span>
+<span style="font-size: 14px; line-height: 1.5; color: #5D5D66">Chrome stays neutral. No tinting the window from cover art, no gradients behind content. Now Playing may sample one muted tone from the cover for its backdrop at ≤ 8 % opacity.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; padding: 20px; border: 1px solid #E4E4E8; border-radius: 12px">
+<span style="font-size: 15px; font-weight: 600">Meaning never by hue alone</span>
+<span style="font-size: 14px; line-height: 1.5; color: #5D5D66">Source, tier and status colors always travel with an icon and a word. Server (blue) and Downloaded (green) also differ in lightness and glyph.</span>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 48px">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Type · the system font, scaled from the platform base</h2>
+<div style="display: grid; grid-template-columns: 140px repeat(3, 80px) minmax(0, 1fr); gap: 0; font-size: 13px; border-top: 1px solid #E4E4E8">
+<span style="padding: 10px 0; color: #5D5D66; border-bottom: 1px solid #E4E4E8">Token</span>
+<span style="padding: 10px 0; color: #5D5D66; border-bottom: 1px solid #E4E4E8">Win</span>
+<span style="padding: 10px 0; color: #5D5D66; border-bottom: 1px solid #E4E4E8">macOS</span>
+<span style="padding: 10px 0; color: #5D5D66; border-bottom: 1px solid #E4E4E8">Linux</span>
+<span style="padding: 10px 0; color: #5D5D66; border-bottom: 1px solid #E4E4E8">Sample</span>
+<sc-for list="{{type}}" as="t" hint-placeholder-count="7">
+<span style="padding: 12px 0; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center">{{t.name}}</span>
+<span style="padding: 12px 0; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center; font-variant-numeric: tabular-nums">{{t.win}}</span>
+<span style="padding: 12px 0; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center; font-variant-numeric: tabular-nums">{{t.mac}}</span>
+<span style="padding: 12px 0; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center; font-variant-numeric: tabular-nums">{{t.lin}}</span>
+<span style="padding: 12px 0; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center; white-space: nowrap; overflow: hidden; font-size: {{t.px}}; font-weight: {{t.w}}">{{t.sample}}</span>
+</sc-for>
+</div>
+<span style="font-size: 13px; line-height: 1.5; color: #5D5D66">Base = <code>Qt.application.font</code> (Segoe UI Variable 14 · SF Pro 13 · system font, usually 10 pt). Durations and counts use tabular figures. Never ship a bundled UI font.</span>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 20px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Space · 4 px grid</h2>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{space}}" as="s" hint-placeholder-count="7">
+<div style="display: flex; align-items: center; gap: 16px; font-size: 13px">
+<span style="width: 72px; font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">{{s.name}}</span>
+<span style="width: 40px; color: #5D5D66; font-variant-numeric: tabular-nums">{{s.v}}</span>
+<span style="height: 12px; background: #0B6E78; border-radius: 2px; width: {{s.w}}"></span>
+</div>
+</sc-for>
+</div>
+<h2 style="margin: 16px 0 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Radius · follows the platform</h2>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; font-size: 13px">
+<span style="color: #5D5D66">Token</span><span style="color: #5D5D66">Win</span><span style="color: #5D5D66">macOS</span><span style="color: #5D5D66">Linux</span>
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">control</span><span>4</span><span>6</span><span>4</span>
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">surface</span><span>8</span><span>10</span><span>8</span>
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">artSmall</span><span>4</span><span>4</span><span>4</span>
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace">artLarge</span><span>8</span><span>8</span><span>8</span>
+</div>
+</div>
+</section>
+
+<section style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 48px">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Layout sizes</h2>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+<sc-for list="{{sizes}}" as="s" hint-placeholder-count="8">
+<div style="display: flex; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid #E4E4E8">
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace; font-size: 13px">{{s.name}}</span>
+<span style="color: #5D5D66; font-variant-numeric: tabular-nums">{{s.v}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Motion &amp; depth</h2>
+<div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+<sc-for list="{{motion}}" as="s" hint-placeholder-count="6">
+<div style="display: flex; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid #E4E4E8">
+<span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace; font-size: 13px">{{s.name}}</span>
+<span style="color: #5D5D66; text-align: right">{{s.v}}</span>
+</div>
+</sc-for>
+</div>
+<span style="font-size: 13px; line-height: 1.5; color: #5D5D66">Reduced motion from the OS turns every duration to 0 except progress. No shadows on content; popups and menus are native and bring their own.</span>
+</div>
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Icons · one stroke set</h2>
+<div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px">
+<sc-for list="{{icons}}" as="i" hint-placeholder-count="18">
+<span style="height: 48px; border-radius: 8px; background: #F3F3F5; display: flex; align-items: center; justify-content: center">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="{{i.n}}"><path d="{{i.d}}"></path></svg>
+</span>
+</sc-for>
+</div>
+<span style="font-size: 13px; line-height: 1.5; color: #5D5D66">Lucide (ISC) as SVG in the Qt resource file, 20 px at 1.75 stroke, tinted with the text token. Filled glyphs only for "on" states (favorite, playing).</span>
+</div>
+</section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+principles: [
+{ n: '01', t: 'Native first', d: 'Window chrome, menus, dialogs, scrollbars, text fields and toggles come from the OS style. We draw only music-specific parts.' },
+{ n: '02', t: 'Artwork is the color', d: 'Neutral surfaces, one accent. Covers are the brightest thing on screen.' },
+{ n: '03', t: 'Calm by default', d: 'Everyday listening is one click. Advanced controls sit one level deeper, never in the way.' },
+{ n: '04', t: 'Source always visible', d: 'Local, server or downloaded is shown wherever a track can play, as icon plus word.' },
+{ n: '05', t: 'Every touch is a signal', d: 'Components emit their catalog signals with input source. A control without its signal is not done.' }
+],
+light: [
+{ name: 'window', hex: '#F3F3F5' }, { name: 'sidebar', hex: '#ECECEF' }, { name: 'content', hex: '#FFFFFF' },
+{ name: 'raised', hex: '#FFFFFF' }, { name: 'hover', hex: '#0000000A' }, { name: 'selected', hex: '#E6F1F2' },
+{ name: 'separator', hex: '#0000001A' }, { name: 'text', hex: '#1B1B1F' }, { name: 'textMuted', hex: '#5D5D66' },
+{ name: 'textFaint', hex: '#6E6E77' }, { name: 'accent', hex: '#0B6E78' }, { name: 'onAccent', hex: '#FFFFFF' },
+{ name: 'srcServer', hex: '#1F5FA8' }, { name: 'srcDownload', hex: '#2E7D46' }, { name: 'warning', hex: '#9A5B00' }
+],
+dark: [
+{ name: 'window', hex: '#161618' }, { name: 'sidebar', hex: '#1D1D20' }, { name: 'content', hex: '#161618' },
+{ name: 'raised', hex: '#202023' }, { name: 'hover', hex: '#FFFFFF0F' }, { name: 'selected', hex: '#1B2B2D' },
+{ name: 'separator', hex: '#FFFFFF14' }, { name: 'text', hex: '#F2F2F4' }, { name: 'textMuted', hex: '#A6A6AF' },
+{ name: 'textFaint', hex: '#8C8C95' }, { name: 'accent', hex: '#5CC6CF' }, { name: 'onAccent', hex: '#0F2F33' },
+{ name: 'srcServer', hex: '#7BB0EE' }, { name: 'srcDownload', hex: '#76C48E' }, { name: 'warning', hex: '#E0A453' }
+],
+type: [
+{ name: 'display', win: '28', mac: '26', lin: 'base+14', px: '28px', w: '650', sample: 'Harbour Lights' },
+{ name: 'title', win: '20', mac: '19', lin: 'base+6', px: '20px', w: '600', sample: 'Albums' },
+{ name: 'subtitle', win: '16', mac: '15', lin: 'base+2', px: '16px', w: '600', sample: 'Recently added' },
+{ name: 'body', win: '14', mac: '13', lin: 'base', px: '14px', w: '400', sample: 'Marlo Venn · 2024 · 11 tracks' },
+{ name: 'bodyStrong', win: '14', mac: '13', lin: 'base', px: '14px', w: '600', sample: 'Low Tide Choir' },
+{ name: 'caption', win: '12', mac: '11', lin: 'base−2', px: '12px', w: '400', sample: 'FLAC · 44.1 kHz · Local' },
+{ name: 'overline', win: '11', mac: '10', lin: 'base−3', px: '11px', w: '600', sample: 'NOW PLAYING' }
+],
+space: [
+{ name: 'xxs', v: '2', w: '2px' }, { name: 'xs', v: '4', w: '4px' }, { name: 's', v: '8', w: '8px' }, { name: 'm', v: '12', w: '12px' },
+{ name: 'l', v: '16', w: '16px' }, { name: 'xl', v: '24', w: '24px' }, { name: 'xxl', v: '32', w: '32px' }, { name: 'xxxl', v: '48', w: '48px' }
+],
+sizes: [
+{ name: 'sidebar', v: '232 (rail 56)' }, { name: 'transportBar', v: '80' }, { name: 'sidePanel', v: '320' },
+{ name: 'rowComfortable', v: '40' }, { name: 'rowCompact', v: '32' }, { name: 'tileMin', v: '168' },
+{ name: 'hitTarget', v: '≥ 32 mouse · 44 touch' }, { name: 'windowMin', v: '880 × 560' }
+],
+motion: [
+{ name: 'fast', v: '120 ms · hover, press' }, { name: 'normal', v: '200 ms · panels' }, { name: 'slow', v: '300 ms · view change' },
+{ name: 'easing', v: 'OutCubic in · InCubic out' }, { name: 'elevation', v: 'none on content' }, { name: 'popups', v: 'native (Popup.Native)' }
+],
+icons: [
+{ n: 'play', d: 'M7 4l13 8-13 8z' }, { n: 'pause', d: 'M8 5v14M16 5v14' }, { n: 'next', d: 'M5 5l10 7-10 7zM19 5v14' },
+{ n: 'previous', d: 'M19 5L9 12l10 7zM5 5v14' }, { n: 'shuffle', d: 'M3 7h4l10 10h4M3 17h4l3-3M14 10l3-3h4M18 4l3 3-3 3M18 14l3 3-3 3' }, { n: 'repeat', d: 'M4 11V9a3 3 0 013-3h13M17 3l3 3-3 3M20 13v2a3 3 0 01-3 3H4M7 21l-3-3 3-3' },
+{ n: 'volume', d: 'M4 9h4l5-4v14l-5-4H4zM17 9a4 4 0 010 6M19.5 6.5a8 8 0 010 11' }, { n: 'search', d: 'M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4' }, { n: 'heart', d: 'M12 20s-7-4.5-7-10a4 4 0 017-2.6A4 4 0 0119 10c0 5.5-7 10-7 10z' },
+{ n: 'album', d: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 10a2 2 0 100 4 2 2 0 000-4z' }, { n: 'artist', d: 'M12 4a4 4 0 100 8 4 4 0 000-8zM4 21a8 8 0 0116 0' }, { n: 'playlist', d: 'M4 6h12M4 12h12M4 18h8M18 14v6M15 17h6' },
+{ n: 'radio', d: 'M12 12m-2 0a2 2 0 104 0 2 2 0 10-4 0M7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M5 5a10 10 0 000 14M19 5a10 10 0 010 14' }, { n: 'server', d: 'M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01' }, { n: 'download', d: 'M12 4v11M7 10l5 5 5-5M5 20h14' },
+{ n: 'local', d: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z' }, { n: 'signals', d: 'M3 12h4l3-8 4 16 3-8h4' }, { n: 'settings', d: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

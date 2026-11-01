@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Native per platform</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#0B6E78}a:hover{color:#08525A}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; min-height: 1300px; box-sizing: border-box; padding: 80px; background: #FFFFFF; color: #1B1B1F; font-family: 'Segoe UI Variable Text', 'Segoe UI', -apple-system, 'SF Pro Text', system-ui, 'Noto Sans', sans-serif; display: flex; flex-direction: column; gap: 40px">
+
+<header style="display: flex; flex-direction: column; gap: 8px">
+<h1 style="margin: 0; font-size: 40px; font-weight: 650; letter-spacing: -0.02em">Native per platform</h1>
+<p style="margin: 0; font-size: 16px; line-height: 1.5; color: #5D5D66; max-width: 900px">One QML tree, three native looks. The style is chosen at startup from the OS; Tw components read the same semantic tokens on every platform. Layout and behavior are identical; only the OS-owned parts differ.</p>
+</header>
+
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px">
+
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="border-radius: 8px; overflow: hidden; border: 1px solid #D9D9DE; background: #F3F3F5; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif">
+<div style="height: 32px; display: flex; align-items: center; justify-content: space-between; padding-left: 12px; background: #EEF0F4; font-size: 12px">
+<span style="display: flex; align-items: center; gap: 8px"><svg width="14" height="14" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#0B6E78"></rect></svg>Tinwave</span>
+<span style="display: flex"><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">–</span><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">□</span><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">✕</span></span>
+</div>
+<div style="padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #F7F8FA">
+<div style="display: flex; gap: 8px">
+<button style="height: 32px; padding: 0 14px; border-radius: 4px; border: 0; background: #005FB8; color: #FFFFFF; font-size: 14px">Add folder</button>
+<button style="height: 32px; padding: 0 14px; border-radius: 4px; border: 1px solid #E0E0E0; border-bottom-color: #C8C8C8; background: #FFFFFF; font-size: 14px">Cancel</button>
+</div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px">Search<input type="text" value="harbour" style="height: 32px; box-sizing: border-box; padding: 0 10px; border-radius: 4px; border: 1px solid #E0E0E0; border-bottom: 2px solid #005FB8; font: inherit; font-size: 14px; background: #FFFFFF"></label>
+<span style="display: flex; align-items: center; gap: 10px; font-size: 14px"><span style="width: 40px; height: 20px; border-radius: 10px; background: #005FB8; position: relative"><span style="position: absolute; right: 4px; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: #FFFFFF"></span></span>Follow system theme</span>
+</div>
+</div>
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Windows 11</h2>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="border-radius: 10px; overflow: hidden; border: 1px solid #D0D0D4; background: #ECECEC; font-family: -apple-system, 'SF Pro Text', system-ui, sans-serif">
+<div style="height: 32px; display: flex; align-items: center; gap: 8px; padding-left: 12px; background: #E8E8E8; font-size: 13px; font-weight: 600; position: relative">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840"></span>
+<span style="position: absolute; left: 0; right: 0; text-align: center">Tinwave</span>
+</div>
+<div style="padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #F5F5F5">
+<div style="display: flex; gap: 8px">
+<button style="height: 24px; padding: 0 12px; border-radius: 6px; border: 0; background: #007AFF; color: #FFFFFF; font-size: 13px">Add Folder…</button>
+<button style="height: 24px; padding: 0 12px; border-radius: 6px; border: 0; background: #FFFFFF; box-shadow: 0 0 0 0.5px rgba(0,0,0,0.25), 0 1px 1px rgba(0,0,0,0.08); font-size: 13px">Cancel</button>
+</div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px">Search<input type="text" value="harbour" style="height: 24px; box-sizing: border-box; padding: 0 8px; border-radius: 6px; border: 1px solid #C8C8C8; box-shadow: 0 0 0 3px rgba(0,122,255,0.35); font: inherit; font-size: 13px; background: #FFFFFF"></label>
+<span style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span style="width: 32px; height: 18px; border-radius: 9px; background: #34C759; position: relative"><span style="position: absolute; right: 1px; top: 1px; width: 16px; height: 16px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25)"></span></span>Follow system appearance</span>
+</div>
+</div>
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">macOS</h2>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="border-radius: 8px; overflow: hidden; border: 1px solid #CFCFD4; background: #EFF0F1; font-family: 'Noto Sans', Cantarell, system-ui, sans-serif">
+<div style="height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 8px 0 12px; background: #DEE0E2; font-size: 13px">
+<span>Tinwave</span>
+<span style="display: flex; gap: 6px"><span style="width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px">–</span><span style="width: 18px; height: 18px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px">□</span><span style="width: 18px; height: 18px; border-radius: 50%; background: #C9CBCE; display: flex; align-items: center; justify-content: center; font-size: 11px">✕</span></span>
+</div>
+<div style="padding: 16px; display: flex; flex-direction: column; gap: 12px; background: #EFF0F1">
+<div style="display: flex; gap: 8px">
+<button style="height: 30px; padding: 0 14px; border-radius: 3px; border: 1px solid #1D6FA8; background: #3DAEE9; color: #FFFFFF; font-size: 13px">Add Folder…</button>
+<button style="height: 30px; padding: 0 14px; border-radius: 3px; border: 1px solid #B9BBBE; background: #FCFCFC; font-size: 13px">Cancel</button>
+</div>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 13px">Search<input type="text" value="harbour" style="height: 30px; box-sizing: border-box; padding: 0 8px; border-radius: 3px; border: 1px solid #3DAEE9; font: inherit; font-size: 13px; background: #FFFFFF"></label>
+<span style="display: flex; align-items: center; gap: 10px; font-size: 13px"><span style="width: 18px; height: 18px; border-radius: 3px; border: 1px solid #3DAEE9; background: #3DAEE9; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg></span>Follow system colors</span>
+</div>
+</div>
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Linux (KDE / GNOME)</h2>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; border-top: 1px solid #1B1B1F">
+<div style="display: grid; grid-template-columns: 200px repeat(3, minmax(0, 1fr)); gap: 24px; padding: 12px 0; border-bottom: 1px solid #E4E4E8; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #5D5D66">
+<span>Element</span><span>Windows 11</span><span>macOS</span><span>Linux</span>
+</div>
+<sc-for list="{{rows}}" as="r" hint-placeholder-count="14">
+<div style="display: grid; grid-template-columns: 200px repeat(3, minmax(0, 1fr)); gap: 24px; padding: 12px 0; border-bottom: 1px solid #E4E4E8; font-size: 14px; line-height: 1.45">
+<span style="font-weight: 600">{{r.k}}</span>
+<span style="color: #3A3A42">{{r.w}}</span>
+<span style="color: #3A3A42">{{r.m}}</span>
+<span style="color: #3A3A42">{{r.l}}</span>
+</div>
+</sc-for>
+</div>
+<p style="margin: 0; font-size: 13px; line-height: 1.5; color: #5D5D66">Native window effects (Mica, vibrancy) live behind the <code>WindowEffects</code> trait in <code>apps/tinwave-desktop</code> with <code>windows.rs</code> / <code>macos.rs</code> / <code>linux.rs</code>; unsupported returns <code>Unsupported</code> and the solid <code>sidebar</code> token is used. Media-session code lives in <code>tinwave-playback</code> behind its own trait.</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1300}}'>
+class Component extends DCLogic {
+renderVals() {
+return {
+rows: [
+{ k: 'Controls style', w: 'FluentWinUI3 (Qt 6.8+)', m: 'macOS style', l: 'Fusion + platform palette (Breeze / Adwaita colors via platform theme)' },
+{ k: 'Window chrome', w: 'System title bar and caption buttons', m: 'System title bar, traffic lights; unified toolbar look', l: 'Server-side decorations; client-side only if the compositor forces it' },
+{ k: 'Sidebar backdrop', w: 'Mica where supported, else solid', m: 'Sidebar vibrancy where supported, else solid', l: 'Solid sidebar token' },
+{ k: 'Menu bar', w: 'None visible; app menu button in sidebar header', m: 'Global native menu bar (required)', l: 'None visible; app menu button in sidebar header' },
+{ k: 'Menus, context menus', w: 'Native popups (popupType: Popup.Native)', m: 'Native NSMenu', l: 'Native where the platform theme supports it, else Fusion' },
+{ k: 'File & folder dialogs', w: 'Native (QtQuick.Dialogs)', m: 'Native', l: 'XDG portal (sandbox-friendly)' },
+{ k: 'Confirm dialogs', w: 'Native MessageDialog', m: 'Native alert / sheet', l: 'Native MessageDialog' },
+{ k: 'Font', w: 'Segoe UI Variable', m: 'SF Pro (system)', l: 'Desktop font setting' },
+{ k: 'Light / dark', w: 'Follows system; override in Settings', m: 'Follows Appearance; override', l: 'Follows portal color-scheme; override' },
+{ k: 'Accent', w: 'Windows accent color', m: 'macOS accent color', l: 'Desktop accent if exposed, else Tin Teal' },
+{ k: 'Media keys & OS overlay', w: 'SMTC (System Media Transport Controls)', m: 'Now Playing / MPRemoteCommandCenter', l: 'MPRIS over D-Bus' },
+{ k: 'Background presence', w: 'Tray icon with transport menu (optional)', m: 'Dock menu with transport (no menu-bar extra by default)', l: 'Tray / StatusNotifierItem (optional)' },
+{ k: 'Shortcuts', w: 'Ctrl-based, Space play/pause', m: 'Cmd-based, Space play/pause', l: 'Ctrl-based, Space play/pause' },
+{ k: 'Notifications', w: 'Off by default; native toast', m: 'Off by default; native', l: 'Off by default; freedesktop' }
+]
+};
+}
+}
+</script>
+</body>
+</html>

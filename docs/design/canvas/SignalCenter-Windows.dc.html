@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Signal Center on Windows 11</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+a{color:#60CDFF}a:hover{color:#99DDFF}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; display: flex; flex-direction: column; overflow: hidden; background: #1C1C1F; color: #F2F2F4; font-family: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif; font-size: 14px">
+
+<div style="height: 32px; flex: none; display: flex; align-items: center; justify-content: space-between; padding-left: 12px; background: #202024; font-size: 12px">
+<span style="display: flex; align-items: center; gap: 8px"><svg width="16" height="16" viewBox="0 0 36 36" aria-hidden="true"><rect width="36" height="36" rx="9" fill="#0B6E78"></rect><path d="M7 21c3 0 3-6 6-6s3 9 6 9 3-12 6-12 3 9 4 9" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>Tinwave</span>
+<span style="display: flex"><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">–</span><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">□</span><span style="width: 46px; height: 32px; display: flex; align-items: center; justify-content: center">✕</span></span>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex">
+<nav aria-label="Main" style="width: 232px; flex: none; background: #202024; display: flex; flex-direction: column; padding: 8px 8px 12px; box-sizing: border-box; gap: 4px">
+<div style="display: flex; gap: 6px; align-items: center; padding: 4px 4px 8px">
+<button aria-label="App menu" style="width: 32px; height: 32px; border: 0; background: transparent; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F2F4" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<label style="flex: 1; position: relative; display: block"><span style="position: absolute; left: 0; width: 1px; height: 1px; overflow: hidden">Search</span><input type="search" placeholder="Search" style="width: 100%; height: 32px; box-sizing: border-box; padding: 0 10px 0 30px; border-radius: 4px; border: 1px solid #FFFFFF14; border-bottom-color: #FFFFFF8A; background: #FFFFFF0F; color: #F2F2F4; font: inherit; font-size: 13px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#A6A6AF" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 10px; top: 9px"><path d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4"></path></svg></label>
+</div>
+<sc-for list="{{nav}}" as="g" hint-placeholder-count="4">
+<div style="display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px">
+<span style="font-size: 12px; font-weight: 600; color: #A6A6AF; padding: 6px 12px 4px">{{g.label}}</span>
+<sc-for list="{{g.items}}" as="i" hint-placeholder-count="3">
+<a href="#" style="position: relative; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 4px; text-decoration: none; color: #F2F2F4; background: {{i.bg}}; font-weight: {{i.w}}">
+<span style="position: absolute; left: 0; top: 9px; width: 3px; height: 16px; border-radius: 2px; background: {{i.pill}}"></span>
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F2F2F4" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{i.d}}"></path></svg>
+<span>{{i.t}}</span>
+</a>
+</sc-for>
+</div>
+</sc-for>
+</nav>
+
+<main style="flex: 1; min-width: 0; background: #161618; border-top-left-radius: 8px; border: 1px solid #FFFFFF14; border-right: 0; border-bottom: 0; display: flex; flex-direction: column; overflow: hidden; padding: 24px 32px 0; gap: 20px">
+<div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600">Signal Center</h1>
+<span style="color: #A6A6AF">Everything Tinwave notices, stored only on this PC. Switch any category off, export it, or wipe it.</span>
+</div>
+<div style="display: flex; gap: 8px">
+<button style="height: 32px; padding: 0 14px; border-radius: 4px; border: 1px solid #FFFFFF14; background: #FFFFFF0F; display: flex; align-items: center; gap: 8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F2F2F4" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Export…</button>
+<button style="height: 32px; padding: 0 14px; border-radius: 4px; border: 1px solid #F2877D66; background: transparent; color: #F2877D; display: flex; align-items: center; gap: 8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F2877D" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>Wipe…</button>
+</div>
+</div>
+
+<div style="flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 24px">
+<div style="display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow: hidden">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+<div style="display: flex; flex-direction: column; padding-bottom: 12px">
+<div style="display: flex; align-items: center; gap: 10px; padding: 8px 0 6px">
+<span style="display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 4px; font-size: 12px; font-weight: 600; font-family: 'Cascadia Mono', ui-monospace, monospace; background: {{g.bg}}; color: {{g.fg}}">{{g.tier}}</span>
+<span style="font-weight: 600">{{g.label}}</span>
+<span style="font-size: 12px; color: #A6A6AF">{{g.note}}</span>
+</div>
+<sc-for list="{{g.items}}" as="s" hint-placeholder-count="3">
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) 150px 44px; gap: 16px; align-items: center; padding: 9px 12px; border-radius: 4px; background: #FFFFFF08; margin-bottom: 2px">
+<span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span>{{s.name}}</span><span style="font-size: 12px; color: #A6A6AF">{{s.desc}}</span></span>
+<span style="font-size: 12px; color: #A6A6AF; text-align: right; font-variant-numeric: tabular-nums">{{s.meta}}</span>
+<label style="position: relative; width: 40px; height: 20px; border-radius: 10px; box-sizing: border-box; display: block; background: {{s.track}}; border: {{s.border}}"><input type="checkbox" aria-label="{{s.name}}" checked="{{s.on}}" style="position: absolute; opacity: 0; inset: 0; margin: 0"><span style="position: absolute; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: {{s.knob}}; left: {{s.knobX}}"></span></label>
+</div>
+</sc-for>
+</div>
+</sc-for>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 16px; min-height: 0; overflow: hidden">
+<div style="padding: 16px; border-radius: 8px; background: #202023; border: 1px solid #FFFFFF14; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; justify-content: space-between; align-items: baseline"><span style="font-weight: 600">Storage</span><span style="font-size: 12px; color: #A6A6AF">Last compaction: today 03:12</span></div>
+<sc-for list="{{stores}}" as="m" hint-placeholder-count="2">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<span style="display: flex; justify-content: space-between; font-size: 13px"><span style="font-family: 'Cascadia Mono', ui-monospace, monospace">{{m.name}}</span><span style="color: #A6A6AF; font-variant-numeric: tabular-nums">{{m.v}}</span></span>
+<span style="height: 6px; border-radius: 3px; background: #FFFFFF14; position: relative"><span style="position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px; background: #F2F2F4; width: {{m.w}}"></span></span>
+</div>
+</sc-for>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 4px">
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #A6A6AF">Raw events<select style="height: 30px; padding: 0 6px; border-radius: 4px; border: 1px solid #FFFFFF14; background: #FFFFFF0F; color: #F2F2F4; font: inherit; font-size: 13px"><option>90 days</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #A6A6AF">Play records<select style="height: 30px; padding: 0 6px; border-radius: 4px; border: 1px solid #FFFFFF14; background: #FFFFFF0F; color: #F2F2F4; font: inherit; font-size: 13px"><option>3 years</option></select></label>
+<label style="display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #A6A6AF">Monthly rollups<select style="height: 30px; padding: 0 6px; border-radius: 4px; border: 1px solid #FFFFFF14; background: #FFFFFF0F; color: #F2F2F4; font: inherit; font-size: 13px"><option>Forever</option></select></label>
+</div>
+</div>
+
+<div style="padding: 16px; border-radius: 8px; background: #202023; border: 1px solid #FFFFFF14; display: flex; flex-direction: column; gap: 8px">
+<span style="font-weight: 600">What leaves this PC</span>
+<span style="font-size: 13px; color: #A6A6AF; line-height: 1.5">Only the weather lookup, and only if you turn it on. Exactly this request, at most once an hour:</span>
+<code style="font-family: 'Cascadia Mono', ui-monospace, monospace; font-size: 12px; padding: 8px 10px; border-radius: 4px; background: #161618; color: #F2F2F4; overflow-wrap: anywhere">GET https://api.open-meteo.com/v1/forecast?latitude=52.4&amp;longitude=4.9</code>
+<span style="font-size: 12px; color: #A6A6AF">Coordinates rounded to ~10 km. Currently off.</span>
+</div>
+
+<div style="padding: 16px; border-radius: 8px; background: #202023; border: 1px solid #FFFFFF14; display: flex; flex-direction: column; gap: 8px; min-height: 0">
+<div style="display: flex; justify-content: space-between; align-items: center"><span style="font-weight: 600">Live feed</span><span style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #A6A6AF"><span style="width: 7px; height: 7px; border-radius: 50%; background: #76C48E"></span>Recording · last 100</span></div>
+<sc-for list="{{feed}}" as="f" hint-placeholder-count="5">
+<div style="display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 10px; font-size: 13px; padding: 4px 0; border-top: 1px solid #FFFFFF0F">
+<span style="color: #8C8C95; font-variant-numeric: tabular-nums">{{f.t}}</span>
+<span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{f.e}}</span>
+<span style="font-size: 12px; color: #A6A6AF">{{f.src}}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</div>
+</main>
+</div>
+
+<div style="height: 80px; flex: none; background: #1C1C1F; border-top: 1px solid #FFFFFF14; display: grid; grid-template-columns: 340px minmax(0, 1fr) 340px; align-items: center; padding: 0 16px; gap: 24px">
+<div style="display: flex; align-items: center; gap: 12px; min-width: 0">
+<span style="width: 52px; height: 52px; border-radius: 4px; background: #6D3B47; flex: none; position: relative; overflow: hidden"><span style="position: absolute; left: 0; right: 0; bottom: 0; height: 38%; background: #F4A259"></span></span>
+<div style="display: flex; flex-direction: column; gap: 1px; min-width: 0">
+<span style="font-weight: 600">Lantern Steps</span>
+<span style="font-size: 13px; color: #A6A6AF">Juno Okafor</span>
+<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #7BB0EE"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01"></path></svg>Jellyfin · Home</span>
+</div>
+</div>
+<div style="display: flex; flex-direction: column; align-items: center; gap: 6px">
+<div style="display: flex; align-items: center; gap: 8px">
+<button aria-label="Previous" style="width: 32px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F2F2F4" stroke="#F2F2F4" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M19 5L9 12l10 7zM5 5v14"></path></svg></button>
+<button aria-label="Play" style="width: 40px; height: 40px; border: 0; background: #F2F2F4; border-radius: 50%; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" viewBox="0 0 24 24" fill="#161618" aria-hidden="true"><path d="M7 4l13 8-13 8z"></path></svg></button>
+<button aria-label="Next" style="width: 32px; height: 32px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F2F2F4" stroke="#F2F2F4" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M5 5l10 7-10 7zM19 5v14"></path></svg></button>
+</div>
+<div style="display: flex; align-items: center; gap: 10px; width: 100%; max-width: 560px; font-size: 12px; color: #A6A6AF; font-variant-numeric: tabular-nums">
+<span>2:10</span>
+<span role="img" aria-label="Paused at 2:10 of 3:58" style="position: relative; flex: 1; height: 4px; border-radius: 2px; background: #3A3A3F"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: 55%; border-radius: 2px; background: #F2F2F4"></span></span>
+<span>3:58</span>
+</div>
+</div>
+<div style="display: flex; align-items: center; justify-content: flex-end; gap: 8px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#A6A6AF" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4zM17 9a4 4 0 010 6"></path></svg>
+<span role="img" aria-label="Volume 40 percent" style="position: relative; width: 96px; height: 4px; border-radius: 2px; background: #3A3A3F"><span style="position: absolute; left: 0; top: 0; bottom: 0; width: 40%; border-radius: 2px; background: #F2F2F4"></span></span>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+renderVals() {
+const I = {
+album: 'M12 3a9 9 0 100 18 9 9 0 000-18zM12 10a2 2 0 100 4 2 2 0 000-4z',
+artist: 'M12 4a4 4 0 100 8 4 4 0 000-8zM4 21a8 8 0 0116 0',
+radio: 'M12 10a2 2 0 100 4 2 2 0 000-4zM7.8 7.8a6 6 0 000 8.4M16.2 7.8a6 6 0 010 8.4M5 5a10 10 0 000 14M19 5a10 10 0 010 14',
+insights: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+import: 'M12 3v12M7 8l5-5 5 5M4 15v4a2 2 0 002 2h12a2 2 0 002-2v-4',
+signals: 'M3 12h4l3-8 4 16 3-8h4',
+settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4'
+};
+const it = (t, d, sel) => ({ t, d, bg: sel ? '#FFFFFF14' : 'transparent', pill: sel ? '#60CDFF' : 'transparent', w: sel ? '600' : '400' });
+const on = { on: true, track: '#60CDFF', border: '0', knob: '#003A57', knobX: '24px' };
+const off = { on: false, track: 'transparent', border: '1px solid #A6A6AF', knob: '#A6A6AF', knobX: '4px' };
+const s = (name, desc, meta, st) => Object.assign({ name, desc, meta }, st);
+return {
+nav: [
+{ label: 'Library', items: [it('Albums', I.album), it('Artists', I.artist)] },
+{ label: 'Listen', items: [it('Smart Radio', I.radio), it('Insights', I.insights)] },
+{ label: 'Manage', items: [it('Import & organize', I.import), it('Signal Center', I.signals, true), it('Settings', I.settings)] }
+],
+groups: [
+{ tier: 'T0', label: 'Playback', note: 'How you play. Needed for every recommendation.', bg: '#2A2A2E', fg: '#F2F2F4', items: [
+s('Plays, skips & completes', 'Where in the song you skip or finish', '18 402 · 1 min ago', on),
+s('Volume & speed', 'One entry per gesture, never per pixel', '1 204 · 2 min ago', on),
+s('Browsing attention', 'Daily counters only: hovers, dwell, impressions', 'counters · today', on)
+] },
+{ tier: 'T1', label: 'Context', note: 'When and how you listen. Computed on this PC.', bg: '#1B2B2D', fg: '#5CC6CF', items: [
+s('Time, season & daylight', 'From the clock and your city, offline', '4 310 · 5 min ago', on),
+s('Output device & power', 'Headphones vs speakers, AC vs battery', '38 · today', on)
+] },
+{ tier: 'T2', label: 'Opt-in', note: 'Off until you switch it on.', bg: '#33260F', fg: '#E0A453', items: [
+s('Foreground app category', 'Coding, gaming, call — never window titles', 'never collected', off),
+s('Network place', 'Home vs work, as a salted hash', 'never collected', off)
+] },
+{ tier: 'T3', label: 'Network', note: 'Sends a request off this PC.', bg: '#3A1A18', fg: '#F2877D', items: [
+s('Weather', 'Rounded location to Open-Meteo, hourly', 'never collected', off)
+] }
+],
+stores: [
+{ name: 'signals.db', v: '3.1 of 60 MB', w: '5%' },
+{ name: 'taste.db', v: '6.4 of 80 MB', w: '8%' }
+],
+feed: [
+{ t: '21:04:12', e: 'Paused Lantern Steps at 2:10', src: 'MediaKey' },
+{ t: '21:03:40', e: 'Volume 55 → 40 % during chorus', src: 'Keyboard' },
+{ t: '21:01:02', e: 'Skipped Copper Sun at 0:14 (radio pick)', src: 'Mouse' },
+{ t: '20:58:31', e: 'Output changed to Headphones', src: 'Auto' },
+{ t: '20:57:09', e: 'Seeked back 1:52 → 1:20 in Night Market', src: 'Mouse' },
+{ t: '20:55:44', e: 'Favorited Night Market', src: 'Mouse' }
+]
+};
+}
+}
+</script>
+</body>
+</html>
