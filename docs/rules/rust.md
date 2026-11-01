@@ -27,7 +27,8 @@
 
 - Bounded channels only (`crossbeam_channel::bounded`, `tokio::sync::mpsc` with capacity).
 - When a signal channel is full: drop the oldest *low-priority* event (browse dwell, hover) and count the drop;
-  never block the producer, never drop T0 playback events (they go to a reserved slot).
+  never block the producer, never drop **reserved** events (playback and explicit-intent kinds, plus kinds that change how those are
+  interpreted — the list is `Priority::of` in `tinwave-signals`); they go to a reserved queue.
 - Everything long-running takes a `CancellationToken`.
 - No locks held across `.await` or across audio callbacks.
 
