@@ -9,6 +9,7 @@ size: M
 depends_on: []          # D-0003 decided; the engine emits PlaybackEvents, not signals
 scope:
   - crates/tinwave-playback/
+  - fixtures/audio/       # small self-made sweep fixtures (total <= 1 MB)
   - Cargo.toml            # [workspace.dependencies] only
   - Cargo.lock
   - deny.toml             # MPL-2.0 exception scoped to symphonia* (D-0003)
