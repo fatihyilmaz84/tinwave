@@ -18,10 +18,12 @@ playlists — and open the Signal Center to watch every interaction being record
 ## Tickets (to be groomed by the lead after E-00 spikes land)
 - library.db schema + migrations; scanner (incremental, cancellable) + tag reading
 - FTS5 search
-- Playback engine on the chosen backend; queue persistence; gapless
+- Playback engine on the chosen backend; queue persistence; gapless. In-app volume uses session volume or software gain,
+  never endpoint volume, and passes Tinwave's event-context GUID if it ever touches endpoint volume (ADR 0004, P-0009)
 - Play records written live at play end
 - T0 playback signals (start/complete/skip/seek/replay/pause/volume/mute/queue/favorite)
-- T1 context providers: clock, power, idle, output device, system volume (Windows first)
+- T1 context providers: clock, power, idle, output device, system volume (Windows first); output device + system volume
+  on Windows is T-0014 (ADR 0004)
 - `Theme.qml` tokens + style selection (from T-0011), then the `Tw*` component catalog (design-system.md §5) as
   small design tickets before the screens that use them
 - Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views. The ticket that
@@ -29,7 +31,7 @@ playlists — and open the Signal Center to watch every interaction being record
   empty glob)
 - OS media integration: SMTC first (D-0001), then MPNowPlaying and MPRIS
 - UI counters (dwell/hover/impressions) through `SignalEmitter`
-- Signal Center screen with storage panel, export, wipe
+- Signal Center screen with storage panel, export, wipe — list and JSONL export driven by `SignalKind::payload_fields()` (P-0012)
 - Compaction job (hot → warm → cold) + incremental vacuum
 
 ## Design

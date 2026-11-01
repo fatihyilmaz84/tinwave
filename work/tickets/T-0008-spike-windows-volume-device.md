@@ -3,7 +3,7 @@ id: T-0008
 title: "Spike: Windows system-volume and output-device change notifications"
 type: spike
 epic: E-00
-status: in_progress
+status: done
 priority: P1
 size: S
 depends_on: []
@@ -39,3 +39,6 @@ Half a working session.
 
 ## Signals & storage
 Confirms feasibility of T0 `SystemVolumeChanged` and T1 `OutputDeviceChanged`.
+
+## Outcome
+2026-11-01: answered yes. Merged 1479562 (prototype + PO-RUNBOOK). Accepted as ADR 0004. Follow-ups: T-0014 (provider), P-0006 (PO runbook), P-0009 (E-01 playback constraint), P-0010 (T-0007 AC).

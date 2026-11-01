@@ -1,0 +1,32 @@
+[package]
+name = "t0008-win-volume"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "T-0008 spike: Windows system-volume and output-device change notifications (throwaway)"
+
+# Standalone: excluded from the Tinwave workspace.
+[workspace]
+
+[dependencies]
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_Media_KernelStreaming",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Performance",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Threading",
+  "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem",
+  "Win32_Devices_FunctionDiscovery",
+] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

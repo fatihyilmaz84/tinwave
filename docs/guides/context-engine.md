@@ -37,8 +37,8 @@ pub trait ContextProvider: Send + Sync {
 | Coarse location | T1/T3 | User-entered city (default) or `Windows.Devices.Geolocation` rounded to 0.1° | CoreLocation (requires permission) | GeoClue2 | daily |
 | Power | T1 | `GetSystemPowerStatus` | IOKit `IOPSCopyPowerSourcesInfo` | UPower D-Bus | 1 min + change notifications |
 | Idle / lock | T1 | `GetLastInputInfo`, `WTSRegisterSessionNotification` | `CGEventSourceSecondsSinceLastEventType`, `com.apple.screenIsLocked` | `org.freedesktop.ScreenSaver` / `ext-idle-notify-v1` / XScreenSaver | 10 s |
-| Output device | T1 | `IMMDeviceEnumerator` + `IMMNotificationClient`, form factor | CoreAudio default-device listener, transport type | PipeWire/PulseAudio sink props | event-driven |
-| System volume | T0 | `IAudioEndpointVolume` callback | `kAudioDevicePropertyVolumeScalar` listener | PipeWire/Pulse sink volume events | event-driven |
+| Output device | T1 | `IMMDeviceEnumerator` + `IMMNotificationClient`; form factor, transport via `IDeviceTopology`, internal jack via `IKsJackDescription`; re-bind on default change (ADR 0004) | CoreAudio default-device listener, transport type | PipeWire/PulseAudio sink props | event-driven |
+| System volume | T0 | `IAudioEndpointVolumeCallback` on the bound render endpoint, own changes dropped by event-context GUID, 400 ms coalescing (ADR 0004) | `kAudioDevicePropertyVolumeScalar` listener | PipeWire/Pulse sink volume events | event-driven |
 | Fullscreen / focus mode | T1 | `SHQueryUserNotificationState` | Focus status API (if available) else Unknown | Unknown (Phase 0 decision) | 30 s |
 | Foreground app category | T2 | `GetForegroundWindow` → process image name only | `NSWorkspace.frontmostApplication.bundleIdentifier` | X11 `_NET_ACTIVE_WINDOW` → `WM_CLASS`; **Wayland: Unknown** | 5 s |
 | Network place | T2 | `WlanQueryInterface` SSID + gateway MAC via `GetIpNetTable2` | CoreWLAN (needs location permission on recent macOS — otherwise Unknown) | NetworkManager D-Bus | on network change |

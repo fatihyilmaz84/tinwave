@@ -12,6 +12,9 @@ pub enum CoreError {
     /// The millisecond timestamp cannot be represented in a UUIDv7 (before 1970 or past 48 bits).
     #[error("timestamp {0} ms is outside the UUIDv7 range")]
     TimestampOutOfRange(i64),
+    /// The random source failed, so no id could be generated.
+    #[error("random source unavailable: {0}")]
+    RandomUnavailable(String),
     /// A timezone offset outside the real-world range of -12:00 to +14:00.
     #[error("timezone offset {0} minutes is outside -720..=840")]
     TzOffsetOutOfRange(i16),
