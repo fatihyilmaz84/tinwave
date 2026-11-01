@@ -3,7 +3,7 @@ id: T-0015
 title: Tidy after T-0013 — drop uuid v7, centralize getrandom, guard secrets from the Rng seam
 type: chore
 epic: E-00
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0005]   # T-0013, T-0004 done; waits for T-0005 (same crate)
