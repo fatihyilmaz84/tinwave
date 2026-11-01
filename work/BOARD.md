@@ -1,6 +1,6 @@
 # Board
 
-_Maintained by the lead. Last updated: 2026-11-01._
+_Maintained by the lead. Last updated: 2026-11-02._
 
 ## Needs the PO
 - **Check your system volume.** Spike T-0008 left the Windows master volume at 2 % (unmuted). It may have been
@@ -17,6 +17,7 @@ _Maintained by the lead. Last updated: 2026-11-01._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0003](tickets/T-0003-spike-audio-backend.md) Spike: audio backend | tw-spike r1 | `t/T-0003-spike-audio-backend` · `D:\dev\Tinwave-worktrees\T-0003-spike-audio-backend` |
+| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-builder **r2** — freeze enum name→code pairs, catalog enum guard ([review-1](reports/T-0004/review-1.md)) | `t/T-0004-signal-schema-codec` · `D:\dev\Tinwave-worktrees\T-0004-signal-schema-codec` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -25,9 +26,7 @@ T-0004 merged main after T-0013 landed and switched its tests to `from_parts`; l
 in reports/T-0004/build-1.md.
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
-| [T-0004](tickets/T-0004-signal-schema-codec.md) Signal schema & codec | tw-reviewer r1 | [build-1](reports/T-0004/build-1.md) (incl. lead answers, rebased) · dfa71af |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -69,4 +68,4 @@ Accepted 2026-11-01: [ADR 0004](../docs/adr/0004-windows-volume-device-provider.
 
 Proposals: P-0001 → T-0012 · P-0002, P-0004 → T-0013 · P-0003 parked (CI, needs a remote) · P-0005, P-0008 done by
 lead · P-0006 → PO runbook · P-0007 → T-0014 · P-0009 → E-01 playback constraint · P-0010 → T-0007 · P-0011 → lead after T-0004
-merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked · P-0017, P-0018, P-0019 → T-0015.
+merge (catalog enums + derived-tier rule) · P-0012 → E-01 Signal Center · P-0013 → T-0007 · P-0014, P-0015 → T-0015 · P-0016 parked · P-0017, P-0018, P-0019 → T-0015 · P-0020, P-0021 → T-0004 r2.
