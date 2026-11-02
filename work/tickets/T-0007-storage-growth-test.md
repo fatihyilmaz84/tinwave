@@ -3,21 +3,26 @@ id: T-0007
 title: Storage growth test v1 — 5 simulated years of a heavy listener
 type: feature
 epic: E-00
-status: backlog
+status: in_progress
 priority: P1
 size: M
-depends_on: [T-0006]
+depends_on: []          # T-0006 done
 scope:
-  - crates/tinwave-signals/benches/
-  - crates/tinwave-signals/src/sim/
-  - crates/tinwave-db/tests/
-owner:
-branch:
+  - crates/tinwave-db/tests/              # reuse/extend the T-0006 realistic Listener in tests/common
+  - crates/tinwave-db/benches/
+  - crates/tinwave-db/Cargo.toml          # dev-dependencies only
+  - Cargo.toml                            # [workspace.dependencies] only
+  - Cargo.lock
+owner: tw-builder (round 1, same builder as T-0006)
+branch: t/T-0007-storage-growth-test
 review_round: 0
 created_by: lead
 ---
 
 ## Context
+Lead grooming 2026-11-02: the generator lives in tinwave-db test code (where T-0006 already built a realistic
+`Listener`), not in a production crate. T-0006 measured 39.4 B/event (table) and 48.2 B/event (whole file).
+Compaction and play records (T-0029) are not built yet: v1 measures the hot tier and extrapolates.
 docs/rules/testing.md "Storage growth test", docs/rules/storage-budget.md, signal catalog §9 volume estimates.
 
 ## Scope

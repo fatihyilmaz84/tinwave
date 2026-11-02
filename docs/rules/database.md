@@ -41,8 +41,8 @@ CREATE TABLE session (
   tz_offset_min INTEGER NOT NULL
 );
 
--- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (realistic mix with ctx and a 50k-track
--- library: see T-0006 storage_budget test for the current measured figure).
+-- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index. Measured (T-0006, realistic mix with ctx on
+-- every event, 50k-track library): 39.4 B/event table, 48.2 B/event whole file; guarded by tinwave-db tests.
 -- WITHOUT ROWID keyed on the sync dedupe key: no rowid and no separate UNIQUE index (saves ~19 B/event).
 CREATE TABLE signal_event (
   device    INTEGER NOT NULL,               -- with seq = global dedupe key for sync

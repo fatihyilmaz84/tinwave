@@ -3,7 +3,7 @@ id: T-0006
 title: signals.db migrations and batched SignalWriter
 type: feature
 epic: E-00
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: [T-0005, T-0022]
@@ -52,3 +52,6 @@ docs/rules/database.md (schema, write path, pragmas), docs/rules/storage-budget.
 
 ## Signals & storage
 Core of the storage budget. Report measured bytes/event in the handoff.
+
+## Merged
+2026-11-02, merge commit 445df54 (branch head 698b78f). Reviews: review-1 (CHANGES_REQUESTED), review-2 (APPROVE). Gates green on main (327 tests). Storage: 39.4 B/event table, 48.2 B/event whole file (realistic mix, 50k library, ctx on every event). Lead schema decisions recorded in database.md.
