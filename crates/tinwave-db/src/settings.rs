@@ -5,9 +5,15 @@
 //!
 //! - **Load before the bus accepts events.** [`PersistentSettings::open`] reads the row and
 //!   builds the settings; hand [`settings`](PersistentSettings::settings) to `SignalBus::channel`.
-//! - **Save on change.** [`set_category`](PersistentSettings::set_category),
-//!   and [`set_tier`](PersistentSettings::set_tier) change the atomic mask first, so the toggle is in effect for the very next `emit_with`
-//!   on every thread, then write the row.
+//! - **Save on change.** [`set_category`](PersistentSettings::set_category)
+//!   and [`set_tier`](PersistentSettings::set_tier) change the atomic mask first, so the toggle is
+//!   in effect for the very next `emit_with` on every thread, then write the row.
+//! - **Toggle only through here.** The `Arc<SignalSettings>` from
+//!   [`settings`](PersistentSettings::settings) is for `SignalBus::channel` and for reading.
+//!   `SignalSettings` has its own `set_category` and `set_tier` (the bus tests flip toggles
+//!   without a database); on this instance they change what is collected but not the stored row,
+//!   so the choice would be lost at the next start. Producers and the UI must toggle through
+//!   `PersistentSettings`.
 //! - **No signal.** A toggle change writes settings, never an event (`design-system.md`
 //!   `TwSignalRow`): turning collection off must not itself be collected.
 //!
@@ -24,13 +30,14 @@
 //! [`PersistentSettings::load_problem`] returns a [`SettingsProblem`] the Signal Center must show
 //! as an error ("collection is paused until you review the settings"), and the same problem is
 //! logged at `error`. The row is left as found; the first toggle the user saves replaces it,
-//! after which the next start is clean.
+//! after which the next start is clean, and [`load_problem`](PersistentSettings::load_problem)
+//! returns `None` from that save on, so the banner goes away in the same session.
 //!
 //! A write that fails (disk full, locked database) returns the `DbError`: the toggle **is** in
 //! effect now, but would be forgotten at the next start; the caller must tell the user.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use tinwave_core::{Clock, Tier};
@@ -90,7 +97,15 @@ pub struct PersistentSettings {
     settings: Arc<SignalSettings>,
     conn: Mutex<Connection>,
     clock: Arc<dyn Clock>,
+    /// How the toggles were obtained at startup. Never changes.
     load: SettingsLoad,
+    /// The startup problem while it still applies: cleared by the first successful save, which
+    /// replaces the row it came from.
+    problem: Mutex<Option<SettingsProblem>>,
+    /// Runs once, in the next save, after the atomic update and before the connection lock is
+    /// requested (see `lock_conn`). Lets a test interleave a second toggle at that exact point.
+    #[cfg(test)]
+    before_lock: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 impl std::fmt::Debug for PersistentSettings {
@@ -116,11 +131,18 @@ impl PersistentSettings {
         if let SettingsLoad::FailedClosed(problem) = &load {
             tracing::error!(%problem, "Signal Center settings not restored; collection is paused");
         }
+        let problem = match &load {
+            SettingsLoad::FailedClosed(problem) => Some(problem.clone()),
+            SettingsLoad::Restored => None,
+        };
         Ok(Self {
             settings: Arc::new(settings),
             conn: Mutex::new(conn),
             clock: Arc::new(clock),
             load,
+            problem: Mutex::new(problem),
+            #[cfg(test)]
+            before_lock: Mutex::new(None),
         })
     }
 
@@ -153,25 +175,35 @@ impl PersistentSettings {
         })
     }
 
-    /// The toggles every producer checks. Give this to `SignalBus::channel`.
+    /// The toggles every producer checks. Give this to `SignalBus::channel`; everyone else only
+    /// reads it.
+    ///
+    /// Do not call `set_category` or `set_tier` on the returned settings: they take effect but are
+    /// not stored (see the module docs). Toggle with [`set_category`](Self::set_category) and
+    /// [`set_tier`](Self::set_tier) on `self`.
     #[must_use]
     pub fn settings(&self) -> &Arc<SignalSettings> {
         &self.settings
     }
 
-    /// How the toggles were obtained at startup.
+    /// How the toggles were obtained at startup. This does not change when the user saves a
+    /// toggle; to know whether the problem still applies, ask [`load_problem`](Self::load_problem).
     #[must_use]
     pub fn load(&self) -> &SettingsLoad {
         &self.load
     }
 
-    /// What the Signal Center must show as an error, if the stored settings could not be used.
+    /// What the Signal Center must show as an error right now: the startup problem with the
+    /// stored settings, until the first successful save replaces the row it came from. `None`
+    /// when the settings were restored, and from then on.
+    ///
+    /// A failed save does not clear it: the row is still the unusable one.
     #[must_use]
-    pub fn load_problem(&self) -> Option<&SettingsProblem> {
-        match &self.load {
-            SettingsLoad::FailedClosed(problem) => Some(problem),
-            SettingsLoad::Restored => None,
-        }
+    pub fn load_problem(&self) -> Option<SettingsProblem> {
+        self.problem
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// Turns a category on or off: in effect now, then stored.
@@ -194,15 +226,40 @@ impl PersistentSettings {
     }
 
     /// Writes the current mask. The mask is read under the connection lock, so concurrent
-    /// toggles leave the row equal to the last in-memory state.
+    /// toggles leave the row equal to the last in-memory state: the save that gets the lock last
+    /// has seen every earlier atomic update. A successful write also clears the startup problem.
     fn save(&self) -> Result<(), DbError> {
-        let conn = self.conn.lock().unwrap_or_else(PoisonError::into_inner);
+        let conn = self.lock_conn();
         conn.execute(
             UPSERT,
             params![i64::from(self.settings.mask()), self.clock.now().as_i64()],
         )
         .map_err(DbError::sqlite("storing the Signal Center settings"))?;
+        let cleared = self
+            .problem
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(problem) = cleared {
+            tracing::info!(%problem, "Signal Center settings saved; the stored row is usable again");
+        }
         Ok(())
+    }
+
+    /// The connection, for a save. The mask must be read only after this returns.
+    fn lock_conn(&self) -> MutexGuard<'_, Connection> {
+        #[cfg(test)]
+        {
+            let hook = self
+                .before_lock
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take();
+            if let Some(hook) = hook {
+                hook();
+            }
+        }
+        self.conn.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -214,5 +271,81 @@ fn type_name(t: rusqlite::types::Type) -> &'static str {
         Type::Real => "real",
         Type::Text => "text",
         Type::Blob => "blob",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use tinwave_core::{ManualClock, UtcMillis};
+
+    use super::*;
+
+    fn open_temp() -> (tempfile::TempDir, PersistentSettings) {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = PersistentSettings::open(
+            &dir.path().join("signals.db"),
+            ManualClock::new(UtcMillis::new(1_793_577_600_000)),
+        )
+        .unwrap();
+        (dir, settings)
+    }
+
+    fn stored(settings: &PersistentSettings) -> i64 {
+        let conn = settings.conn.lock().unwrap();
+        conn.query_row(SELECT_MASK, [], |row| row.get(0)).unwrap()
+    }
+
+    /// The upsert reads the mask under the connection lock.
+    ///
+    /// Toggle A is held after its atomic update, just before it asks for the lock. Toggle B then
+    /// runs to completion and stores a mask that includes A's change. When A resumes it must store
+    /// the current mask, not one it read earlier: otherwise A overwrites B's row with a mask that
+    /// lacks B's toggle and the row differs from what is collected.
+    #[test]
+    fn the_mask_is_read_under_the_connection_lock() {
+        let (_dir, settings) = open_temp();
+        let (reached_tx, reached_rx) = mpsc::channel();
+        let (go_tx, go_rx) = mpsc::channel::<()>();
+        *settings.before_lock.lock().unwrap() = Some(Box::new(move || {
+            reached_tx.send(()).unwrap();
+            go_rx.recv().unwrap();
+        }));
+
+        std::thread::scope(|scope| {
+            let a = scope.spawn(|| settings.set_category(SignalCategory::Volume, false));
+            reached_rx.recv().unwrap();
+            // A's category is already off in memory; its save has not started.
+            assert!(!settings.settings().category_enabled(SignalCategory::Volume));
+
+            settings.set_tier(Tier::T2, true).unwrap();
+            assert_eq!(stored(&settings), i64::from(settings.settings().mask()));
+
+            go_tx.send(()).unwrap();
+            a.join().unwrap().unwrap();
+        });
+
+        let mask = settings.settings().mask();
+        assert!(settings.settings().tier_enabled(Tier::T2), "B's tier is on");
+        assert!(
+            !settings.settings().category_enabled(SignalCategory::Volume),
+            "A's category is off"
+        );
+        assert_eq!(
+            stored(&settings),
+            i64::from(mask),
+            "the row equals the last in-memory state"
+        );
+    }
+
+    #[test]
+    fn the_hook_runs_once_and_only_for_the_next_save() {
+        let (_dir, settings) = open_temp();
+        let (tx, rx) = mpsc::channel();
+        *settings.before_lock.lock().unwrap() = Some(Box::new(move || tx.send(()).unwrap()));
+        settings.set_tier(Tier::T3, true).unwrap();
+        settings.set_tier(Tier::T3, false).unwrap();
+        assert_eq!(rx.try_iter().count(), 1);
     }
 }
