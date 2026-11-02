@@ -13,9 +13,12 @@
 //!   is the 100 ms cadence step. Nothing in it reads the wall clock: times come from the injected
 //!   [`Clock`](tinwave_core::Clock), so tests drive it deterministically.
 //! - [`ControllerHandle`] runs a `Controller` on its own thread (the playback control thread of
-//!   `architecture.md`) and is what the app holds: `Send + Sync`, commands block only for the
-//!   microseconds the thread needs to execute them, and the thread never waits for the database,
-//!   analysis, a context provider or the network.
+//!   `architecture.md`) and is what the app holds: `Send + Sync`. Commands block for the time the
+//!   thread needs to execute them: microseconds, except [`switch_device`](Controller::switch_device),
+//!   which opens the output synchronously and can take 100 ms or more (Bluetooth, exclusive
+//!   WASAPI); the shell should call it off the UI thread. The thread never waits for the
+//!   database, analysis, a context provider or the network, and quitting never waits for the
+//!   decoder (a stuck read cannot hang exit).
 //! - [`BoundedSink`] is the engine's [`EventSink`](crate::EventSink): bounded, ordered, with a
 //!   reserved budget so a flood of position marks can never push out `TrackStarted` / `TrackLeft`.
 //!
@@ -64,8 +67,12 @@
 //!   play in the new session, then the new `PlayStarted`. (Only a `stop` in the last 3 % of such
 //!   a play has no command origin and is not kept.) `SessionEnded.minutes` runs from the start to the last
 //!   audible moment (not including the 30 minutes of silence).
-//! - **Gestures need a session.** A volume change with no session (nothing has played for 30
-//!   minutes, or ever) is applied but not recorded.
+//! - **Gestures need a session.** A volume change or a seek with no session (nothing has played
+//!   for 30 minutes, or ever; for a seek: a paused play whose session has ended) is applied but
+//!   not recorded.
+//! - **Preference changes are not lost for want of a session.** `RepeatModeChanged` and
+//!   `ExclusiveModeToggled` made while no session is open are emitted right after the next
+//!   `SessionStarted`, if the value still differs from the last one reported.
 //! - **Disabled categories construct nothing**: payloads are built inside the bus's emit closure,
 //!   after the toggle check.
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
@@ -270,6 +277,9 @@ impl Controller {
 
     /// Move to another output device (`None` is the system default).
     ///
+    /// The output is opened synchronously: this can take 100 ms or more (Bluetooth, exclusive
+    /// WASAPI) and, through [`ControllerHandle`], blocks the caller meanwhile.
+    ///
     /// # Errors
     /// As [`Engine::switch_device`](crate::Engine::switch_device).
     pub fn switch_device(&mut self, device: Option<String>) -> Result<(), PlaybackError> {
@@ -317,14 +327,28 @@ impl Controller {
         self.events.stats()
     }
 
-    /// Stops playback, emits what is pending, ends the session and stops the engine.
+    /// Stops playback, emits what is pending, ends the session and stops the engine, **waiting
+    /// for the decoder thread**. For tests and orderly teardown; the app exits through
+    /// [`close`](Self::close).
     pub fn shutdown(mut self) {
+        self.wind_down();
+        self.engine.shutdown();
+    }
+
+    /// As [`shutdown`](Self::shutdown) but never waits for the decoder: the engine is only told to
+    /// stop (dropping it signals the thread and closes the stream), so a read stuck on a dead
+    /// network share cannot hang application exit. This is what [`ControllerHandle`] uses.
+    pub fn close(mut self) {
+        self.wind_down();
+    }
+
+    /// Stop playback, map what that produced, flush gestures and end the session.
+    fn wind_down(&mut self) {
         if let Err(error) = self.engine.stop() {
             tracing::warn!(%error, "could not stop playback at shutdown");
         }
         self.drain(Cx::AUTO);
         self.mapper.finish(self.clock.now());
-        self.engine.shutdown();
     }
 
     /// Maps every event the engine has produced so far. `cx` describes the command that caused

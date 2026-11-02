@@ -737,3 +737,94 @@ fn output_reopened_carries_how_the_new_stream_was_opened() {
     );
     engine.shutdown();
 }
+
+#[test]
+fn a_repeat_mode_set_with_nothing_loaded_is_reported_by_the_next_session() {
+    let mut rig = Rig::new("sig-repeat-no-session");
+    rig.ctl.set_repeat_mode(RepeatMode::One);
+    assert!(rig.signals().is_empty(), "no session yet");
+    assert_eq!(rig.ctl.status().repeat, RepeatMode::One);
+
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::RepeatModeChanged,
+            SignalKind::PlayStarted
+        ]
+    );
+    let SignalPayload::RepeatModeChanged(p) = signals[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.mode, RepeatMode::One);
+    assert_eq!(signals[1].session, signals[0].session);
+}
+
+#[test]
+fn a_repeat_mode_changed_back_before_any_session_is_not_reported() {
+    let mut rig = Rig::new("sig-repeat-undone");
+    rig.ctl.set_repeat_mode(RepeatMode::One);
+    rig.ctl.set_repeat_mode(RepeatMode::Off);
+    let a = rig.wav("a.wav", SECOND);
+    let e = rig.entry(1, &a, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    assert_eq!(
+        kinds(&rig.signals()),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+    );
+}
+
+#[test]
+fn a_repeat_mode_set_after_a_session_ended_is_reported_by_the_next_one() {
+    let mut rig = Rig::new("sig-repeat-after-end");
+    let a = rig.wav("a.wav", SECOND / 2);
+    let e = rig.entry(1, &a, SECOND / 2);
+    rig.select(vec![e.clone()], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    rig.clock.advance(30 * 60_000);
+    rig.ctl.poll();
+    rig.new_signals();
+
+    rig.ctl.set_repeat_mode(RepeatMode::All);
+    assert!(rig.new_signals().is_empty());
+    rig.select(vec![e], 0, PlayOrigin::Search, InputSource::Mouse);
+    assert_eq!(
+        kinds(&rig.new_signals()),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::RepeatModeChanged,
+            SignalKind::PlayStarted
+        ]
+    );
+}
+
+#[test]
+fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() {
+    let mut exclusive = StreamInfo::unknown();
+    exclusive.mode = StreamMode::Exclusive;
+    let (output, handle, _) = InfoOutput::new(vec![StreamInfo::unknown(), exclusive]);
+    let mut rig = Rig::with_output("sig-exclusive-no-session", Box::new(output), handle);
+    rig.ctl.switch_device(Some("dac".into())).expect("switch");
+    assert!(rig.signals().is_empty(), "no session yet");
+
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::ExclusiveModeToggled,
+            SignalKind::PlayStarted
+        ]
+    );
+    let SignalPayload::ExclusiveModeToggled(p) = signals[1].payload else {
+        panic!("kind");
+    };
+    assert!(p.on);
+}

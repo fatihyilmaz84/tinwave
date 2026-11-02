@@ -41,10 +41,14 @@ enum Message {
 /// The app's handle on a running controller. Cheap to share by reference (`Send + Sync`).
 ///
 /// Every command returns once the controller thread has carried it out, with the engine's own
-/// answer. The wait is the time of one engine call (they never block) and never includes the
-/// signal bus, the database, analysis or the network.
+/// answer. The wait is the time of one engine call and never includes the signal bus, the
+/// database, analysis or the network. Engine calls take microseconds, except
+/// [`switch_device`](Self::switch_device), which opens the output synchronously (100 ms or more
+/// for Bluetooth or exclusive WASAPI): call it off the UI thread.
 ///
-/// Dropping the handle shuts the controller down like [`shutdown`](Self::shutdown).
+/// Dropping the handle shuts the controller down like [`shutdown`](Self::shutdown): playback is
+/// stopped, pending signals are emitted and the session ends, but the decoder thread is **not**
+/// waited for, so a read stuck on an unreachable network share cannot hang application exit.
 pub struct ControllerHandle {
     tx: SyncSender<Message>,
     status: Arc<Mutex<PlaybackStatus>>,
@@ -77,7 +81,8 @@ impl ControllerHandle {
             .name("tinwave-controller".into())
             .spawn(move || {
                 run(&mut controller, &rx, interval, &shared);
-                controller.shutdown();
+                // Never joins the decoder: exit must not wait for a stuck read.
+                controller.close();
             })
             .map_err(|e| PlaybackError::Output(format!("cannot start controller thread: {e}")))?;
         Ok(Self {
@@ -165,7 +170,7 @@ impl ControllerHandle {
         *self.status.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Stops playback, ends the session and joins the controller thread.
+    /// Stops playback, ends the session and joins the controller thread (not the decoder).
     pub fn shutdown(mut self) {
         self.stop_thread();
     }

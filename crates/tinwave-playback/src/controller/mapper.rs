@@ -111,6 +111,11 @@ pub(super) struct Mapper {
     paused: bool,
     mode: StreamMode,
     repeat: RepeatMode,
+    /// The values last put into a signal (or seen by the bus with their category off). A change
+    /// made outside a session is only recorded here; the next session reports it right after
+    /// `SessionStarted`, so a preference change is never lost for want of a session.
+    reported_repeat: RepeatMode,
+    reported_mode: StreamMode,
 }
 
 impl std::fmt::Debug for Mapper {
@@ -143,6 +148,8 @@ impl Mapper {
             paused: false,
             mode,
             repeat: RepeatMode::Off,
+            reported_repeat: RepeatMode::Off,
+            reported_mode: mode,
         }
     }
 
@@ -195,10 +202,10 @@ impl Mapper {
             return;
         }
         self.repeat = mode;
-        let scope = self.play_scope(None);
-        self.send(SignalKind::RepeatModeChanged, at, scope, || {
-            SignalPayload::RepeatModeChanged(RepeatModePayload { mode })
-        });
+        // Outside a session the change waits for the next one (see `report_preferences`).
+        if self.session.is_some() {
+            self.report_repeat(at);
+        }
     }
 
     pub fn handle(&mut self, event: PlaybackEvent, cx: Cx) {
@@ -308,6 +315,38 @@ impl Mapper {
             },
         );
         self.session = Some(session);
+        self.report_preferences(at);
+    }
+
+    /// Preference changes made while there was no session are reported now, right after
+    /// `SessionStarted`.
+    fn report_preferences(&mut self, at: UtcMillis) {
+        if self.repeat != self.reported_repeat {
+            self.report_repeat(at);
+        }
+        if self.mode != self.reported_mode {
+            self.report_mode(at);
+        }
+    }
+
+    fn report_repeat(&mut self, at: UtcMillis) {
+        let mode = self.repeat;
+        self.reported_repeat = mode;
+        let scope = self.play_scope(None);
+        self.send(SignalKind::RepeatModeChanged, at, scope, || {
+            SignalPayload::RepeatModeChanged(RepeatModePayload { mode })
+        });
+    }
+
+    fn report_mode(&mut self, at: UtcMillis) {
+        let on = self.mode == StreamMode::Exclusive;
+        self.reported_mode = self.mode;
+        self.send(
+            SignalKind::ExclusiveModeToggled,
+            at,
+            Scope::default(),
+            || SignalPayload::ExclusiveModeToggled(ExclusiveModePayload { on }),
+        );
     }
 
     fn set_audible(&mut self, at: UtcMillis, audible: bool) {
@@ -328,7 +367,11 @@ impl Mapper {
     ) {
         let _ = self.coalescer.flush_all();
         let Some(meta) = self.table.get(&item).copied() else {
-            tracing::error!(
+            // Benign when a gapless hand-off in the old queue lands between `Controller::load`'s
+            // pre-poll and `Engine::load`'s own poll and the new queue lacks that item: the play
+            // is simply not recorded. A genuinely unknown item would be a queue-layer bug, but
+            // the two cannot be told apart here, so this is `debug`, not `error`.
+            tracing::debug!(
                 item = item.0,
                 "a track started that is not in the queue table; it produces no signals"
             );
@@ -526,15 +569,10 @@ impl Mapper {
         if let Some(reason) = &info.fallback {
             tracing::warn!(%reason, "the output stream is not what was asked for");
         }
-        let was = std::mem::replace(&mut self.mode, info.mode);
-        if was != info.mode {
-            let on = info.mode == StreamMode::Exclusive;
-            self.send(
-                SignalKind::ExclusiveModeToggled,
-                at,
-                Scope::default(),
-                || SignalPayload::ExclusiveModeToggled(ExclusiveModePayload { on }),
-            );
+        self.mode = info.mode;
+        // Outside a session the change waits for the next one (see `report_preferences`).
+        if self.mode != self.reported_mode && self.session.is_some() {
+            self.report_mode(at);
         }
     }
 

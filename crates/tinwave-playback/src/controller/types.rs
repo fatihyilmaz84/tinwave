@@ -101,6 +101,10 @@ impl PlaybackStatus {
 /// The offset is recorded on the bus (counter days) and, through
 /// [`session_started`](Self::session_started), wherever else the shell needs it at the same
 /// moment (the signal writer's `set_tz_offset`: this crate cannot see `tinwave-db`).
+///
+/// Both methods run on the controller thread, in the middle of mapping events. **Implementations
+/// must not block** (no waiting on a database lock or on the signal writer): while they wait,
+/// playback control stalls.
 pub trait TimezoneSource: Send + Sync + std::fmt::Debug {
     /// The local offset from UTC right now.
     fn local_offset(&self) -> TzOffsetMin;

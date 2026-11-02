@@ -12,14 +12,14 @@ use controller_support::{entry, recording, T0};
 use tinwave_core::{IdGenerator, ManualClock, SeededRng, TzOffsetMin, UtcMillis};
 use tinwave_playback::{
     ControllerConfig, ControllerHandle, FixedTimezone, FsOpener, LoadIntent, LoadRequest,
-    ManualHandle, ManualOutput, PlayState, PlaybackError,
+    ManualHandle, ManualOutput, PlayState, PlaybackError, SourceOpener,
 };
 use tinwave_signals::{
     BusConfig, CounterRow, InputSource, PlayOrigin, QueueOrigin, SignalBus, SignalDrain,
     SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
 };
 
-use common::{sweep, write_wav, TempDir, RATE};
+use common::{sweep, write_wav, Gate, GatedOpener, TempDir, RATE};
 
 const SECOND: usize = 48_000;
 
@@ -44,6 +44,10 @@ struct Threaded {
 
 impl Threaded {
     fn new(tag: &str) -> Self {
+        Self::with_opener(tag, Arc::new(FsOpener))
+    }
+
+    fn with_opener(tag: &str, opener: Arc<dyn SourceOpener>) -> Self {
         let (output, out) = ManualOutput::new();
         let clock = ManualClock::new(UtcMillis::new(T0));
         let device = tinwave_core::DeviceId::from_parts(UtcMillis::new(T0), [4; 10]).expect("id");
@@ -57,7 +61,7 @@ impl Threaded {
             ControllerConfig {
                 sample_rate: RATE,
                 device: None,
-                opener: Arc::new(FsOpener),
+                opener,
                 clock: Arc::new(clock.clone()),
                 bus: bus.clone(),
                 ids: IdGenerator::new(clock.clone(), SeededRng::new(7)),
@@ -286,4 +290,68 @@ fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
         }
     }
     assert_eq!(session_starts, 1);
+}
+
+#[test]
+fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
+    // A track whose very first read never returns (a share that went away).
+    let gate = Arc::new(Gate::default());
+    let opener = Arc::new(GatedOpener {
+        gate: Arc::clone(&gate),
+        allow: 0,
+        only: None,
+    });
+    let t = Threaded::with_opener("thr-stuck", opener);
+    let a = t.wav("a.wav", 10 * SECOND);
+    t.handle
+        .load(LoadRequest {
+            entries: vec![entry(1, &a, 10 * SECOND, QueueOrigin::Manual)],
+            index: 0,
+            start_frame: 0,
+            intent: LoadIntent::Select(PlayOrigin::Search),
+            input: InputSource::Mouse,
+        })
+        .expect("load is accepted: the decoder works in the background");
+    for _ in 0..10_000 {
+        if gate.blocked.load(std::sync::atomic::Ordering::Acquire) {
+            break;
+        }
+        // The decoder starts on a command once the callback acknowledges its flush.
+        let _ = t.out.render(&mut [], 0);
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    assert!(
+        gate.blocked.load(std::sync::atomic::Ordering::Acquire),
+        "the decoder must be stuck in the read for this test to mean anything"
+    );
+
+    let Threaded {
+        handle, mut drain, ..
+    } = std::mem::ManuallyDrop::into_inner(std::mem::ManuallyDrop::new(t));
+    let (done_tx, done_rx) = std::sync::mpsc::channel();
+    let closer = std::thread::spawn(move || {
+        drop(handle);
+        let _ = done_tx.send(());
+    });
+    let returned = done_rx.recv_timeout(Duration::from_secs(5));
+    // Let the decoder go so the test process does not leak a blocked thread either way.
+    gate.open();
+    assert!(
+        returned.is_ok(),
+        "dropping the handle waited for the decoder"
+    );
+    closer.join().expect("closer thread");
+
+    let mut sink = Collector::default();
+    while drain.pump(&mut sink).expect("pump").more {}
+    let kinds: Vec<_> = sink.0.iter().map(SignalEvent::kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            SignalKind::SessionStarted,
+            SignalKind::PlayStarted,
+            SignalKind::SessionEnded
+        ],
+        "the session is still closed on the way out"
+    );
 }
