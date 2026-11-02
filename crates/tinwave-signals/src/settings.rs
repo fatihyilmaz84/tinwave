@@ -204,12 +204,18 @@ impl SignalSettings {
         self.mask.load(Ordering::Relaxed) & tier_bit(tier) != 0
     }
 
-    /// Turns a category on or off.
+    /// Turns a category on or off, in memory only.
+    ///
+    /// The user's toggles live in `signals.db`: on the settings the app runs with, toggle through
+    /// `tinwave_db::PersistentSettings::set_category`, which calls this and then stores the row.
+    /// Called directly it takes effect now and is forgotten at the next start. This method stays
+    /// public for code with no database (tests, benches, probes).
     pub fn set_category(&self, category: SignalCategory, on: bool) {
         self.set_bits(category.bit(), on);
     }
 
-    /// Turns a tier on or off.
+    /// Turns a tier on or off, in memory only. See [`set_category`](Self::set_category): the app
+    /// toggles through `tinwave_db::PersistentSettings::set_tier`.
     pub fn set_tier(&self, tier: Tier, on: bool) {
         self.set_bits(tier_bit(tier), on);
     }

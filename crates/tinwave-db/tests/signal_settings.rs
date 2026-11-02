@@ -245,8 +245,13 @@ fn a_missing_row_fails_closed_and_says_so() {
             open(&db).load_problem().is_some(),
             "still reported on the next start"
         );
-        // ...and the first toggle replaces the row, which clears the problem.
+        // ...and the first toggle replaces the row, which clears the problem, in this session too.
         settings.set_tier(Tier::T0, true).unwrap();
+        assert_eq!(
+            settings.load_problem(),
+            None,
+            "no stale banner after a save"
+        );
         settings.set_tier(Tier::T1, true).unwrap();
         for category in SignalCategory::ALL {
             settings.set_category(category, true).unwrap();
@@ -292,7 +297,7 @@ fn a_corrupt_row_fails_closed_and_says_so() {
         let problem = settings
             .load_problem()
             .unwrap_or_else(|| panic!("{literal}: no problem reported"));
-        let SettingsProblem::Corrupt { found } = problem else {
+        let SettingsProblem::Corrupt { found } = &problem else {
             panic!("{literal}: {problem:?}");
         };
         assert!(found.contains(expected), "{literal}: {found}");
@@ -305,6 +310,10 @@ fn a_corrupt_row_fails_closed_and_says_so() {
         // Still there for the user to see on the next start, until they change a toggle.
         assert!(open(&db).load_problem().is_some(), "{literal}");
         settings.set_tier(Tier::T0, true).unwrap();
+        assert!(
+            settings.load_problem().is_none(),
+            "{literal}: the banner goes in this session"
+        );
         assert!(
             open(&db).load_problem().is_none(),
             "{literal}: replaced by the save"
@@ -419,4 +428,57 @@ fn a_database_from_before_the_settings_table_is_upgraded_with_the_defaults() {
         2
     );
     assert_eq!(count(&db.reader(), "SELECT count(*) FROM signal_event"), 1);
+}
+
+/// The Signal Center's "collection is paused" banner is gone after the first successful save,
+/// and a failed save does not remove it: the row is still the unusable one.
+#[test]
+fn the_paused_banner_clears_after_the_first_successful_save_only() {
+    let db = TempDb::new();
+    drop(open(&db));
+    db.reader()
+        .execute_batch("DELETE FROM signal_settings")
+        .unwrap();
+
+    let settings = open(&db);
+    let problem = settings.load_problem().expect("reported at startup");
+    assert_eq!(problem, SettingsProblem::MissingRow);
+
+    // A save that fails leaves the row as found, so the banner stays.
+    db.reader()
+        .execute_batch(
+            "CREATE TRIGGER inject_failure BEFORE INSERT ON signal_settings              BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+        )
+        .unwrap();
+    settings.set_tier(Tier::T0, true).unwrap_err();
+    assert_eq!(settings.load_problem(), Some(problem.clone()));
+    assert_eq!(stored_mask(&db), None);
+
+    // The first save that works clears it, and it stays cleared for later toggles.
+    db.reader()
+        .execute_batch("DROP TRIGGER inject_failure")
+        .unwrap();
+    settings.set_tier(Tier::T0, true).unwrap();
+    assert_eq!(settings.load_problem(), None);
+    assert_eq!(
+        stored_mask(&db),
+        Some(i64::from(settings.settings().mask()))
+    );
+    settings.set_tier(Tier::T1, true).unwrap();
+    assert_eq!(settings.load_problem(), None);
+
+    // `load` still says how this session started.
+    assert_eq!(
+        settings.load(),
+        &SettingsLoad::FailedClosed(SettingsProblem::MissingRow)
+    );
+}
+
+#[test]
+fn restored_settings_never_report_a_problem_before_or_after_a_save() {
+    let db = TempDb::new();
+    let settings = open(&db);
+    assert_eq!(settings.load_problem(), None);
+    settings.set_tier(Tier::T2, true).unwrap();
+    assert_eq!(settings.load_problem(), None);
 }
