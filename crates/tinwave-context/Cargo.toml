@@ -18,12 +18,14 @@ tracing = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-core = { workspace = true }
-# Only what the COM module uses; see src/audio/win/com.rs.
+# Only what the unsafe modules use: src/audio/win/com.rs (COM) and src/secret_store/win.rs
+# (Credential Manager, Win32_Security_Credentials).
 windows = { workspace = true, features = [
   "Win32_Foundation",
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
   "Win32_Media_KernelStreaming",
+  "Win32_Security_Credentials",
   "Win32_System_Com",
   "Win32_System_Com_StructuredStorage",
   "Win32_System_Variant",
@@ -32,7 +34,8 @@ windows = { workspace = true, features = [
 
 # Not `workspace = true`: the Windows COM module needs `unsafe`, which the workspace forbids.
 # This crate is the single place (besides tinwave-test-alloc) that opts in. `deny` keeps every other
-# module of the crate free of `unsafe`; only `src/audio/win/com.rs` carries `#![allow(unsafe_code)]`.
+# module of the crate free of `unsafe`; only `src/audio/win/com.rs` and `src/secret_store/win.rs`
+# carry `#![allow(unsafe_code)]`.
 [lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"
