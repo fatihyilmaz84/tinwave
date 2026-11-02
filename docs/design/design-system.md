@@ -62,27 +62,49 @@ the color scheme, the user's overrides and the platform.
 
 ### 3.1 Color (semantic)
 
+Alpha colours are written here in **QML order, `#AARRGGBB`** (not CSS `#RRGGBBAA`): QML parses an 8-digit hex as
+`#AARRGGBB`, so a CSS-ordered value copied into `Theme.qml` silently becomes a different colour. In code they are
+`Qt.rgba(r, g, b, a / 255)`.
+
 | Token | Light | Dark | Use |
 |---|---|---|---|
 | `window` | `#F3F3F5` | `#161618` | Window background, transport bar |
 | `sidebar` | `#ECECEF` | `#1D1D20` | Sidebar (solid fallback for Mica/vibrancy) |
 | `content` | `#FFFFFF` | `#161618` | Main content surface |
 | `raised` | `#FFFFFF` | `#202023` | Cards, panels, artwork placeholder |
-| `hover` | `#0000000A` | `#FFFFFF0F` | Hover overlay on Tw components |
-| `selected` | accent 12 % (`#E6F1F2` with Tin Teal) | accent 18 % (`#1B2B2D`) | Selected row/tile |
-| `separator` | `#0000001A` | `#FFFFFF14` | Hairlines |
+| `hover` | `#0A000000` | `#0FFFFFFF` | Hover overlay on Tw components |
+| `selected` | accent 10 % over `content` (`#E7F1F2` with Tin Teal) | accent 12 % over `content` (`#1E2B2E` with Tin Teal dark) | Selected row/tile; strength is backed off for extreme accents so every text token stays ≥ 4.5:1 on it |
+| `separator` | `#1A000000` | `#14FFFFFF` | Hairlines |
 | `text` | `#1B1B1F` | `#F2F2F4` | Primary text |
 | `textMuted` | `#5D5D66` | `#A6A6AF` | Secondary text |
-| `textFaint` | `#6E6E77` | `#8C8C95` | Tertiary text (still ≥ 4.5:1) |
-| `accent` | OS accent, fallback Tin Teal `#0B6E78` | OS accent, fallback `#5CC6CF` | Selection, focus, primary action |
-| `onAccent` | `#FFFFFF` | `#0F2F33` | Text on accent fills |
-| `accentText` | derived | derived | Accent used as text; auto-darkened/lightened until ≥ 4.5:1 |
+| `textFaint` | `#64646D` | `#94949C` | Tertiary text (still ≥ 4.5:1) |
+| `accent` | OS accent, fallback Tin Teal `#0B6E78` | OS accent, fallback `#5CC6CF` | Selection indicators, primary action fills drawn by `Tw*` |
+| `accentFill` | derived | derived | Accent as the fill of **native** accented controls and `palette.accent` / `palette.highlight`: `accent` moved toward black (light) / white (dark) until the style's fixed label colour (white light, black dark — FluentWinUI3 ignores `highlightedText`) reaches ≥ 4.5:1 |
+| `onAccent` | computed | computed | Text on `accent` and on `accentFill`: the first of scheme default (`#FFFFFF` / `#0F2F33`), white, ink `#0F2F33`, black that reaches ≥ 4.5:1 on **both** fills |
+| `accentText` | derived | derived | Accent as text, glyph or focus ring: auto-darkened/lightened (hue kept) until ≥ 4.5:1 on every surface below |
 | `srcServer` | `#1F5FA8` | `#7BB0EE` | Server source badge |
-| `srcDownload` | `#2E7D46` | `#76C48E` | Downloaded source badge |
-| `warning` | `#9A5B00` | `#E0A453` | Budget > 80 %, opt-in tier |
+| `srcDownload` | `#2A7240` | `#76C48E` | Downloaded source badge |
+| `warning` | `#925700` | `#E0A453` | Budget > 80 %, opt-in tier |
 | `danger` | `#B42318` | `#F2877D` | Wipe, network tier, errors |
 
-- All text pairs are ≥ 4.5:1 on their surface (checked; keep it that way — a token change needs a contrast check).
+- **Contrast rule.** Every text token (`text`, `textMuted`, `textFaint`, `srcServer`, `srcDownload`, `warning`,
+  `danger`) and `accentText` is ≥ 4.5:1 on every surface text can sit on: `window`, `sidebar`, `content`, `raised`,
+  `selected`, and a hovered Tw row (the `hover` overlay composited over each of the four fixed surfaces). `hover` is never
+  composited over `selected`: a selected Tw row shows `selected` only, hovered or not (native `ItemDelegate` keeps its own
+  states), so there is no hover-on-selected surface. UI glyphs and
+  focus rings need ≥ 3:1; they use `text`, `textMuted` or `accentText`, which already clear 4.5:1. The 3:1 bar for
+  non-text elements therefore holds without a separate token. A token change needs this check.
+- **The check** is `Theme.selfCheck(accents)` (`Theme.qml`). `accents` defaults to `Theme.checkAccents`, these 15:
+  `#0067C0` (Windows blue), `#0B6E78` (Tin Teal), `#FFB900`, `#E3008C`, `#10893E`, `#D13438`, `#FF8C00`, `#767676`
+  (Windows palette picks), `#00B7C3`, `#FFFFFF`, `#000000`, `#F0E68C`, `#7A7574`, `#5CC6CF`, `#99FF99`. For each of them
+  × 2 schemes it checks the text tokens on all surfaces, `accentText` on all surfaces, `onAccent` on both fills and the
+  fixed label colour on `accentFill`; it returns `{failures, rows}` and must report `failures = 0`. Run it with `qml` on a
+  three-line harness that imports `Theme` (copy `Theme.qml` next to a `qmldir` containing `singleton Theme 1.0 Theme.qml`)
+  and logs `Theme.selfCheck().rows`.
+- Fixed-token worst cases (Tin Teal accent; worst surface in brackets): light — `text` 13.40 (hover/sidebar),
+  `textMuted` 5.09 (hover/sidebar), `textFaint` 4.57 (hover/sidebar), `srcServer` 5.03, `srcDownload` 4.58, `warning` 4.57,
+  `danger` 5.13; dark — `text` 12.28 (hover/raised), `textMuted` 5.68, `textFaint` 4.56, `srcServer` 6.07,
+  `srcDownload` 6.57, `warning` 6.28, `danger` 5.58.
 - Meaning is never carried by hue alone: source, tier and status always have an icon and a word.
 - Chrome is never tinted from cover art. Now Playing may sample one muted tone at ≤ 8 % opacity.
 - The play/pause button is filled with `text`, not `accent`, so it never fights the artwork.
@@ -90,7 +112,8 @@ the color scheme, the user's overrides and the platform.
 ### 3.2 Type — system font, scaled from the platform base
 
 `base` = the active style's control font size (Windows FluentWinUI3 draws 14 px Segoe UI Variable while
-`Qt.application.font` reports 12 px — T-0011; macOS 13, Linux: desktop setting). Token fixes pending in T-0035.
+`Qt.application.font` reports 12 px — T-0011; macOS 13, Linux: desktop setting). `Theme.base` reads the style's own control font
+(a hidden `Label`), never `Qt.application.font`.
 
 | Token | Size | Weight | Use |
 |---|---|---|---|
@@ -108,8 +131,15 @@ Durations, counts and sizes use tabular figures (`font.features: { "tnum": 1 }`)
 
 - **Space (4 px grid):** `xxs 2 · xs 4 · s 8 · m 12 · l 16 · xl 24 · xxl 32 · xxxl 48`.
 - **Sizes:** sidebar 232 (rail 56) · transport bar 80 · side panel 320 · row 40 comfortable / 32 compact ·
-  album tile min 168 · window min 880 × 560 · hit target ≥ 32 px (mouse), ≥ 44 px for touch-capable layouts.
-- **Radius:** `control` Win 4 / mac 6 / Linux 4 · `surface` 8 / 10 / 8 · `artSmall` 4 · `artLarge` 8.
+  sidebar nav row 34 (`sidebarRowHeight`; the canvas nav item — a native `ItemDelegate` is 40 by default, so its height is
+  set from this token) · album tile min 168 · window min 880 × 560, first-start default 1200 × 800
+  (`windowDefaultWidth/Height`, clamped once at start to the available virtual-desktop size, the height also minus
+  `windowChromeAllowance` 48 for the title bar, never below the minimum; QML has no per-screen available size; the last
+  size is remembered later) · hairline 1 (`hairline`, logical px: separators and
+  outlines) · hit target ≥ 32 px (mouse), ≥ 44 px for touch-capable layouts.
+- **Radius:** `control` Win 4 / mac 6 / Linux 4 · `surface` 8 / 10 / 8 · `content` = `surface` (`radiusContent`: the
+  content surface's rounded top-left corner where it meets the sidebar, outlined by a `hairline` in `separator` on its top
+  and left edges) · `artSmall` 4 · `artLarge` 8.
 - **Motion:** `fast` 120 ms (hover, press) · `normal` 200 ms (panels) · `slow` 300 ms (view change);
   `Easing.OutCubic` in, `InCubic` out. OS reduced-motion → all durations 0 except progress indicators.
 - **Elevation:** none on content. Popups/menus are native and bring their own shadow. Large album art may
@@ -170,8 +200,10 @@ TabBar, ScrollBar, Menu, ToolTip, dialogs) are used as-is from the OS style. `Tw
 | `TwTaskProgress` | ProgressBar + Button | Cancellable background task | — |
 | `TwEmptyState` | Button | One sentence, one action | — |
 
-States every `Tw*` component must render: default, hover, pressed, keyboard focus (2 px `accent` ring, offset 2),
-selected, disabled, and its loading/unavailable state where relevant — in light and dark.
+States every `Tw*` component must render: default, hover, pressed, keyboard focus (2 px ring, offset 2),
+selected, disabled, and its loading/unavailable state where relevant — in light and dark. The ring is drawn in
+`accentText` so it stays ≥ 3:1 on every surface with any accent. A selected row shows `selected` only: `hover` is never
+composited over it (§3.1).
 
 ## 6. Writing (UI copy)
 
@@ -186,7 +218,7 @@ selected, disabled, and its loading/unavailable state where relevant — in ligh
 - Every interactive element is reachable by keyboard, has `Accessible.name` (+ `description` where useful),
   and shows a visible focus ring.
 - Contrast: text ≥ 4.5:1, large text and UI glyphs ≥ 3:1, in both themes and with any OS accent
-  (use `accentText` for accent-colored text).
+  (use `accentText` for accent-colored text, glyphs and focus rings; `Theme.selfCheck` is the gate, §3.1).
 - Respect OS reduced motion, high contrast (Windows high-contrast → use system palette only), and text scaling.
 - Hover-only affordances always have a keyboard and context-menu equivalent ("Why this?" opens on Enter).
 

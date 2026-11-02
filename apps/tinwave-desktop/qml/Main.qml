@@ -11,9 +11,10 @@ ApplicationWindow {
 
     visible: true
     title: "Tinwave"
-    // First-start size: the minimum plus room for the optional side panel; the last size is remembered later.
-    width: Theme.windowMinWidth + Theme.sidePanelWidth
-    height: Theme.windowMinHeight + Theme.sidePanelWidth
+    // First-start size: the default, clamped once in Component.onCompleted (an assignment, not a binding, so a later
+    // screen change never resizes the window back); the last size is remembered later.
+    width: Theme.windowDefaultWidth
+    height: Theme.windowDefaultHeight
     minimumWidth: Theme.windowMinWidth
     minimumHeight: Theme.windowMinHeight
     color: Theme.windowFill
@@ -27,6 +28,9 @@ ApplicationWindow {
     // Developer/automation flag until Settings can own it: `--color-scheme=light|dark|system` switches the app's own
     // colour scheme in-process (the OS setting is never touched).
     Component.onCompleted: {
+        width = Theme.firstStartWidth(Screen.desktopAvailableWidth)
+        height = Theme.firstStartHeight(Screen.desktopAvailableHeight)
+
         const prefix = "--color-scheme="
         const arg = Qt.application.arguments.find(a => a.startsWith(prefix))
         if (arg !== undefined)
@@ -43,18 +47,38 @@ ApplicationWindow {
             Layout.fillHeight: true
         }
 
-        Rectangle {
-            id: content
+        // Content surface: rounded top-left corner against the sidebar, outlined by a token hairline on its top and left
+        // edges (canvas "Library - Windows"). The sidebar material continues behind the rounded corner.
+        Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            color: Theme.content
 
-            // TwEmptyState-style: one sentence (the action arrives with the import ticket).
-            Label {
-                anchors.centerIn: parent
-                text: "Your library is empty."
-                font: Theme.fontSubtitle
-                color: Theme.textMuted
+            Rectangle {
+                anchors.fill: parent
+                color: Theme.sidebarFill
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                topLeftRadius: Theme.radiusContent
+                color: Theme.separator
+            }
+
+            Rectangle {
+                id: content
+                anchors.fill: parent
+                anchors.topMargin: Theme.hairline
+                anchors.leftMargin: Theme.hairline
+                topLeftRadius: Theme.radiusContent - Theme.hairline
+                color: Theme.content
+
+                // TwEmptyState-style: one sentence (the action arrives with the import ticket).
+                Label {
+                    anchors.centerIn: parent
+                    text: "Your library is empty."
+                    font: Theme.fontSubtitle
+                    color: Theme.textMuted
+                }
             }
         }
     }
@@ -64,12 +88,13 @@ ApplicationWindow {
         implicitHeight: Theme.transportBarHeight
         color: Theme.window
 
-        ToolSeparator {
-            orientation: Qt.Horizontal
+        // Hairline in the `separator` token (the style's ToolSeparator draws its own inset colour).
+        Rectangle {
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            padding: 0
+            height: Theme.hairline
+            color: Theme.separator
         }
 
         Label {
