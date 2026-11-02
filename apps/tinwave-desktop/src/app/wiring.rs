@@ -13,7 +13,9 @@ use super::style;
 /// QML URL of the window shell (resource path of `qml/Main.qml` in the `Tinwave.Desktop` module).
 pub const MAIN_QML_URL: &str = "qrc:/qt/qml/Tinwave/Desktop/qml/Main.qml";
 
-/// Developer override for the root QML URL. Used by the start-up failure test; also handy with `qmlls` checkouts.
+/// Developer override for the root QML URL, used by the start-up failure test. Debug builds only: a release build
+/// never loads UI from an arbitrary URL.
+#[cfg(debug_assertions)]
 pub const MAIN_QML_ENV: &str = "TINWAVE_MAIN_QML";
 
 /// Exit code when the root QML object could not be created.
@@ -21,6 +23,15 @@ pub const EXIT_QML_LOAD_FAILED: u8 = 2;
 
 /// Exit code when the Qt application object could not be created.
 pub const EXIT_QT_INIT_FAILED: u8 = 3;
+
+/// The root QML URL: the override in debug builds, always [`MAIN_QML_URL`] in release builds.
+fn main_qml_url() -> String {
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var(MAIN_QML_ENV) {
+        return url;
+    }
+    MAIN_QML_URL.to_owned()
+}
 
 /// Builds the app and runs it to completion. Returns the process exit code.
 pub fn run() -> ExitCode {
@@ -54,8 +65,7 @@ pub fn run() -> ExitCode {
         })
         .release();
 
-    let main_qml = std::env::var(MAIN_QML_ENV).unwrap_or_else(|_| MAIN_QML_URL.to_owned());
-    engine.as_mut().load(&QUrl::from(main_qml.as_str()));
+    engine.as_mut().load(&QUrl::from(main_qml_url().as_str()));
 
     let code = app.as_mut().exec();
     ExitCode::from(u8::try_from(code).unwrap_or(1))

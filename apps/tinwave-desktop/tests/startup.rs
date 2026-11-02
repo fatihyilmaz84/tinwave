@@ -44,6 +44,7 @@ fn command() -> Command {
     cmd
 }
 
+#[cfg(debug_assertions)]
 fn read_stderr(child: &mut Child) -> String {
     let mut text = String::new();
     if let Some(mut pipe) = child.stderr.take() {
@@ -52,6 +53,8 @@ fn read_stderr(child: &mut Child) -> String {
     text
 }
 
+// The root-URL override only exists in debug builds, so this test does too.
+#[cfg(debug_assertions)]
 #[test]
 fn missing_root_qml_exits_nonzero_with_a_message_instead_of_hanging() {
     let mut child = command()

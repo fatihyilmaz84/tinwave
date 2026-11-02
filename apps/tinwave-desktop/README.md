@@ -11,7 +11,7 @@ Qt 6 Quick/QML window shell over thin CXX-Qt view models. Cargo-driven build, Qt
 | `build.rs` | CXX-Qt QML module `Tinwave.Desktop` (`.crate_include_root(None)`: no whole-crate rebuild watching) |
 | `src/main.rs` | Entry point; calls `app::wiring::run()` |
 | `src/app/wiring.rs` | Composition root: Qt start-up, style, engine, load-failure exit path |
-| `src/app/style.rs` | Style selection (FluentWinUI3 on Windows, Fusion elsewhere; `QT_QUICK_CONTROLS_STYLE` overrides) |
+| `src/app/style.rs` | Style selection (FluentWinUI3 on Windows, `macOS` on macOS, Fusion elsewhere; `QT_QUICK_CONTROLS_STYLE` overrides) |
 | `src/app/app_info.rs` | First view model (QML singleton `AppInfo`); the only `#[cxx_qt::bridge]` so far |
 | `qml/Theme/Theme.qml` | Design tokens (the only place raw colours/sizes may appear) |
 | `qml/Main.qml`, `qml/Sidebar.qml` | Window shell |
@@ -29,7 +29,7 @@ cargo test -p tinwave-desktop                         # headless: needs no displ
 
 Developer switches:
 
-- `QT_QUICK_CONTROLS_STYLE=Basic|Fusion|...` replaces the style chosen at start-up.
+- `QT_QUICK_CONTROLS_STYLE=Basic|Fusion|...` replaces the style chosen at start-up. This is Qt's own documented switch, honoured in release builds too (design-system §8).
 - `--color-scheme=light|dark|system` switches the app's own colour scheme in-process (the OS setting is untouched).
-- `TINWAVE_MAIN_QML=<url>` loads another root QML file (used by the load-failure test).
+- `TINWAVE_MAIN_QML=<url>` loads another root QML file (**debug builds only**; used by the load-failure test).
 - Exit codes: `2` the root QML could not be loaded, `3` Qt could not be initialised.

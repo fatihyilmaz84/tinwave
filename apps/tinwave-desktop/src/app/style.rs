@@ -1,16 +1,19 @@
 //! Qt Quick Controls style selection (design-system.md section 2, ADR 0007 A1).
 //!
 //! Windows selects `FluentWinUI3` explicitly: Qt's default there is the `Windows` style, which has no dark mode.
-//! Everywhere else the shell uses `Fusion` until the per-platform styles get their own tickets. The style must be
-//! chosen before the engine loads any QML that imports Qt Quick Controls.
+//! macOS selects `macOS` (design-system.md section 2) and everything else `Fusion` (Linux: platform palette). The
+//! style must be chosen before the engine loads any QML that imports Qt Quick Controls.
 
-/// Environment variable Qt itself reads to override the style (kept as the developer override, design-system.md section 8).
+/// Qt's own documented style switch (not a Tinwave flag): honoured in release builds too, so the other styles can be
+/// checked (design-system.md section 8).
 pub const STYLE_ENV: &str = "QT_QUICK_CONTROLS_STYLE";
 
 /// The style the app selects for `os` (a value of `std::env::consts::OS`).
 pub fn default_style_for(os: &str) -> &'static str {
     match os {
         "windows" => "FluentWinUI3",
+        // Per design-system.md section 2. Unverified on a Mac until T-0038.
+        "macos" => "macOS",
         _ => "Fusion",
     }
 }
@@ -35,9 +38,9 @@ mod tests {
     }
 
     #[test]
-    fn other_platforms_use_fusion() {
+    fn macos_selects_its_native_style_and_linux_uses_fusion() {
+        assert_eq!(default_style_for("macos"), "macOS");
         assert_eq!(default_style_for("linux"), "Fusion");
-        assert_eq!(default_style_for("macos"), "Fusion");
     }
 
     #[test]

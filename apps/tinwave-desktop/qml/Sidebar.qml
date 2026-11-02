@@ -30,6 +30,8 @@ Rectangle {
 
                 Menu {
                     id: appMenu
+                    // popupType is pending ADR 0007 decision 1 (Popup.Native plus the dark-mode opt-in, falling back
+                    // to Popup.Window); it is wired together with the platform bridge in T-0036.
 
                     MenuItem {
                         text: "Tinwave " + AppInfo.version
