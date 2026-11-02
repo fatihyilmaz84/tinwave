@@ -8,90 +8,13 @@
 
 mod common;
 
-use std::io::{Cursor, Read, Seek, SeekFrom};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use common::*;
-use symphonia::core::io::MediaSource;
-use tinwave_playback::{EventKind, SourceOpener, Track};
-
-#[derive(Debug, Default)]
-struct Gate {
-    open: Mutex<bool>,
-    changed: Condvar,
-    /// Set once the decoder thread is blocked in `read`.
-    blocked: AtomicBool,
-}
-
-impl Gate {
-    fn open(&self) {
-        *self.open.lock().expect("gate") = true;
-        self.changed.notify_all();
-    }
-
-    fn wait(&self) {
-        let mut open = self.open.lock().expect("gate");
-        self.blocked.store(true, Ordering::Release);
-        while !*open {
-            open = self.changed.wait(open).expect("gate");
-        }
-    }
-}
-
-/// An in-memory file that blocks every read once `allow` bytes were delivered, until the gate opens.
-struct GatedSource {
-    inner: Cursor<Vec<u8>>,
-    gate: Arc<Gate>,
-    /// Bytes handed out so far (seeks do not count) and the budget before reads block.
-    delivered: u64,
-    allow: u64,
-}
-
-impl Read for GatedSource {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.delivered >= self.allow {
-            self.gate.wait();
-        }
-        let n = self.inner.read(buf)?;
-        self.delivered += n as u64;
-        Ok(n)
-    }
-}
-
-impl Seek for GatedSource {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.inner.seek(pos)
-    }
-}
-
-impl MediaSource for GatedSource {
-    fn is_seekable(&self) -> bool {
-        true
-    }
-    fn byte_len(&self) -> Option<u64> {
-        Some(self.inner.get_ref().len() as u64)
-    }
-}
-
-#[derive(Debug)]
-struct GatedOpener {
-    gate: Arc<Gate>,
-    allow: u64,
-}
-
-impl SourceOpener for GatedOpener {
-    fn open(&self, track: &Track) -> std::io::Result<Box<dyn MediaSource>> {
-        Ok(Box::new(GatedSource {
-            inner: Cursor::new(std::fs::read(&track.path)?),
-            gate: Arc::clone(&self.gate),
-            delivered: 0,
-            allow: self.allow,
-        }))
-    }
-}
+use tinwave_playback::EventKind;
 
 /// Run `body` on a thread; if it does not finish, release the gate (so the test can end) and fail.
 fn with_watchdog(gate: &Arc<Gate>, body: impl FnOnce() + Send + 'static) {
@@ -133,6 +56,7 @@ fn blocked_reader_does_not_stall_callback_or_control_calls() {
     let opener = Arc::new(GatedOpener {
         gate: Arc::clone(&gate),
         allow: 100,
+        only: None,
     });
     let gate_in_body = Arc::clone(&gate);
     with_watchdog(&gate, move || {
@@ -190,6 +114,7 @@ fn reader_that_stalls_mid_track_causes_underruns_not_a_stalled_callback() {
     let opener = Arc::new(GatedOpener {
         gate: Arc::clone(&gate),
         allow: 100_000,
+        only: None,
     });
     let gate_in_body = Arc::clone(&gate);
     with_watchdog(&gate, move || {

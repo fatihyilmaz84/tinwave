@@ -370,11 +370,24 @@ impl Engine {
     /// What the output reports; [`PlaybackError::Busy`] / [`PlaybackError::EngineStopped`].
     pub fn switch_device(&mut self, device: Option<String>) -> Result<(), PlaybackError> {
         self.poll();
+        // A track that is decoded but not heard yet (appended after the queue ended, within one
+        // output latency): resumed from its start, and announced here because nothing else will.
+        let mut unheard_start: Option<(QueueItemId, u64)> = None;
         let resume = match self.unapplied() {
             Some(p) => p.item.map(|item| (item, p.frame)),
-            // No current track (never loaded, stopped, or the queue ended): nothing to resume. The
-            // decoder carries on with whatever has been appended, from its start.
-            None if self.cursor.is_none() && self.announced.is_none() => None,
+            None if self.cursor.is_none() && self.announced.is_none() => {
+                // No current track (never loaded, stopped, or the queue ended). Normally there is
+                // nothing to resume and the decoder carries on with whatever has been appended,
+                // from its start. But an appended track the decoder already opened has a mark and
+                // the decoder is past it, so it must be named or it would be dropped.
+                let view = self.view();
+                unheard_start = view
+                    .marks
+                    .iter()
+                    .find(|m| self.seen_seq.is_none_or(|seen| m.seq > seen))
+                    .map(|m| (m.item.id, m.offset));
+                unheard_start
+            }
             None => self.position().map(|p| (p.item, p.frame)),
         };
         // The old callback must be gone before the decoder re-bases on `consumed`.
@@ -397,6 +410,13 @@ impl Engine {
         // From here the decoder WILL restart the stream, whether or not the new device opens, so
         // the command is recorded either way: its first mark is adopted silently instead of being
         // announced a second time.
+        if let Some((item, frame)) = unheard_start {
+            self.emit(EventKind::TrackStarted {
+                item,
+                frame,
+                cause: StartCause::Advance,
+            });
+        }
         self.command_sent(gen, resume_item, resume_frame, true);
         let request = OpenRequest {
             device: device.as_deref(),

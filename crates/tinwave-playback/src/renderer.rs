@@ -83,11 +83,14 @@ impl Renderer {
 
         // Read the end-of-stream flag BEFORE the ring: "eos and nothing left" is then conclusive.
         let eos = sh.eos.load(Acquire);
+        // `buffering` is set before the decoder revives an ended queue, so seeing the revived
+        // stream (`eos` false) implies seeing this too.
+        let buffering = sh.buffering.load(Acquire);
         let (popped, rest) = self.cons.pop_partial_slice(out);
         let popped_len = popped.len();
         rest.fill(0.0);
         self.seen_data |= popped_len > 0;
-        if popped_len < len && !eos && self.seen_data {
+        if popped_len < len && !eos && !buffering && self.seen_data {
             sh.underruns.fetch_add(1, Relaxed);
         }
 
@@ -178,6 +181,30 @@ mod tests {
             0,
             "refilling after a seek is not starvation"
         );
+    }
+
+    #[test]
+    fn a_revived_queue_is_buffering_until_its_first_push() {
+        let (sh, mut prod, mut r) = rig();
+        let mut out = [0.0f32; 480];
+        let _ = prod.push_partial_slice(&[0.25; 480]);
+        r.render(&mut out, 0);
+        // `Append` after the end: the decoder announces buffering, then revives the stream.
+        sh.buffering.store(true, Release);
+        sh.eos.store(false, Release);
+        for _ in 0..20 {
+            r.render(&mut out, 0);
+        }
+        assert_eq!(
+            sh.underruns.load(Relaxed),
+            0,
+            "opening the file is buffering"
+        );
+        // First push: audio is in the ring, buffering over; running dry again counts.
+        let _ = prod.push_partial_slice(&[0.25; 240]);
+        sh.buffering.store(false, Release);
+        r.render(&mut out, 0);
+        assert_eq!(sh.underruns.load(Relaxed), 1);
     }
 
     #[test]
