@@ -38,3 +38,11 @@ questions for lead:
 ---
 Lead answers (2026-11-02): re-export accepted; seal `CryptoRng` now (private supertrait) before review (P-0056 → this
 ticket); doc that secrets take `&mut impl CryptoRng`.
+
+---
+HANDOFF T-0015 (round 1, amended)
+status: done
+branch: t/T-0015-workspace-deps-tidy   commit: d2cbb3f (on top of 14d7a2f)
+summary: CryptoRng sealed with the private-supertrait pattern in crates/tinwave-core/src/rng.rs (pub trait CryptoRng: Rng + sealed::Sealed; impl Sealed + CryptoRng for SystemRng only). Docs: secrets (e.g. device_secret) take &mut impl CryptoRng. compile_fail doc-test: an outside type cannot impl CryptoRng (verified it compiles when the seal is removed, then restored). lib.rs re-export kept.
+checks: fmt pass, clippy pass, tests 174 passed + 1 doc-test, deny pass (emit bench not re-run: no emit-path change)
+files changed this round: crates/tinwave-core/src/rng.rs

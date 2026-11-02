@@ -3,7 +3,7 @@ id: T-0015
 title: Tidy after T-0013 — drop uuid v7, centralize getrandom, guard secrets from the Rng seam
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0005]   # T-0013, T-0004 done; waits for T-0005 (same crate)
@@ -22,7 +22,7 @@ scope:
   - crates/tinwave-signals/src/lib.rs        # re-export rename only
 owner: tw-builder (round 1)
 branch: t/T-0015-workspace-deps-tidy
-review_round: 0
+review_round: 1
 created_by: from P-0014, P-0015, P-0017, P-0019, P-0028
 ---
 
