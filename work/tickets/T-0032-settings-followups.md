@@ -3,7 +3,7 @@ id: T-0032
 title: Signal settings follow-ups — clear the paused banner after a save, read-only producer view, lock invariant test
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: []
@@ -13,7 +13,7 @@ scope:
   - crates/tinwave-signals/src/settings.rs
 owner: tw-builder (round 1)
 branch: t/T-0032-settings-followups
-review_round: 0
+review_round: 1
 created_by: from T-0021 review-1 non-blocking 1, 3, 4
 ---
 
