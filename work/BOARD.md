@@ -5,8 +5,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## Needs the PO
 - **Check your system volume.** T-0008 left master volume at 2 % unmuted; T-0003 later found the default output
   muted at 6 %. Set it the way you want before any listening test.
-- Install the Qt **MSVC 2022 64-bit** kit (Qt Maintenance Tool → Qt 6.8 LTS). Only `mingw_64` is installed; it cannot
-  link with the MSVC Rust toolchain. Blocks T-0002 and T-0011.
 - Runbooks, when convenient (they gate acceptance, not current work):
   [T-0008 PO-RUNBOOK](../spikes/T-0008-win-volume/PO-RUNBOOK.md) R1–R3, R5–R9 and
   [T-0003 PO-RUNBOOK](../spikes/T-0003-audio-backend/PO-RUNBOOK.md) sections 1, 2, 4c, 5.
@@ -22,6 +20,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt bridge, Qt 6.12 MSVC | tw-spike r1 | `t/T-0002-spike-cxx-qt` · `D:\dev\Tinwave-worktrees\T-0002-spike-cxx-qt` |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r1 | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -35,8 +34,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt | spike | M | spikes/T-0002 | needs Qt MSVC kit |
-| [T-0011](tickets/T-0011-spike-native-qt-styles.md) Spike: native Qt styles & Theme | spike | M | spikes/T-0011 | needs Qt MSVC kit |
+| [T-0011](tickets/T-0011-spike-native-qt-styles.md) Spike: native Qt styles & Theme | spike | M | spikes/T-0011 | next free slot (Qt 6.12 MSVC installed) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
 overlap (work/README.md); the branch merging second merges main first.
