@@ -1,7 +1,6 @@
 [workspace]
 resolver = "2"
-# apps/* is added when apps/ exists: Cargo errors on a glob whose parent directory is missing.
-members = ["crates/*"]
+members = ["crates/*", "apps/*"]
 # Spike prototypes live outside the workspace and never join it.
 exclude = ["spikes"]
 
@@ -23,6 +22,11 @@ blake3 = { version = "1", default-features = false, features = ["pure"] }
 crossbeam-channel = "0.5"
 # Generic audio output (macOS/Linux, Windows fallback). Apache-2.0.
 cpal = "0.18"
+# Rust <-> Qt bridge, Cargo-driven, Qt linked dynamically (ADR 0008). Only apps/tinwave-desktop uses these.
+cxx = "1"
+cxx-qt = "0.10"
+cxx-qt-build = "0.10"
+cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml", "qt_quickcontrols"] }
 getrandom = "0.4"
 # Dev-only (benchmarks). No plotting, rayon or HTML report: smaller dependency tree.
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
