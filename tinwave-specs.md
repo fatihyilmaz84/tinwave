@@ -36,7 +36,7 @@ Tinwave must be useful without an internet connection, cloud account, or subscri
 
 **Technology**
 - Rust for application logic, library indexing, synchronization, file operations, metadata, and audio-related services.
-- Qt 6 Quick/QML for the desktop user interface (minimum Qt 6.10, native Qt Quick Controls styles per OS — ADR 0003, ADR 0007).
+- Qt 6 Quick/QML for the desktop user interface (minimum Qt 6.10, native Qt Quick Controls styles per OS — ADR 0003, ADR 0007; Rust ↔ Qt bridge CXX-Qt — ADR 0008).
 - Evaluate CXX-Qt as the Rust–Qt bridge in a Phase 0 proof of concept.
 - SQLite for the local database.
 - SQLite FTS5 for fast text search.

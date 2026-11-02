@@ -3,7 +3,7 @@ id: T-0002
 title: "Spike: CXX-Qt + QML virtualized list — viability, memory, startup"
 type: spike
 epic: E-00
-status: in_progress
+status: done
 priority: P0
 size: M
 depends_on: []
@@ -53,3 +53,6 @@ Is CXX-Qt a viable bridge for Tinwave on Windows, and what memory/startup cost d
 
 ## Signals & storage
 None. (Note in findings whether QML hover/scroll events can be cheaply forwarded to Rust for UI counters.)
+
+## Outcome
+2026-11-02: CXX-Qt 0.10, Cargo-driven, dynamic Qt → ADR 0008 (merge f5ebab3). Follow-ups T-0040..T-0042.

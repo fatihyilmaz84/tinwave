@@ -34,6 +34,8 @@ playlists — and open the Signal Center to watch every interaction being record
   a `Corrupt` error is shown to the user and the audio provider does not start with a throwaway secret (P-0090).
   Hold the app's single-instance guard across the first `load_or_create`; explain DPAPI/password-reset causes in the
   error text (P-0093).
+- FluentWinUI3 `BusyIndicator` kept rendering at display rate ~5.5 s while created-but-not-running (T-0002): only
+  create/show it while running (TwTaskProgress / loading states).
 - Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views. The ticket that
   creates `apps/tinwave-desktop` must add `"apps/*"` to workspace `members` (T-0001 left it out: Cargo rejects an
   empty glob)

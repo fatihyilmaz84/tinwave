@@ -1,13 +1,14 @@
 # Desktop development setup
 
-Phase 0 validates the Rust–Qt bridge (CXX-Qt) and audio backend; update this guide with the final choices.
+Rust–Qt bridge: CXX-Qt 0.10, Cargo-driven, Qt linked dynamically (ADR 0008). Audio: ADR 0004–0006.
 
 ## Common
 
 - Rust stable via `rustup` (version pinned in `rust-toolchain.toml`), components `rustfmt`, `clippy`.
-- Qt 6.x (LTS) with Qt Quick, Qt Quick Controls 2, Qt Multimedia **not** required. Install via the Qt
+- Qt 6.10 or newer (D-0006) with Qt Quick and Qt Quick Controls 2; Qt Multimedia is **not** required. Install via the Qt
   online installer or system packages. Set `QMAKE` to the Qt 6 `qmake` so CXX-Qt finds it.
-- CMake ≥ 3.24 and Ninja (CXX-Qt builds through CMake or Cargo; pick one in Phase 0 ADR).
+- CMake and Ninja are not needed for the desktop app: it builds through Cargo (ADR 0008). Keep them only for spike
+  prototypes that use CMake.
 - Optional: FFmpeg shared libs for fallback decoding/conversion (`FFMPEG_DIR`).
 - Tools: `cargo-nextest`, `cargo-deny` (licenses/advisories), `cargo-insta`, `cargo-criterion`.
 
@@ -19,6 +20,8 @@ Phase 0 validates the Rust–Qt bridge (CXX-Qt) and audio backend; update this g
   Rust toolchain. Install Qt 6.10 or newer (the floor, ADR 0007); the dev machine uses 6.12.0. Add `<Qt>\<version>\msvc2022_64\bin` to
   `PATH` for running. The Qt installer's `Tools\Ninja` works as the Ninja binary.
 - WASAPI and WinRT APIs come through the `windows` crate (features enabled per module only).
+- The desktop app builds with Cargo only (CXX-Qt, ADR 0008): set `QMAKE=C:\Qt\<version>\msvc2022_64\bin\qmake.exe`;
+  no vcvars or CMake needed. Editing a bridge, QML or C++ file costs ~10 s per rebuild (plain Rust ~1 s).
 
 ## macOS
 

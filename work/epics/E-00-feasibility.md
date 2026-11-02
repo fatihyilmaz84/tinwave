@@ -18,7 +18,7 @@ quality gates exist, and the signal pipeline core (schema → bus → compact st
 
 ## Tickets
 - T-0001 Cargo workspace, quality gates, and core ids — done
-- T-0002 Spike: CXX-Qt + QML virtualized list, memory & startup — ready, blocked on the Qt MSVC kit (PO)
+- T-0002 Spike: CXX-Qt + QML virtualized list, memory & startup — done (ADR 0008)
 - T-0003 Spike: audio backend selection — done (ADR 0005)
 - T-0008 Spike: Windows system-volume & output-device notifications — done (ADR 0004)
 - T-0011 Spike: native Qt Quick styles & OS integration (design system, ADR 0003) — done (ADR 0007, D-0006)

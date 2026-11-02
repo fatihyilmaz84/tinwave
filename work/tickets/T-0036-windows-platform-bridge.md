@@ -6,7 +6,7 @@ epic: E-01
 status: backlog
 priority: P1
 size: M
-depends_on: [T-0002]
+depends_on: [T-0040]
 scope:
   - apps/tinwave-desktop/src/platform/      # windows.rs behind the WindowEffects / platform traits
 owner:

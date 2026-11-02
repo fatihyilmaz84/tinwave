@@ -21,7 +21,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt bridge, Qt 6.12 MSVC | tw-spike r1 | `t/T-0002-spike-cxx-qt` · `D:\dev\Tinwave-worktrees\T-0002-spike-cxx-qt` |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r1 — built (ed6d064); amending: stale outcomes into a new session; then review | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -55,8 +54,11 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo (E-01) | T-0024 |
+| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | — (dispatching) |
+| [T-0041](tickets/T-0041-image-provider-crash.md) Image-provider Qt6Core crash investigation (P0) | — (dispatching) |
+| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | T-0040 |
 | [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes (accentFill, contrast) | — (ready to groom) |
-| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | T-0002 |
+| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | T-0040 |
 | [T-0032](tickets/T-0032-settings-followups.md) Signal settings follow-ups (P2) | — |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
@@ -75,6 +77,7 @@ Decided 2026-11-02: [D-0003](decisions/D-0003-audio-stack-and-mpl.md) audio stac
 Decided 2026-11-02: [D-0005](decisions/D-0005-t0016-third-round.md) merge T-0016 now, fix in T-0028.
 Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend (spec §2/§7 updated) ·
 [ADR 0006](../docs/adr/0006-time-stretch.md) time-stretch (Signalsmith, pending PO listening pass).
+Accepted 2026-11-02: [ADR 0008](../docs/adr/0008-cxx-qt-bridge.md) CXX-Qt 0.10, Cargo-driven, dynamic Qt.
 Decided 2026-11-02: [D-0006](decisions/D-0006-native-style-findings.md) native menus + dark fix, Qt themed confirmations,
 Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-native-style-findings.md) (amends 0003).
 
@@ -92,6 +95,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt bridge | f5ebab3 | spike-1 → ADR 0008 |
 | [T-0011](tickets/T-0011-spike-native-qt-styles.md) Spike: native Qt styles & Theme | 1613da8 | spike-1 → ADR 0007, D-0006 |
 | [T-0033](tickets/T-0033-device-secret-keychain.md) DeviceSecret in Windows Credential Manager | 8612674 | build-1, review-1 (approve) |
 | [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (fail closed) | 6c24c4e | build-1, review-1 (approve) |
@@ -103,5 +107,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0103 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0110 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04).
