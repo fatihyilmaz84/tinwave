@@ -3,7 +3,7 @@ id: T-0041
 title: Investigate the intermittent Qt6Core access violation near the async image provider (T-0002)
 type: bug
 epic: E-01
-status: in_progress
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -31,3 +31,6 @@ async image provider must not be reused until this is explained (ADR 0008 decisi
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-02: teardown crash reproduced and fixed (0/2040); 0xe9f73 not reproduced. ADR 0008 addendum; follow-up T-0044. Merge dcb1464.

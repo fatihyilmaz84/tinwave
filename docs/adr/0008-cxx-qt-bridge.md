@@ -259,6 +259,36 @@ Raw outputs are in `results/` (`summary-forward-on.txt`, `summary-forward-off.tx
    6.8/6.10, and Windows/macOS bundle Qt; revisit only with a concrete need.
 4. Lint: `apps/tinwave-desktop` uses crate-level `deny(unsafe_code)` with `allow` only on `#[cxx_qt::bridge]` modules
    and the documented FFI shims (same pattern as tinwave-context/-playback), plus `undocumented_unsafe_blocks = "deny"`.
-5. The async image provider is not reused until the intermittent Qt6Core access violation (RVA 0xe9f73) is
-   explained (T-0041).
+5. Async image provider: use the T-0041 pattern below (queued hand-off + explicit quiesce before the engine is
+   dropped). The original RVA 0xe9f73 crash was not reproduced; a teardown crash of the same class was, and is fixed.
 6. Memory is judged by private working set (D-0006): idle 41 MB PWS for the prototype.
+
+## Addendum: image provider lifetime (T-0041, 2026-11-02)
+
+Report: work/reports/T-0041/spike-1.md; harness and results: spikes/T-0002-cxx-qt/crash-T-0041/.
+
+- Qt's pixmap reader thread calls `requestImageResponse()`, so every response is a QObject owned by that thread;
+  `finished()` is delivered to the reader, which calls `deleteLater()` through `sender()`.
+- **Crash A (reproduced, stack captured):** emitting `finished()` twice (e.g. from `cancel()` and again on delivery)
+  crashes in `QObject::deleteLater` from `QQuickPixmapReader::asyncResponseFinished` — 120/120 Release runs.
+- **Crash B (reproduced in the real Rust app, 4/400):** the queued-signal pattern alone crashes in the reader-QThread
+  teardown when pool tasks are still in flight while the engine is destroyed. Fixed by an explicit quiesce:
+  0 failures in 2040 runs (1640 harness incl. Debug/ASan/Release + 400 real app). Without the explicit call (destructor
+  only) 2/300 runs hung at exit.
+- 0xe9f73 is a read through freed QObject connection data in the signal-emission tail, seen only in runs ending with
+  `Qt.quit()` — most likely crash B's class, not proven.
+
+**Required pattern (also in docs/rules/qml-ui.md):**
+1. A response is created, signalled, cancelled and deleted only on Qt's reader thread; workers never hold a pointer to
+   it (not even a `QPointer`).
+2. The task is a QObject + QRunnable (autoDelete); its only channel to the response is a queued `done(QImage)` signal
+   connected with the response as context; `emit done()` is the last statement of `run()`.
+3. Exactly one `finished()` per response; `cancel()` only sets an atomic flag; a cancelled task still emits `done()`
+   with an empty image.
+4. A bounded `QThreadPool` in shared state held by provider, responses and tasks, newest-request-first, with a closing
+   flag checked before work.
+5. Teardown: set closing + `waitForDone()` on the GUI thread after `exec()` returns and before the engine is dropped.
+   In the app this is enforced by an RAII owner (engine + providers, Drop runs every provider shutdown first) — lead
+   decision; the provider destructor repeats it.
+6. The stress target (crash-T-0041/run-batch.ps1: random exit 200–900 ms, 1 pool thread, ~300 Release runs) is re-run
+   on any change to a provider.

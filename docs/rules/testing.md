@@ -30,6 +30,12 @@ Every signal kind needs:
   across play, seek, volume and device changes.
 - Test audio is generated or CC0/self-made; never commit copyrighted music.
 
+## Bridge lifetime must be tested (ADR 0008)
+
+- Any change to an image provider or other async QObject bridge re-runs the teardown stress target
+  (spikes/T-0002-cxx-qt/crash-T-0041/run-batch.ps1 pattern: random quit at 200–900 ms, 1 pool thread, ~300 Release runs,
+  0 crashes and 0 exit hangs). A unit test asserts the UI owner quiesces providers before dropping the engine.
+
 ## Determinism
 
 - Inject `Clock`, `Rng` and `ContextProvider`s everywhere. No `SystemTime::now()` or `thread_rng()` in domain code.

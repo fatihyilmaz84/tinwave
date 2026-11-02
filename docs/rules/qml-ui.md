@@ -8,6 +8,10 @@
 - Lists use `QAbstractListModel` subclasses backed by paginated Rust queries. Use `ListView`/`GridView`
   with `reuseItems: true`. Never expose a full library as a JS array.
 - Artwork via a custom `QQuickAsyncImageProvider` with a bounded LRU cache and size-specific thumbnails.
+  Image providers follow ADR 0008's lifetime addendum: responses live only on Qt's reader thread; workers reach them only
+  through a queued `done` signal; exactly one `finished()` per response (`cancel()` only sets a flag); a bounded pool with a
+  closing flag; every provider is quiesced (closing + `waitForDone()`) before the QML engine is dropped, enforced by the
+  app's RAII UI owner — never rely on destructors alone.
 
 ## Threading
 
