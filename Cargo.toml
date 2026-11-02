@@ -15,18 +15,24 @@ publish = false
 [workspace.dependencies]
 tinwave-core = { path = "crates/tinwave-core", version = "0.1.0" }
 tinwave-signals = { path = "crates/tinwave-signals", version = "0.1.0" }
+# Dev-only counting allocator; never a runtime dependency.
+tinwave-test-alloc = { path = "crates/tinwave-test-alloc", version = "0.1.0" }
 crossbeam-channel = "0.5"
+getrandom = "0.4"
 # Dev-only (benchmarks). No plotting, rayon or HTML report: smaller dependency tree.
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }
 # Bundled SQLite (public domain, compiled in): no system SQLite, same engine on every OS.
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
+rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# MPL-2.0: allowed only for symphonia* crates (deny.toml exceptions, ADR 0005). Never patched in-tree.
+symphonia = { version = "0.6", features = ["aac", "alac", "isomp4", "mp3", "aiff"] }
 tempfile = "3"
 thiserror = "2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
-uuid = { version = "1", features = ["v7", "serde"] }
+uuid = { version = "1", features = ["serde"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

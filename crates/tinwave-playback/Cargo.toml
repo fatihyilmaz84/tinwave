@@ -1,0 +1,20 @@
+[package]
+name = "tinwave-playback"
+description = "Tinwave playback engine core: Symphonia decoder thread, lock-free ring, real-time renderer. No OS output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tinwave-core = { workspace = true }
+rtrb = { workspace = true }
+symphonia = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tinwave-test-alloc = { workspace = true }
+
+[lints]
+workspace = true

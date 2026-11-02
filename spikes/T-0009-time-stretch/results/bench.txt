@@ -1,0 +1,26 @@
+# CPU on ONE pinned core (core 5), HIGH priority, 44.1 kHz stereo, 60 s synthetic music mix, 1024-frame output blocks, best of 5
+option | rate | wall s per 60 s of output audio-equivalent | x realtime | % of one core when playing realtime | heap allocs during run (Rust + C++ operator new) | private MB delta (create+run)
+signalsmith-default    | 0.75 |  0.676 |      89x |  1.127% | 0 | 0.9
+signalsmith-default    | 1.00 |  0.736 |      82x |  1.227% | 0 | 0.9
+signalsmith-default    | 1.25 |  0.844 |      71x |  1.407% | 0 | 0.9
+signalsmith-default    | 1.50 |  0.876 |      68x |  1.460% | 0 | 0.9
+signalsmith-cheaper    | 0.75 |  0.587 |     102x |  0.978% | 0 | 0.9
+signalsmith-cheaper    | 1.00 |  0.526 |     114x |  0.876% | 0 | 0.9
+signalsmith-cheaper    | 1.25 |  0.560 |     107x |  0.933% | 0 | 0.9
+signalsmith-cheaper    | 1.50 |  0.564 |     106x |  0.940% | 0 | 0.9
+signalsmith-b2048      | 0.75 |  0.676 |      89x |  1.126% | 0 | 0.0
+signalsmith-b2048      | 1.00 |  0.570 |     105x |  0.949% | 0 | 0.0
+signalsmith-b2048      | 1.25 |  0.717 |      84x |  1.195% | 0 | 0.0
+signalsmith-b2048      | 1.50 |  0.716 |      84x |  1.193% | 0 | 0.0
+rubberband-R3-finer    | 0.75 |  4.831 |      12x |  8.051% | 0 | 6.7
+rubberband-R3-finer    | 1.00 |  4.369 |      14x |  7.282% | 0 | 5.9
+rubberband-R3-finer    | 1.25 |  5.784 |      10x |  9.640% | 0 | 6.9
+rubberband-R3-finer    | 1.50 |  6.974 |       9x | 11.623% | 0 | 4.7
+rubberband-R2-faster   | 0.75 |  1.592 |      38x |  2.654% | 0 | 7.7
+rubberband-R2-faster   | 1.00 |  0.543 |     111x |  0.904% | 0 | 8.6
+rubberband-R2-faster   | 1.25 |  1.575 |      38x |  2.626% | 0 | 8.6
+rubberband-R2-faster   | 1.50 |  1.847 |      32x |  3.079% | 0 | 7.9
+wsola-hop15ms          | 0.75 |  3.547 |      17x |  5.911% | 0 | 1.1
+wsola-hop15ms          | 1.00 |  3.572 |      17x |  5.954% | 0 | 2.0
+wsola-hop15ms          | 1.25 |  3.567 |      17x |  5.945% | 0 | 1.1
+wsola-hop15ms          | 1.50 |  3.606 |      17x |  6.009% | 0 | 1.0

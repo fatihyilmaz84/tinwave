@@ -36,10 +36,11 @@ const CREATE_VERSION_TABLE: &str = "CREATE TABLE IF NOT EXISTS schema_migration 
 )";
 
 /// FNV-1a over the SQL text, stored as the migration's checksum. Not a security measure, only
-/// a tripwire for edited migrations.
+/// a tripwire for edited migrations. Carriage returns are skipped, so a checkout with CRLF line
+/// endings (Windows `autocrlf`) has the same checksum as one with LF.
 fn checksum(sql: &str) -> i64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in sql.bytes() {
+    for byte in sql.bytes().filter(|&b| b != 0x0d) {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
@@ -157,6 +158,14 @@ mod tests {
             }
         );
         c.execute("INSERT INTO b VALUES (1)", []).unwrap();
+    }
+
+    #[test]
+    fn line_endings_do_not_change_the_checksum() {
+        let lf = "a\nb\n";
+        let crlf = "a\r\nb\r\n";
+        assert_eq!(checksum(lf), checksum(crlf));
+        assert_ne!(checksum(lf), checksum("a\nc\n"));
     }
 
     #[test]

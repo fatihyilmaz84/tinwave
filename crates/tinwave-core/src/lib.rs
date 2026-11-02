@@ -14,6 +14,6 @@ mod time;
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use error::CoreError;
 pub use id::{DeviceId, IdGenerator, RecordingId, SessionId, SignalEventId, SourceId};
-pub use rng::{Rng, SeededRng, SystemRng};
+pub use rng::{CryptoRng, Rng, SeededRng, SystemRng};
 pub use tier::Tier;
 pub use time::{TzOffsetMin, UtcMillis};

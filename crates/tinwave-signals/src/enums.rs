@@ -219,58 +219,60 @@ impl TryFrom<SectionWire> for Section {
     }
 }
 
-/// What caused an interaction (catalog "Common enums").
-///
-/// `Remote` carries the slot (`0..=255`) of the controlling device in the local paired-device
-/// table, not a UUID: a UUID does not fit the 12-byte payload budget.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum InputSource {
-    /// Pointer in the main window.
-    Mouse,
-    /// Keyboard shortcut.
-    Keyboard,
-    /// Hardware media key.
-    MediaKey,
-    /// System tray menu.
-    Tray,
-    /// Mini-player.
-    MiniPlayer,
-    /// Another Tinwave device acting as a remote; the slot of that device.
-    Remote(u8),
-    /// The operating system (volume keys, flyout and mixer are indistinguishable on Windows,
-    /// ADR 0004). Used by `SystemVolumeChanged` and system mute.
-    System,
-    /// Tinwave itself (auto-advance, radio, sleep timer).
-    Auto,
+/// Defines [`InputSource`] together with [`InputSource::ALL`], [`InputSource::NAMES`] and
+/// [`InputSource::name`] from one variant list. Each variant carries a representative value, so
+/// a variant cannot exist without being listed and named, and the frozen-tag test (which matches
+/// on every variant without a wildcard) cannot compile until a new variant is frozen.
+macro_rules! input_sources {
+    (
+        $(
+            $(#[$vmeta:meta])*
+            $variant:ident $(($arg:ty))? = $sample:expr,
+        )*
+    ) => {
+        /// What caused an interaction (catalog "Common enums").
+        ///
+        /// `Remote` carries the slot (`0..=255`) of the controlling device in the local
+        /// paired-device table, not a UUID: a UUID does not fit the 12-byte payload budget.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        pub enum InputSource {
+            $($(#[$vmeta])* $variant $(($arg))?,)*
+        }
+
+        impl InputSource {
+            /// One value of every variant, in declaration order (`Remote` with slot 0).
+            pub const ALL: &'static [Self] = &[$($sample,)*];
+
+            /// The variant names as written in the catalog (`Remote` without its argument).
+            pub const NAMES: &'static [&'static str] = &[$(stringify!($variant),)*];
+
+            /// The variant name as written in the catalog.
+            #[must_use]
+            pub const fn name(self) -> &'static str {
+                match self { $(Self::$variant { .. } => stringify!($variant),)* }
+            }
+        }
+    };
 }
 
-impl InputSource {
-    /// The variant names as written in the catalog (`Remote` without its argument).
-    pub const NAMES: &'static [&'static str] = &[
-        "Mouse",
-        "Keyboard",
-        "MediaKey",
-        "Tray",
-        "MiniPlayer",
-        "Remote",
-        "System",
-        "Auto",
-    ];
-
-    /// The variant name as written in the catalog.
-    #[must_use]
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Mouse => "Mouse",
-            Self::Keyboard => "Keyboard",
-            Self::MediaKey => "MediaKey",
-            Self::Tray => "Tray",
-            Self::MiniPlayer => "MiniPlayer",
-            Self::Remote(_) => "Remote",
-            Self::System => "System",
-            Self::Auto => "Auto",
-        }
-    }
+input_sources! {
+    /// Pointer in the main window.
+    Mouse = InputSource::Mouse,
+    /// Keyboard shortcut.
+    Keyboard = InputSource::Keyboard,
+    /// Hardware media key.
+    MediaKey = InputSource::MediaKey,
+    /// System tray menu.
+    Tray = InputSource::Tray,
+    /// Mini-player.
+    MiniPlayer = InputSource::MiniPlayer,
+    /// Another Tinwave device acting as a remote; the slot of that device.
+    Remote(u8) = InputSource::Remote(0),
+    /// The operating system (volume keys, flyout and mixer are indistinguishable on Windows,
+    /// ADR 0004). Used by `SystemVolumeChanged` and system mute.
+    System = InputSource::System,
+    /// Tinwave itself (auto-advance, radio, sleep timer).
+    Auto = InputSource::Auto,
 }
 
 coded_enum! {
@@ -509,18 +511,8 @@ mod tests {
     }
 
     #[test]
-    fn input_source_names_cover_every_variant() {
-        let all = [
-            InputSource::Mouse,
-            InputSource::Keyboard,
-            InputSource::MediaKey,
-            InputSource::Tray,
-            InputSource::MiniPlayer,
-            InputSource::Remote(0),
-            InputSource::System,
-            InputSource::Auto,
-        ];
-        let names: Vec<&str> = all.iter().map(|v| v.name()).collect();
+    fn input_source_names_match_the_variants() {
+        let names: Vec<&str> = InputSource::ALL.iter().map(|v| v.name()).collect();
         assert_eq!(names, InputSource::NAMES);
     }
 }

@@ -14,6 +14,7 @@ crates/
   tinwave-signals     Signal event schema, bus, batched writer, ContextProvider trait, Signal Center queries.
   tinwave-context     Context providers: clock, holidays, sun, power, idle, audio device,
                       foreground-app category, network place, weather. All OS code for context lives here.
+  tinwave-test-alloc  Dev-only: per-thread counting allocator for RT "no allocation" tests. Never a normal dependency.
   tinwave-analysis    Offline audio DSP: BPM, key, loudness, energy, sections, fingerprints.
   tinwave-taste       Aggregation, implicit scores, context buckets, similarity, explanations.
   tinwave-radio       Smart Radio sessions, smart playlists, auto-stations.
