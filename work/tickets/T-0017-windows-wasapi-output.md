@@ -3,7 +3,7 @@ id: T-0017
 title: Windows output on direct WASAPI (shared + exclusive), cpal fallback output
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []          # T-0016, T-0028, T-0030 done

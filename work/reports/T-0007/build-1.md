@@ -37,3 +37,13 @@ questions for lead:
 Lead answers (2026-11-02): the catalog was wrong, not the design — §9 updated (context ~4.5 KB/day, UI counters ~7 KB/day,
 dictionaries row, measured total), context-engine.md corrected; `hash UNIQUE` stays (P-0085 rejected). Un-ignore the
 context check against the corrected catalog, and add a dictionaries assertion against the new row, before review.
+
+---
+HANDOFF T-0007 (round 1, amended)
+status: done
+branch: t/T-0007-storage-growth-test   commit: 6275672 (main merged first; corrected catalog section 9 in the branch)
+summary: Context snapshot check un-ignored and passes (0.93x of 4.5 KB/day); new dictionaries-and-sessions assertion (0.98x of ~20 KB/day); drift guard the_catalog_still_says_what_the_test_expects reads signal-catalog.md section 9 rows and fails if the figures stop matching the harness constants. All six storage_growth tests pass, 0 ignored.
+new report (seed 2026, 90 days, 10 779 plays, 42 059 events, 0 dropped/overflows/failed commits, 13.3 s): play 0.64, volume 0.61, seeks 0.57, queue 0.54, search 0.46, output 0.46, context snapshots 4 187 B/day vs 4 500 (0.93), UI counters 6 918 vs 7 000 (0.99), dictionaries+sessions 19 615 vs 20 000 (0.98). File 4.38 MB (104.1 B/event whole file). 48.7 KB/day; 5 years without compaction 89 MB; with ADR 0002 tiering 16.9 MB (budget 60).
+checks: fmt pass, clippy pass, tests 334 passed / 0 failed / 2 ignored (neither in this file), deny pass; release storage_growth 6 passed, 0 ignored.
+files changed: crates/tinwave-db/tests/storage_growth.rs, tests/growth/mod.rs
+proposals/questions: none

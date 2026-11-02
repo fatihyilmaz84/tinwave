@@ -49,7 +49,8 @@ Every signal kind needs:
 
 ## Storage growth test (CI, required)
 
-A synthetic listener generator (`tinwave-signals/benches/growth.rs`) simulates the reference heavy user
+A synthetic listener generator (`crates/tinwave-db/tests/growth/`, run by `cargo test -p tinwave-db --release --test
+storage_growth -- --nocapture`) simulates the reference heavy user
 from [storage-budget.md](storage-budget.md) — 8 h/day, ~120 tracks/day, 50 000-track library, realistic
 volume/seek/skip/browse rates — for **5 simulated years**, running compaction as it would in real life.
 It fails if:

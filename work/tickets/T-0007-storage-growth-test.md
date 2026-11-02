@@ -13,9 +13,9 @@ scope:
   - crates/tinwave-db/Cargo.toml          # dev-dependencies only
   - Cargo.toml                            # [workspace.dependencies] only
   - Cargo.lock
-owner: tw-builder (round 1, same builder as T-0006)
+owner: tw-builder (round 2, same builder as T-0006)
 branch: t/T-0007-storage-growth-test
-review_round: 0
+review_round: 2
 created_by: lead
 ---
 
