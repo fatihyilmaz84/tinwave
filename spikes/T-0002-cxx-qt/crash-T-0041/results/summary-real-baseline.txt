@@ -1,0 +1,5 @@
+REAL-APP platform=offscreen runs=400 ok=396 failed=4 elapsed_s=188 exe=t0002-baseline.exe
+run 101: exit=-1073741819 timeout=False
+run 222: exit=-1073740940 timeout=False
+run 235: exit=-1073740940 timeout=False
+run 301: exit=-1073741819 timeout=False

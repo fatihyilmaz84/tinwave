@@ -5,6 +5,7 @@ fn main() {
         QmlFile::from("qml/Theme.qml").singleton(true),
         QmlFile::from("qml/Main.qml"),
         QmlFile::from("qml/Empty.qml"),
+        QmlFile::from("qml/Stress.qml"),
         QmlFile::from("qml/TrackRow.qml"),
         QmlFile::from("qml/TwArtwork.qml"),
     ]))

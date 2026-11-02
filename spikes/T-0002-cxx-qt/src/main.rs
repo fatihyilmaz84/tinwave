@@ -42,6 +42,7 @@ fn main() {
 
     let main_qml = match std::env::var("T2_MODE").as_deref() {
         Ok("empty") => "qrc:/qt/qml/Tw/Spike/qml/Empty.qml",
+        Ok("stress") => "qrc:/qt/qml/Tw/Spike/qml/Stress.qml", // T-0041 teardown/cancel storm
         Ok("broken") => "qrc:/qt/qml/Tw/Spike/qml/DoesNotExist.qml", // failure-path check
         _ => "qrc:/qt/qml/Tw/Spike/qml/Main.qml",
     };
@@ -52,4 +53,7 @@ fn main() {
     if let Some(app) = app.as_mut() {
         app.exec();
     }
+    // T-0041: stop the image worker threads while the QML engine (and Qt's pixmap-reader thread) still exist.
+    image::tw_image_provider_shutdown();
+    drop(engine);
 }
