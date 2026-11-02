@@ -3,7 +3,7 @@ id: T-0024
 title: Playback controller — owns Engine::poll(), session lifecycle, maps PlaybackEvents to T0 signals through the bus
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P0
 size: M
 depends_on: []          # T-0006, T-0016, T-0028, T-0030, T-0031 done
@@ -15,9 +15,9 @@ scope:
   - crates/tinwave-playback/Cargo.toml        # tinwave-signals dependency (allowed: playback ─> signals)
   - crates/tinwave-playback/tests/
   - Cargo.lock
-owner: tw-builder (round 1)
+owner: tw-builder (round 2)
 branch: t/T-0024-playback-controller
-review_round: 1
+review_round: 2
 created_by: lead (T-0016 questions), P-0042, P-0082; regroomed 2026-11-02
 ---
 
