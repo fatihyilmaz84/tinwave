@@ -12,8 +12,9 @@
 //! cargo test -p tinwave-db --release --test storage_growth -- --nocapture
 //! ```
 //!
-//! One check is `#[ignore]`d because it fails on a gap between the catalog and the schema, which
-//! the lead decides (see the handoff): the context snapshot row. Run it with `-- --ignored`.
+//! The expected values are those of `docs/guides/signal-catalog.md` section 9 (see the constants in
+//! `growth/mod.rs`, each with the row it comes from); `the_catalog_still_says_what_the_test_expects`
+//! fails if the catalog text and those constants drift apart.
 //!
 //! v1 has no compaction and no play records (E-01, T-0029): it measures the hot tier and
 //! extrapolates. `growth::run` calls a hook at the end of every simulated day, at a barrier where
@@ -245,11 +246,9 @@ fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
     );
 }
 
-/// Context snapshots against the catalog's "~60 a day, ~2 KB": the schema costs 2.1x that
-/// (a `hash UNIQUE` index and row overhead on top of the ~30 bytes of fields). The assertion is
-/// the catalog's, not loosened; the lead decides whether the catalog or the design changes.
+/// Context snapshots against the catalog's "~60 a day, ~4.5 KB" (about 70 B per row, the 64-bit
+/// hash with its UNIQUE index and the key included): rate within 25%, bytes/day within +50%.
 #[test]
-#[ignore = "fails: context_snapshot costs ~4.2 KB/day, 2.1x the catalog's 2 KB (see the T-0007 handoff)"]
 fn ninety_days_context_snapshots_match_the_catalog_estimate() {
     let (_, report) = ninety_days();
     let violations = report.context_violations();
@@ -262,4 +261,41 @@ fn ninety_days_context_snapshots_match_the_catalog_estimate() {
 "
         )
     );
+}
+
+/// The numbers the harness compares with are copied from the catalog; this ties them to it.
+#[test]
+fn the_catalog_still_says_what_the_test_expects() {
+    let catalog = include_str!("../../../docs/guides/signal-catalog.md").replace(
+        "
+", "
+",
+    );
+    let row = |prefix: &str| -> String {
+        catalog
+            .lines()
+            .find(|l| l.starts_with(prefix))
+            .unwrap_or_else(|| panic!("no row starting with {prefix:?} in section 9"))
+            .to_owned()
+    };
+    let context = row("| Context snapshots");
+    assert!(context.contains("| ~60 | ~4.5 KB |"), "{context}");
+    let counters = row("| UI counters");
+    assert!(counters.contains("| ~300 rows | ~7 KB |"), "{counters}");
+    let dictionaries = row("| Dictionaries and sessions");
+    assert!(
+        dictionaries.contains("| ~20 KB while the library is being discovered"),
+        "{dictionaries}"
+    );
+    for (prefix, events, bytes) in [
+        ("| Play start/end", "~240", "~14 KB"),
+        ("| Volume, mute, speed", "~60", "~4 KB"),
+        ("| Seeks, replays", "~60", "~4 KB"),
+        ("| Queue, favorites", "~40", "~2.5 KB"),
+        ("| Search", "~20", "~1.5 KB"),
+        ("| Output/EQ/window", "~30", "~2 KB"),
+    ] {
+        let line = row(prefix);
+        assert!(line.contains(&format!("| {events} | {bytes} |")), "{line}");
+    }
 }

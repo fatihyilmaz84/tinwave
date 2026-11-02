@@ -123,9 +123,24 @@ impl Group {
     }
 }
 
-/// Catalog section 9 for the two tables that are not event groups.
-pub const CATALOG_CONTEXT: (f64, f64) = (60.0, 2.0 * KB);
-pub const CATALOG_COUNTERS: (f64, f64) = (300.0, 5.0 * KB);
+/// Catalog section 9 (`docs/guides/signal-catalog.md`, the rows below "Output/EQ/window state
+/// changes") for the rows that are tables rather than event groups: (rows/day, bytes/day).
+/// Context snapshots: "~60", "~4.5 KB" (~70 B per row incl. the hash, its UNIQUE index and key).
+pub const CATALOG_CONTEXT: (f64, f64) = (60.0, 4.5 * KB);
+/// UI counters: "~300 rows", "~7 KB".
+pub const CATALOG_COUNTERS: (f64, f64) = (300.0, 7.0 * KB);
+/// Dictionaries and sessions: "~20 KB while the library is being discovered, saturating as it is
+/// covered". The 90-day run is the discovery phase, so the 90-day average is compared with it.
+pub const CATALOG_DICTIONARIES_BYTES: f64 = 20.0 * KB;
+
+/// The tables the catalog's "Dictionaries and sessions" row covers.
+const DICTIONARY_TABLES: [&str; 5] = [
+    "dict_device",
+    "dict_recording",
+    "dict_source",
+    "dict_entity",
+    "session",
+];
 
 #[derive(Debug, Clone)]
 pub struct GroupMeasure {
@@ -313,6 +328,14 @@ pub fn measure(run: &Run) -> Report {
 }
 
 impl Report {
+    /// Bytes of the dictionary tables and the session table.
+    pub fn dictionary_bytes(&self) -> u64 {
+        DICTIONARY_TABLES
+            .iter()
+            .map(|t| self.tables.get(*t).copied().unwrap_or(0))
+            .sum()
+    }
+
     fn per_day(&self, v: f64) -> f64 {
         v / f64::from(self.days)
     }
@@ -388,12 +411,18 @@ impl Report {
                 CATALOG_COUNTERS.0
             ));
         }
+        let dict_day = self.per_day(self.dictionary_bytes() as f64);
+        if dict_day > CATALOG_DICTIONARIES_BYTES * TOLERANCE {
+            out.push(format!(
+                "dictionaries + sessions: {dict_day:.0} B/day is {:.0} % of the catalog's {CATALOG_DICTIONARIES_BYTES:.0} B/day (limit +50 %)",
+                dict_day / CATALOG_DICTIONARIES_BYTES * 100.0
+            ));
+        }
         out
     }
 
     /// The catalog section 9 comparison for the context snapshots (rate +-25 %, bytes/day within
-    /// +50 %). Separate because it is the one row where the schema costs more than the catalog
-    /// assumed: see the handoff of T-0007.
+    /// +50 %).
     pub fn context_violations(&self) -> Vec<String> {
         let mut out = Vec::new();
         let ctx_rows = self.per_day(self.context_rows as f64);
@@ -537,24 +566,19 @@ impl Report {
         }
         let _ = writeln!(
             s,
-            "  {:<46} {:>9} {:>9} {:>10.0} {:>10.0}   (catalog total without the 6 KB/day of play records, which T-0029 builds)",
+            "  {:<46} {:>9} {:>9} {:>10.0} {:>10.0}   (the catalog's total also has 6 KB/day of play records, which T-0029 builds; the first six rows are conservative upper bounds)",
             "Total of the rows above", "", "", total_bytes, total_catalog
         );
-        let dictionaries: u64 = [
-            "dict_device",
-            "dict_recording",
-            "dict_source",
-            "dict_entity",
-            "session",
-        ]
-        .iter()
-        .map(|t| self.tables.get(*t).copied().unwrap_or(0))
-        .sum();
+        let dictionaries = self.dictionary_bytes();
         let _ = writeln!(
             s,
-            "  Not in the catalog table: dictionaries + sessions {:.0} B/day ({} B total)",
+            "  {:<46} {:>9} {:>9} {:>10.0} {:>10.0} {:>7.2}",
+            "Dictionaries and sessions (5 tables)",
+            "",
+            "",
             self.per_day(dictionaries as f64),
-            dictionaries
+            CATALOG_DICTIONARIES_BYTES,
+            self.per_day(dictionaries as f64) / CATALOG_DICTIONARIES_BYTES
         );
         let _ = writeln!(s, "\nPer kind:");
         let _ = writeln!(
