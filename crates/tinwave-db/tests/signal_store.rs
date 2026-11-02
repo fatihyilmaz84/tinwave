@@ -67,6 +67,7 @@ fn migrations_apply_on_an_empty_database_and_are_idempotent() {
         "schema_migration",
         "session",
         "signal_event",
+        "signal_settings",
         "ui_counter",
     ] {
         assert!(
@@ -74,16 +75,16 @@ fn migrations_apply_on_an_empty_database_and_are_idempotent() {
             "missing table {expected}"
         );
     }
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 1);
+    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 2);
 
     // Running the runner again, and reopening the file, changes nothing.
     let report = store.migrate().unwrap();
-    assert_eq!((report.applied, report.version), (0, 1));
+    assert_eq!((report.applied, report.version), (0, 2));
     drop(store);
     let _again = SignalStore::open(&db.path).unwrap();
     assert_eq!(tables(&r), first);
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 1);
-    assert_eq!(SIGNALS_MIGRATIONS.len(), 1);
+    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 2);
+    assert_eq!(SIGNALS_MIGRATIONS.len(), 2);
 }
 
 #[test]
@@ -176,6 +177,7 @@ fn schema_matches_database_md() {
     assert_eq!(names("dict_recording"), ["id", "uuid"]);
     assert_eq!(names("dict_source"), ["id", "uuid"]);
     assert_eq!(names("context_snapshot"), ["id", "hash", "key", "fields"]);
+    assert_eq!(names("signal_settings"), ["id", "mask", "updated_ts"]);
     assert_eq!(
         names("play"),
         [
@@ -252,15 +254,19 @@ fn the_migration_is_the_sql_block_of_database_md() {
     let open = doc[start..].find("```sql\n").expect("its sql block") + start + 7;
     let close = doc[open..].find("```").expect("end of the block") + open;
     let from_doc = normalized(&doc[open..close]);
-    let from_migration = normalized(SIGNALS_MIGRATIONS[0].sql);
+    // The doc block is every migration in order: 0001 first, then each later number appended.
+    let from_migration: Vec<String> = SIGNALS_MIGRATIONS
+        .iter()
+        .flat_map(|m| normalized(m.sql))
+        .collect();
     assert!(
-        from_doc.len() >= 11,
+        from_doc.len() >= 12,
         "found the block: {} statements",
         from_doc.len()
     );
     assert_eq!(
         from_migration, from_doc,
-        "0001_init.sql and database.md drifted: the migration is edited in place until it ships"
+        "the migrations and the SQL block of database.md drifted: a change to the block is a new migration number (0001 is frozen, migrations are append-only once merged to main)"
     );
 }
 

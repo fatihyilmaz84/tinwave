@@ -15,11 +15,21 @@ use crate::migrate::{migrate, Migration, MigrationReport};
 use crate::DbError;
 
 /// The migrations of `signals.db`, oldest first.
-pub const SIGNALS_MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/signals/0001_init.sql"),
-}];
+///
+/// Append-only once merged to `main` (`docs/rules/database.md`): 0001 is frozen, a change goes
+/// in the next number.
+pub const SIGNALS_MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/signals/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "signal_settings",
+        sql: include_str!("../migrations/signals/0002_signal_settings.sql"),
+    },
+];
 
 const INSERT_EVENT: &str = "INSERT OR IGNORE INTO signal_event \
     (device, seq, session, ts_off, kind, recording, source, pos_ds, payload, ctx) \
@@ -504,4 +514,30 @@ pub fn ends_a_play(kind: SignalKind) -> bool {
         kind,
         SignalKind::Completed | SignalKind::Skipped | SignalKind::Paused | SignalKind::SessionEnded
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::migrate::checksum;
+
+    /// Migration 0001 is on `main` and in users' databases: its text is frozen. A change here
+    /// means someone edited it; add a migration instead (`docs/rules/database.md`).
+    #[test]
+    fn migration_0001_is_frozen() {
+        assert_eq!(
+            checksum(SIGNALS_MIGRATIONS[0].sql),
+            FROZEN_0001_CHECKSUM,
+            "0001_init.sql was edited after it was merged to main"
+        );
+    }
+
+    #[test]
+    fn the_migrations_are_numbered_from_one() {
+        for (i, m) in SIGNALS_MIGRATIONS.iter().enumerate() {
+            assert_eq!(usize::try_from(m.version).unwrap(), i + 1, "{}", m.name);
+        }
+    }
+
+    const FROZEN_0001_CHECKSUM: i64 = -2_299_945_054_729_597_038;
 }

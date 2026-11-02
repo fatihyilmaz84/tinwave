@@ -38,7 +38,7 @@ const CREATE_VERSION_TABLE: &str = "CREATE TABLE IF NOT EXISTS schema_migration 
 /// FNV-1a over the SQL text, stored as the migration's checksum. Not a security measure, only
 /// a tripwire for edited migrations. Carriage returns are skipped, so a checkout with CRLF line
 /// endings (Windows `autocrlf`) has the same checksum as one with LF.
-fn checksum(sql: &str) -> i64 {
+pub(crate) fn checksum(sql: &str) -> i64 {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
     for byte in sql.bytes().filter(|&b| b != 0x0d) {
         hash ^= u64::from(byte);
