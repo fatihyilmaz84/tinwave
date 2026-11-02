@@ -35,7 +35,9 @@ pub const TOLERANCE: f64 = 1.5;
 
 /// The warm tier and cold tier the catalog expects, per year, in MB (play records ~2, monthly
 /// rollups ~0.5). They are not built yet (T-0029, compaction), so the extrapolation takes the
-/// catalog's own numbers for them.
+/// catalog's own numbers for them. It also keeps the dictionary tables at their 90-day size,
+/// although compaction does not remove them and they grow until the library is covered (a few
+/// MB more, still far under the 60 MB budget).
 pub const CATALOG_WARM_MB_PER_YEAR: f64 = 2.0;
 pub const CATALOG_COLD_MB_PER_YEAR: f64 = 0.5;
 
@@ -83,6 +85,19 @@ impl Group {
             Self::QueueLibrary => Some((40.0, 2.5 * KB)),
             Self::Search => Some((20.0, 1.5 * KB)),
             Self::OutputEqWindow => Some((30.0, 2.0 * KB)),
+            Self::NotInCatalog => None,
+        }
+    }
+
+    /// How the group's row starts in the table of section 9 of the catalog.
+    pub const fn catalog_row_prefix(self) -> Option<&'static str> {
+        match self {
+            Self::PlayStartEnd => Some("| Play start/end"),
+            Self::VolumeMuteSpeed => Some("| Volume, mute, speed"),
+            Self::SeekReplay => Some("| Seeks, replays"),
+            Self::QueueLibrary => Some("| Queue, favorites"),
+            Self::Search => Some("| Search"),
+            Self::OutputEqWindow => Some("| Output/EQ/window"),
             Self::NotInCatalog => None,
         }
     }
@@ -347,6 +362,10 @@ impl Report {
 
     /// Extrapolated size at 5 years with the tiering of ADR 0002: the hot window stays at this
     /// size (compaction deletes older raw rows), plus the catalog's warm and cold tiers.
+    ///
+    /// Caveat: the 90-day figure includes the dictionary tables (1.8 MB here). Compaction never
+    /// deletes dictionary rows, so they keep growing until the 50 000-track library has been
+    /// covered: a few MB more than this adds up to, far under the 60 MB budget.
     pub fn five_years_with_tiering_mb(&self) -> f64 {
         let hot = self.file_bytes as f64 / f64::from(self.days) * 90.0 / 1e6;
         hot + 5.0 * (CATALOG_WARM_MB_PER_YEAR + CATALOG_COLD_MB_PER_YEAR)
@@ -602,7 +621,7 @@ impl Report {
         }
         let _ = writeln!(
             s,
-            "\nExtrapolation: {:.1} KB/day. 90-day hot window {:.2} MB (budget 6 MB). 5 years without compaction {:.0} MB (why compaction exists). 5 years with ADR 0002 tiering (hot window + catalog warm {:.1} + cold {:.1} MB/year) {:.1} MB (budget 60 MB).",
+            "\nExtrapolation: {:.1} KB/day. 90-day hot window {:.2} MB (budget 6 MB). 5 years without compaction {:.0} MB (why compaction exists). 5 years with ADR 0002 tiering (hot window + catalog warm {:.1} + cold {:.1} MB/year; dictionaries are not compacted and keep growing until the library is covered, a few MB more) {:.1} MB (budget 60 MB).",
             self.file_bytes as f64 / d / 1000.0,
             self.file_bytes as f64 / d * 90.0 / 1e6,
             self.five_years_uncompacted_mb(),

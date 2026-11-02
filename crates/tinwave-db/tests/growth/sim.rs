@@ -10,12 +10,17 @@
 //! # Determinism
 //!
 //! The writer is a real thread, so the harness keeps it in lock step: one *tick* is one play.
-//! Within a tick the UI counters are emitted first, then the play's events, and the last event of
-//! a tick always ends a play (`Completed`, `Skipped` or `SessionEnded`), which the writer flushes
-//! at once. The harness then waits until the writer has committed everything (`barrier`) before
-//! it touches the clock or the counters again. Hence the writer sees the same batches (in the
-//! only way that matters: the same rows in the same order, with the same dictionary ids) on every
-//! run, whatever the thread scheduling.
+//! Within a tick the UI counters are emitted first, then the play's events. The writer flushes at
+//! every event that ends a play (`tinwave_db::ends_a_play`: `Completed`, `Skipped`, `Paused`,
+//! `SessionEnded`), so the harness waits at a barrier after every such event until the writer
+//! has committed everything accepted so far, before it emits anything else, touches the clock or
+//! the counters. The last event of a tick always ends a play. Hence every transaction holds the
+//! same events (those since the previous barrier, plus the counters the tick emitted first), in
+//! the same order, with the same dictionary ids, whatever the thread scheduling. A `Paused` in
+//! the middle of a play is the case that matters: without its barrier the writer would commit as
+//! soon as it pulled `Paused`, and how many of the play's later events it had pulled by then
+//! would depend on timing, and with it which dictionary row a new recording or counter entity
+//! gets. `GrowthConfig::preempt_after_pause` stalls the producer after each `Paused` to prove it.
 //!
 //! # Plugging in compaction later
 //!
@@ -44,7 +49,7 @@ use tinwave_signals::{
     RadioFeedbackPayload, Rate, RatePayload, RatedPayload, RemovedFromQueuePayload, RepeatMode,
     RepeatModePayload, ReplayedPayload, ResumedPayload, SearchNoResultPayload,
     SearchPerformedPayload, SearchResultOpenedPayload, SearchScope, Section, SeekPayload,
-    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalPayload,
+    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
     SignalSettings, SkipPayload, Stars, SystemVolumePayload, View, ViewOpenedPayload, Volume,
     VolumePayload, WindowStateKind, WindowStatePayload,
 };
@@ -62,6 +67,10 @@ pub struct GrowthConfig {
     pub plays_per_day: u32,
     /// Tracks in the library (the reference user: 50 000).
     pub library_tracks: usize,
+    /// Test hook: stall the producer for 3 ms after every `Paused` event, as a preempted thread
+    /// would be. It must not change the stored rows (the lock step in the module docs); it is how
+    /// the determinism test proves that. Off by default and never read from the environment.
+    pub preempt_after_pause: bool,
 }
 
 impl GrowthConfig {
@@ -72,6 +81,7 @@ impl GrowthConfig {
             days,
             plays_per_day: 120,
             library_tracks: 50_000,
+            preempt_after_pause: false,
         }
     }
 }
@@ -406,6 +416,13 @@ impl Sim {
             "{:?} was not queued",
             payload.kind()
         );
+        // Events that end a play make the writer commit at once: wait for it (module docs).
+        if tinwave_db::ends_a_play(payload.kind()) {
+            if self.cfg.preempt_after_pause && payload.kind() == SignalKind::Paused {
+                std::thread::sleep(Duration::from_millis(3));
+            }
+            self.barrier();
+        }
     }
 
     /// Emits an event about the current track.

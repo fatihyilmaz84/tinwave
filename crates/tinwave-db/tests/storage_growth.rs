@@ -145,26 +145,21 @@ fn a_sixty_step_system_volume_burst_within_200_ms_stores_one_event() {
     );
 }
 
-/// `(seq, session, ts_off, kind, recording, payload)` of a stored event.
+/// `(seq, session, ts_off, kind, recording, payload)` of a stored event. `recording` is the
+/// dictionary id, so a different id assignment shows up.
 type EventRow = (i64, i64, i64, i64, i64, Option<Vec<u8>>);
+/// `(day, kind, entity_kind, entity, count, total_ms, max_scrolled)` of a `ui_counter` row; `entity`
+/// is a dictionary id too.
+type CounterRow = (i64, i64, i64, i64, i64, i64, i64);
 
-/// Same seed, same data: two runs produce identical tables, sizes and event counts.
-#[test]
-fn the_same_seed_gives_the_same_sizes() {
-    let cfg = GrowthConfig::reference(3);
-    let a = run(cfg, &mut |_| {});
-    let b = run(cfg, &mut |_| {});
-    let (ra, rb) = (measure(&a), measure(&b));
-    assert_eq!(ra.file_bytes, rb.file_bytes);
-    assert_eq!(ra.tables, rb.tables);
-    assert_eq!(ra.events, rb.events);
-    assert_eq!(ra.counter_rows, rb.counter_rows);
-    assert_eq!(ra.context_rows, rb.context_rows);
-    // Not just the sizes: the stored events themselves are identical.
-    let digest = |db: &TempDb| -> Vec<EventRow> {
-        let conn = Connection::open(&db.path).unwrap();
+fn stored_rows(db: &TempDb) -> (Vec<EventRow>, Vec<CounterRow>) {
+    let conn = Connection::open(&db.path).unwrap();
+    let events = {
         let mut stmt = conn
-            .prepare("SELECT seq, session, ts_off, kind, coalesce(recording, 0), payload FROM signal_event")
+            .prepare(
+                "SELECT seq, session, ts_off, kind, coalesce(recording, 0), payload \
+                 FROM signal_event ORDER BY device, seq",
+            )
             .unwrap();
         stmt.query_map([], |r| {
             Ok((
@@ -180,10 +175,57 @@ fn the_same_seed_gives_the_same_sizes() {
         .map(Result::unwrap)
         .collect()
     };
-    assert_eq!(digest(&a.db), digest(&b.db));
+    let counters = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT day, kind, entity_kind, entity, count, total_ms, max_scrolled \
+                 FROM ui_counter ORDER BY day, kind, entity_kind, entity",
+            )
+            .unwrap();
+        stmt.query_map([], |r| {
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+            ))
+        })
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+    };
+    (events, counters)
+}
+
+/// Two runs stored the same thing: the same transactions, sizes and rows, including every
+/// dictionary id.
+fn assert_identical(a: &growth::Run, b: &growth::Run) {
+    let (ra, rb) = (measure(a), measure(b));
+    assert_eq!(a.writer.batches_committed, b.writer.batches_committed);
+    assert_eq!(ra.file_bytes, rb.file_bytes);
+    assert_eq!(ra.tables, rb.tables);
+    assert_eq!(ra.events, rb.events);
+    assert_eq!(ra.counter_rows, rb.counter_rows);
+    assert_eq!(ra.context_rows, rb.context_rows);
+    let (events_a, counters_a) = stored_rows(&a.db);
+    let (events_b, counters_b) = stored_rows(&b.db);
+    assert_eq!(events_a, events_b);
+    assert_eq!(counters_a, counters_b);
+}
+
+/// Same seed, same data: two runs produce identical tables, sizes, rows and dictionary ids.
+#[test]
+fn the_same_seed_gives_the_same_sizes() {
+    let cfg = GrowthConfig::reference(3);
+    let a = run(cfg, &mut |_| {});
+    let b = run(cfg, &mut |_| {});
+    assert_identical(&a, &b);
     // A different seed is different data.
     let other = run(GrowthConfig { seed: 7, ..cfg }, &mut |_| {});
-    assert_ne!(measure(&other).file_bytes, ra.file_bytes);
+    assert_ne!(measure(&other).file_bytes, measure(&a).file_bytes);
 
     // And the run was clean: nothing dropped, nothing failed.
     for r in [&a, &b] {
@@ -191,6 +233,36 @@ fn the_same_seed_gives_the_same_sizes() {
         assert_eq!(r.writer.failed_commits, 0);
         assert_eq!(r.writer.events_rejected, 0);
     }
+}
+
+/// The lock step does not depend on thread scheduling. `Paused` ends a play, so the writer
+/// commits as soon as it pulls one; with the producer stalled 3 ms after each `Paused` (a
+/// preempted thread) the writer would have pulled it alone, where an undisturbed run has pulled
+/// the following events too. The harness waits for the commit after every play-end event, so both
+/// runs cut their transactions at the same events: identical batches, rows and dictionary ids.
+#[test]
+fn the_rows_are_the_same_when_the_producer_is_preempted_after_a_pause() {
+    let cfg = GrowthConfig::reference(5);
+    let calm = run(cfg, &mut |_| {});
+    let preempted = run(
+        GrowthConfig {
+            preempt_after_pause: true,
+            ..cfg
+        },
+        &mut |_| {},
+    );
+    // The test would prove nothing without pauses in the run.
+    let (events, _) = stored_rows(&calm.db);
+    let pauses = events
+        .iter()
+        .filter(|e| e.3 == i64::from(SignalKind::Paused.discriminant()))
+        .count();
+    assert!(pauses >= 10, "only {pauses} pauses in 5 days");
+    assert_identical(&calm, &preempted);
+}
+
+fn assert_no_violations(violations: &[String]) {
+    assert!(violations.is_empty(), "\n{}", violations.join("\n"));
 }
 
 /// The 90-day run, shared by the tests below (one run, one report).
@@ -212,15 +284,7 @@ fn ninety_days_of_a_heavy_listener_fit_the_hot_window_and_the_five_year_budget()
     assert_eq!((r.dropped, r.reserved_overflows, r.keys_dropped), (0, 0, 0));
     assert_eq!((r.writer.failed_commits, r.writer.events_lost), (0, 0));
     let violations = report.budget_violations();
-    assert!(
-        violations.is_empty(),
-        "
-{}",
-        violations.join(
-            "
-"
-        )
-    );
+    assert_no_violations(&violations);
     assert!(
         r.elapsed < Duration::from_secs(60),
         "took {:?}, budget 60 s",
@@ -235,15 +299,7 @@ fn ninety_days_of_a_heavy_listener_fit_the_hot_window_and_the_five_year_budget()
 fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
     let (_, report) = ninety_days();
     let violations = report.catalog_violations();
-    assert!(
-        violations.is_empty(),
-        "
-{}",
-        violations.join(
-            "
-"
-        )
-    );
+    assert_no_violations(&violations);
 }
 
 /// Context snapshots against the catalog's "~60 a day, ~4.5 KB" (about 70 B per row, the 64-bit
@@ -252,25 +308,24 @@ fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
 fn ninety_days_context_snapshots_match_the_catalog_estimate() {
     let (_, report) = ninety_days();
     let violations = report.context_violations();
-    assert!(
-        violations.is_empty(),
-        "
-{}",
-        violations.join(
-            "
-"
-        )
-    );
+    assert_no_violations(&violations);
 }
 
-/// The numbers the harness compares with are copied from the catalog; this ties them to it.
+/// "~14 KB", "~2.5 KB": how the catalog writes a byte count (1 KB = 1000 B).
+fn catalog_kb(bytes: f64) -> String {
+    let kb = bytes / 1000.0;
+    if kb.fract() == 0.0 {
+        format!("~{kb:.0} KB")
+    } else {
+        format!("~{kb:.1} KB")
+    }
+}
+
+/// The harness's expected numbers are the catalog's; this builds the text the catalog must contain
+/// from the harness's constants, so editing the catalog or a constant fails here.
 #[test]
 fn the_catalog_still_says_what_the_test_expects() {
-    let catalog = include_str!("../../../docs/guides/signal-catalog.md").replace(
-        "
-", "
-",
-    );
+    let catalog = include_str!("../../../docs/guides/signal-catalog.md").replace("\r\n", "\n");
     let row = |prefix: &str| -> String {
         catalog
             .lines()
@@ -278,24 +333,39 @@ fn the_catalog_still_says_what_the_test_expects() {
             .unwrap_or_else(|| panic!("no row starting with {prefix:?} in section 9"))
             .to_owned()
     };
+    let (ctx_rows, ctx_bytes) = growth::CATALOG_CONTEXT;
     let context = row("| Context snapshots");
-    assert!(context.contains("| ~60 | ~4.5 KB |"), "{context}");
-    let counters = row("| UI counters");
-    assert!(counters.contains("| ~300 rows | ~7 KB |"), "{counters}");
-    let dictionaries = row("| Dictionaries and sessions");
+    let expected = format!("| ~{ctx_rows:.0} | {} |", catalog_kb(ctx_bytes));
     assert!(
-        dictionaries.contains("| ~20 KB while the library is being discovered"),
-        "{dictionaries}"
+        context.contains(&expected),
+        "expected {expected:?} in {context}"
     );
-    for (prefix, events, bytes) in [
-        ("| Play start/end", "~240", "~14 KB"),
-        ("| Volume, mute, speed", "~60", "~4 KB"),
-        ("| Seeks, replays", "~60", "~4 KB"),
-        ("| Queue, favorites", "~40", "~2.5 KB"),
-        ("| Search", "~20", "~1.5 KB"),
-        ("| Output/EQ/window", "~30", "~2 KB"),
-    ] {
+
+    let (ctr_rows, ctr_bytes) = growth::CATALOG_COUNTERS;
+    let counters = row("| UI counters");
+    let expected = format!("| ~{ctr_rows:.0} rows | {} |", catalog_kb(ctr_bytes));
+    assert!(
+        counters.contains(&expected),
+        "expected {expected:?} in {counters}"
+    );
+
+    let dictionaries = row("| Dictionaries and sessions");
+    let expected = format!(
+        "| {} while the library is being discovered",
+        catalog_kb(growth::CATALOG_DICTIONARIES_BYTES)
+    );
+    assert!(
+        dictionaries.contains(&expected),
+        "expected {expected:?} in {dictionaries}"
+    );
+
+    for group in growth::Group::ALL {
+        let (Some(prefix), Some((events, bytes))) = (group.catalog_row_prefix(), group.catalog())
+        else {
+            continue;
+        };
         let line = row(prefix);
-        assert!(line.contains(&format!("| {events} | {bytes} |")), "{line}");
+        let expected = format!("| ~{events:.0} | {} |", catalog_kb(bytes));
+        assert!(line.contains(&expected), "expected {expected:?} in {line}");
     }
 }
