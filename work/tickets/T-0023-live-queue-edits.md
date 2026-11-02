@@ -3,7 +3,7 @@ id: T-0023
 title: Live queue edits in the playback engine (play next, reorder, remove) without a flush
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: M
 depends_on: [T-0016]

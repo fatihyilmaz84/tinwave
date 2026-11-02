@@ -3,7 +3,7 @@ id: T-0024
 title: Playback controller — owns Engine::poll(), session lifecycle, maps PlaybackEvents to T0 signals through the bus
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: []          # T-0006, T-0016, T-0028, T-0030, T-0031 done
@@ -66,3 +66,6 @@ live queue edits (T-0023).
 
 ## Signals & storage
 Emits T0 playback and session signals; no new kinds.
+
+## Outcome
+2026-11-02: merged f1abd7b after review-2 APPROVE; gates on main green (fmt, clippy, 464 passed / 6 skipped, deny). Catalog §8 session-boundary note added (P-0111); P-0128 folded into T-0034.

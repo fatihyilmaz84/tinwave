@@ -3,7 +3,7 @@ id: T-0026
 title: Vendored Signalsmith Stretch with a thin cc wrapper (no libclang)
 type: chore
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: S
 depends_on: [T-0016]

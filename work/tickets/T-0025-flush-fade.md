@@ -3,7 +3,7 @@ id: T-0025
 title: Short fade on seek and track-skip flush (no clicks)
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0016]

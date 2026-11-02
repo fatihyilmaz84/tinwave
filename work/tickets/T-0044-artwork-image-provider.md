@@ -3,7 +3,7 @@ id: T-0044
 title: Artwork image provider in apps/tinwave-desktop — T-0041 lifetime pattern, RAII UI owner, teardown stress check
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P0
 size: M
 depends_on: [T-0040]
@@ -14,9 +14,9 @@ scope:
   - apps/tinwave-desktop/build.rs
   - apps/tinwave-desktop/tools/stress/  # dev-only teardown stress target
   - apps/tinwave-desktop/tests/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0044-artwork-image-provider
+review_round: 1
 created_by: from T-0041 (P-0122)
 ---
 

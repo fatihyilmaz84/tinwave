@@ -3,7 +3,7 @@ id: T-0035
 title: Design-system §3 token fixes from T-0011 (accentFill, onAccent, contrast, selected, alpha hex)
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0040]
@@ -12,9 +12,9 @@ scope:
   - apps/tinwave-desktop/qml/Theme/Theme.qml   # the production Theme (ported from T-0011 in T-0040)
   - apps/tinwave-desktop/qml/Main.qml
   - apps/tinwave-desktop/qml/Sidebar.qml
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0035-design-token-fixes
+review_round: 1
 created_by: from T-0011 (design ticket per design-system §9)
 ---
 
