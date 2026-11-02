@@ -30,3 +30,6 @@ taste engine never scans raw events. T-0006 creates the `play` table and flushes
 
 ## Signals & storage
 Warm tier per storage-budget.md.
+
+## Added from P-0111 (T-0024 review)
+A play's Completed/Skipped can land in a later session than its PlayStarted (stale play after a 30-min gap). Pair a play start with its outcome per device (by seq order), never per session; test it.

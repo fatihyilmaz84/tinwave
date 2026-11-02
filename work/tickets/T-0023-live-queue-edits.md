@@ -31,3 +31,6 @@ T-0016's engine has `load` (flushes) and `append` only. Queue edits during playb
 
 ## Signals & storage
 Inputs for `QueuedNext`/`QueuedLater`/`QueueReordered` wiring (T-0024).
+
+## Added from P-0112 (T-0024 review)
+Next/Previous commands carry the queue item they expect to leave; if the engine already auto-advanced past it, the command is a no-op (no reload, no < 5 s Skipped on the track the user wanted). Test at a track boundary.
