@@ -16,9 +16,10 @@
 //!
 //! ```text
 //! let path = dir.join("signals.db");
-//! let toggles = PersistentSettings::open(&path, clock.clone())?;  // before the bus exists
-//! if let Some(problem) = toggles.load_problem() { /* show it in the Signal Center */ }
 //! let store = SignalStore::open(&path)?;
+//! let toggles = PersistentSettings::open(&path, clock.clone())?;  // before the bus exists
+//! // Unusable stored settings fail closed (every toggle off): show why in the Signal Center.
+//! if let Some(problem) = toggles.load_problem() { /* show it */ }
 //! let mut cfg = BusConfig::new(device);
 //! cfg.first_seq = store.first_seq(device)?;          // never reuse a seq
 //! let (bus, drain) = SignalBus::channel(cfg, clock, toggles.settings().clone())?;

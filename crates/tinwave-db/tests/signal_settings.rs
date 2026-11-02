@@ -70,13 +70,13 @@ fn stored_mask(db: &TempDb) -> Option<i64> {
 }
 
 #[test]
-fn the_first_run_uses_the_documented_defaults_and_stores_them() {
+fn the_first_run_uses_the_documented_defaults_from_the_migrated_row() {
     let db = TempDb::new();
     let settings = open(&db);
-    assert_eq!(settings.load(), &SettingsLoad::FirstRun);
+    assert_eq!(settings.load(), &SettingsLoad::Restored);
     assert!(
         settings.load_problem().is_none(),
-        "a first run is not an error"
+        "a new database is not an error"
     );
 
     // privacy-and-signals.md: every category on, T0 and T1 on, T2 and T3 (opt-in) off.
@@ -91,18 +91,30 @@ fn the_first_run_uses_the_documented_defaults_and_stores_them() {
         assert!(s.enabled(kind), "{kind} is T0/T1");
     }
 
-    // The row exists from the start, stamped with the injected clock.
+    // They come from the row migration 0002 inserted (updated_ts 0: never changed by the user),
+    // and opening again does not touch it.
     let r = db.reader();
     assert_eq!(count(&r, "SELECT count(*) FROM signal_settings"), 1);
-    assert_eq!(count(&r, "SELECT mask FROM signal_settings"), 0x37F);
-    assert_eq!(count(&r, "SELECT updated_ts FROM signal_settings"), T0);
-
-    // Opening again is a restore, not another first run, and does not touch the row.
+    assert_eq!(count(&r, "SELECT mask FROM signal_settings"), 895);
+    assert_eq!(count(&r, "SELECT updated_ts FROM signal_settings"), 0);
     drop(settings);
-    let again =
-        PersistentSettings::open(&db.path, ManualClock::new(UtcMillis::new(T0 + 99_000))).unwrap();
+    let again = open(&db);
     assert_eq!(again.load(), &SettingsLoad::Restored);
-    assert_eq!(count(&r, "SELECT updated_ts FROM signal_settings"), T0);
+    assert_eq!(count(&r, "SELECT updated_ts FROM signal_settings"), 0);
+}
+
+/// The literal in migration 0002 (and in database.md) is the documented default mask.
+#[test]
+fn the_default_row_of_the_migration_is_the_default_mask() {
+    assert_eq!(SignalSettings::new().mask(), 895);
+    let sql = SIGNALS_MIGRATIONS[1].sql;
+    assert!(
+        sql.contains(&format!(
+            "INSERT INTO signal_settings (id, mask, updated_ts) VALUES (1, {}, 0);",
+            SignalSettings::new().mask()
+        )),
+        "{sql}"
+    );
 }
 
 #[test]
@@ -196,44 +208,73 @@ fn a_toggle_writes_settings_and_never_a_signal() {
 }
 
 #[test]
-fn a_missing_row_in_a_database_with_signals_is_reported_not_hidden() {
-    let db = TempDb::new();
-    // A database that already holds a signal (written by the real store) but lost its settings.
-    {
-        let mut ids = Ids::new(5);
-        let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
-        let mut store = SignalStore::open(&db.path).unwrap();
-        store
-            .write_batch(&[favorited(device, session, rec, 0)], &[])
+fn a_missing_row_fails_closed_and_says_so() {
+    for with_signals in [false, true] {
+        let db = TempDb::new();
+        if with_signals {
+            let mut ids = Ids::new(5);
+            let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+            let mut store = SignalStore::open(&db.path).unwrap();
+            store
+                .write_batch(&[favorited(device, session, rec, 0)], &[])
+                .unwrap();
+        } else {
+            drop(open(&db));
+        }
+        db.reader()
+            .execute_batch("DELETE FROM signal_settings")
             .unwrap();
+
+        let settings = open(&db);
+        assert_eq!(
+            settings.load(),
+            &SettingsLoad::FailedClosed(SettingsProblem::MissingRow)
+        );
+        let problem = settings
+            .load_problem()
+            .expect("the Signal Center must show this");
+        assert!(problem.to_string().contains("missing"), "{problem}");
+        assert!(
+            problem.to_string().contains("collection is paused"),
+            "{problem}"
+        );
+        assert_collection_is_off(&settings);
+        // The database is left as found until the user changes something...
+        assert_eq!(stored_mask(&db), None);
+        assert!(
+            open(&db).load_problem().is_some(),
+            "still reported on the next start"
+        );
+        // ...and the first toggle replaces the row, which clears the problem.
+        settings.set_tier(Tier::T0, true).unwrap();
+        settings.set_tier(Tier::T1, true).unwrap();
+        for category in SignalCategory::ALL {
+            settings.set_category(category, true).unwrap();
+        }
+        drop(settings);
+        let next = open(&db);
+        assert_eq!(next.load(), &SettingsLoad::Restored);
+        assert_eq!(next.settings().mask(), SignalSettings::new().mask());
     }
-    let settings = open(&db);
+}
+
+/// Every category: nothing is constructed, nothing queued.
+fn assert_collection_is_off(settings: &PersistentSettings) {
     assert_eq!(
-        settings.load_problem(),
-        Some(&SettingsProblem::MissingRow),
-        "the Signal Center must show this"
+        settings.settings().mask(),
+        0,
+        "fail closed: every toggle off"
     );
-    assert!(settings
-        .load_problem()
-        .unwrap()
-        .to_string()
-        .contains("missing"));
-    // The documented defaults are in effect, so collection keeps working as documented...
-    assert_eq!(settings.settings().mask(), SignalSettings::new().mask());
-    // ...the database is left as found until the user changes something...
-    assert_eq!(stored_mask(&db), None);
-    // ...and then the row is written and the next start is clean.
-    settings
-        .set_category(SignalCategory::Volume, false)
-        .unwrap();
-    drop(settings);
-    let next = open(&db);
-    assert_eq!(next.load(), &SettingsLoad::Restored);
-    assert!(!next.settings().category_enabled(SignalCategory::Volume));
+    let mut ids = Ids::new(77);
+    let bus = bus_on(settings, &mut ids);
+    for category in SignalCategory::ALL {
+        assert_eq!(offer_category(&bus, category), (0, 0), "{category:?}");
+    }
+    assert_eq!(bus.queued_total(), 0);
 }
 
 #[test]
-fn a_corrupt_row_falls_back_to_the_defaults_and_says_so() {
+fn a_corrupt_row_fails_closed_and_says_so() {
     let bad_values: [(&str, &str); 5] = [
         ("'on'", "text"),
         ("x'0102'", "blob"),
@@ -256,13 +297,18 @@ fn a_corrupt_row_falls_back_to_the_defaults_and_says_so() {
         };
         assert!(found.contains(expected), "{literal}: {found}");
         assert!(problem.to_string().contains("not valid"), "{problem}");
-        assert_eq!(
-            settings.settings().mask(),
-            SignalSettings::new().mask(),
-            "{literal}"
+        assert!(
+            problem.to_string().contains("collection is paused"),
+            "{problem}"
         );
+        assert_collection_is_off(&settings);
         // Still there for the user to see on the next start, until they change a toggle.
         assert!(open(&db).load_problem().is_some(), "{literal}");
+        settings.set_tier(Tier::T0, true).unwrap();
+        assert!(
+            open(&db).load_problem().is_none(),
+            "{literal}: replaced by the save"
+        );
     }
 }
 
@@ -336,7 +382,7 @@ fn settings_can_be_saved_while_the_writer_is_running() {
 }
 
 #[test]
-fn a_database_from_before_the_settings_table_is_upgraded_without_a_false_alarm() {
+fn a_database_from_before_the_settings_table_is_upgraded_with_the_defaults() {
     let db = TempDb::new();
     // A build that only knew migration 0001, with a signal already stored.
     {
@@ -360,14 +406,17 @@ fn a_database_from_before_the_settings_table_is_upgraded_without_a_false_alarm()
         )
         .unwrap();
 
-    // The settings table is new in this open: the defaults are stored, nothing is wrong.
+    // Whichever component opens the file first (the order no longer matters), the migration
+    // inserts the defaults; nothing is reported and no data is lost.
+    let store = SignalStore::open(&db.path).unwrap();
+    drop(store);
     let settings = open(&db);
-    assert_eq!(settings.load(), &SettingsLoad::FirstRun);
+    assert_eq!(settings.load(), &SettingsLoad::Restored);
     assert!(settings.load_problem().is_none());
+    assert_eq!(settings.settings().mask(), SignalSettings::new().mask());
     assert_eq!(
         count(&db.reader(), "SELECT count(*) FROM schema_migration"),
         2
     );
     assert_eq!(count(&db.reader(), "SELECT count(*) FROM signal_event"), 1);
-    assert_eq!(stored_mask(&db), Some(0x37F));
 }

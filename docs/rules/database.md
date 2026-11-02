@@ -117,6 +117,8 @@ CREATE TABLE signal_settings (
   mask       INTEGER NOT NULL,              -- SignalSettings category x tier bits (tinwave-signals settings.rs)
   updated_ts INTEGER NOT NULL               -- UTC ms
 );
+-- The documented defaults (every category on, T0 and T1 on, T2 and T3 off). A missing row is a fault, not a first run.
+INSERT INTO signal_settings (id, mask, updated_ts) VALUES (1, 895, 0);
 ```
 
 Migrations are append-only once merged to `main`: 0001 is frozen; new tables and changes go in the next number.
