@@ -22,6 +22,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness: no spin, per-profile CPU budget, hang backstop (P2) | tw-builder r1 | `t/T-0048-growth-barrier-no-spin` · `D:\dev\Tinwave-worktrees\T-0048-growth-barrier-no-spin` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 | [T-0044](tickets/T-0044-artwork-image-provider.md) Artwork image provider: T-0041 pattern, RAII UI owner (P0) | tw-builder r2 — CHANGES_REQUESTED: default-run, atomic closing, size clamp | `t/T-0044-artwork-image-provider` · `D:\dev\Tinwave-worktrees\T-0044-artwork-image-provider` |
 
@@ -29,14 +30,11 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0047](tickets/T-0047-storage-test-time-budget.md) storage_growth speed check robust to machine load | tw-reviewer r1 (build-1: writer CPU 6.0-6.5 s at 16-109 s wall; cpu-time dev-dep) | `t/T-0047-storage-test-time-budget` @ 8c89c37 · `D:\dev\Tinwave-worktrees\T-0047-storage-test-time-budget` |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness barrier without a spin (P2) | chore | S | tinwave-db tests/growth | after T-0047 |
 | [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | feature | M | desktop packaging/ | next free slot |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | tests/ overlaps T-0044 → after it |
@@ -97,6 +95,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0047](tickets/T-0047-storage-test-time-budget.md) storage_growth speed check on writer CPU time | d4a2ad6 | build-1, review-1 (approve); 480 tests on main |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo; initial_repeat | 0122962 | build-1/2, review-1/2 (changes); round-3 fix by lead a1e0888; 480 tests |
 | [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes + shell tokens | 11bc7e1 | build-1/2, review-1/2 (changes); round-3 fix by lead 481582b |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions | f1abd7b | build-1/1b/2, review-1 (changes), review-2 (approve); 464 tests on main |
@@ -115,5 +114,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0147 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0148 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract).

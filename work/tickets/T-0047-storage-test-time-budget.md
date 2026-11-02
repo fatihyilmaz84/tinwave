@@ -3,7 +3,7 @@ id: T-0047
 title: storage_growth speed check must not fail just because the machine is busy
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: []
@@ -36,3 +36,6 @@ The speed check exists to catch an accidental slowdown of the writer path, not m
 
 ## Signals & storage
 None (test only).
+
+## Outcome
+2026-11-03: merged d4a2ad6 after review-1 APPROVE. Writer CPU 6.0-6.7 s at 16-186 s wall. Follow-ups → T-0048 (P-0144, P-0148, hang backstop).
