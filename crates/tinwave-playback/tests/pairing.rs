@@ -438,3 +438,52 @@ fn random_command_and_failure_sequences_keep_every_start_paired_with_one_leave()
         run_sequence(seed, &fx, 36);
     }
 }
+
+/// `position()` and the commands built on it must not name a track the decoder has just opened
+/// but `poll` has not announced: with the ring empty at a track boundary the new track's mark
+/// starts exactly where the old one ended, so a second look at the marks (after `poll` took its
+/// snapshot) used to resolve to a track with no `TrackStarted`, and a `load` or `seek` then
+/// emitted a `TrackLeft` or `Seeked` for it. Found by the random-sequence test under load
+/// (1 failure in 624 concurrent processes).
+#[test]
+fn position_names_the_announced_track_until_poll_announces_the_next() {
+    let (a, b, _dir) = wav_pair("pairing-position-boundary");
+    let gate = Arc::new(Gate::default());
+    let opener = Arc::new(GatedOpener {
+        gate: Arc::clone(&gate),
+        allow: 0,
+        only: Some(b.clone()),
+    });
+    let mut h = Harness::with_opener(opener);
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    // Play A to its last frame; the decoder then blocks opening B (gated), so the ring is empty
+    // and B's mark will start exactly at the frame A ended on.
+    let _ = h.render_exact(SPLIT, 480);
+    for _ in 0..30_000 {
+        if gate.blocked.load(std::sync::atomic::Ordering::Acquire) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    gate.open();
+    // Wait for B's mark and first audio to appear, without polling.
+    for _ in 0..30_000 {
+        if h.out.buffered_frames().unwrap_or(0) > 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    let before = h.engine.position().expect("position");
+    assert_eq!(
+        (before.item.0, before.frame),
+        (1, SPLIT as u64),
+        "still A, at its end, until poll announces B"
+    );
+
+    h.engine.poll();
+    let after = h.engine.position().expect("position");
+    assert_eq!((after.item.0, after.frame), (2, 0));
+    assert_paired(&h.sink.kinds(), true);
+}
