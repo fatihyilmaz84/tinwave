@@ -22,6 +22,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-builder r2 — CHANGES_REQUESTED: debug-only TINWAVE_MAIN_QML, macOS style | `t/T-0040-desktop-skeleton` · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
+| [T-0032](tickets/T-0032-settings-followups.md) Signal settings follow-ups (P2) | tw-builder r1 | `t/T-0032-settings-followups` · `D:\dev\Tinwave-worktrees\T-0032-settings-followups` |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r2 — CHANGES_REQUESTED: non-joining teardown, repeat/exclusive changes outside a session | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -60,7 +61,6 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | T-0040 |
 | [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes (accentFill, contrast) | — (ready to groom) |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | T-0040 |
-| [T-0032](tickets/T-0032-settings-followups.md) Signal settings follow-ups (P2) | — |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
 ## Design gaps to close before E-01 screen tickets
