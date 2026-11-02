@@ -3,7 +3,7 @@ id: T-0034
 title: PlayStarted only when audio is heard; engine publishes the initial StreamInfo
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0024]
@@ -40,3 +40,7 @@ No new kinds; PlayStarted timing changes.
 - Document in the mapper that a deferred RepeatModeChanged carries the session-start time and whichever recording is
   current then (catalog §8 "Session boundaries").
 - Nit: tests/controller_thread.rs `ManuallyDrop::into_inner(ManuallyDrop::new(t))` → plain destructure.
+
+## Outcome
+2026-11-03: merged 0122962. Round 2 failed on a one-line session-silence fix; the lead took it over (a1e0888).
+Gates on main green: fmt, clippy, 480 passed / 6 skipped, deny. Follow-ups: P-0143, P-0147 → T-0023; P-0135, P-0136 parked.

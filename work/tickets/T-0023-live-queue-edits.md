@@ -38,3 +38,5 @@ Next/Previous commands carry the queue item they expect to leave; if the engine 
 ## Added from T-0034 build-2 (P-0143)
 - Test helper `Rig::render_until_heard` in tests/controller_support: wait for the pending command before counting
   frames (the stale-frame hazard T-0034 round 2 root-caused); use it instead of fixed-count `hear()` where it matters.
+- Random-walk property (P-0147): no `SessionEnded.minutes` exceeds the audible time between its `SessionStarted`
+  and its last audible event.

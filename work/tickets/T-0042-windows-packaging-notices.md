@@ -26,3 +26,7 @@ notices for third-party code inside Qt (FreeType, PSL data, …), Qt source offe
 
 ## Signals & storage
 None.
+
+## Note from T-0044 review-1
+- `cargo build --release --workspace` also builds the dev-only `image-stress.exe`; the package must ship
+  `tinwave-desktop.exe` only (never copy `target/release/*.exe`).
