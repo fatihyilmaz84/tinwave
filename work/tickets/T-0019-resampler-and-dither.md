@@ -21,7 +21,8 @@ boundary phase error; exclusive mode needs integer output (the spike truncates).
 
 ## Scope
 - Resample in the decoder thread (never in the callback); continuous across same-rate tracks; flush on rate change.
-- TPDF dither for float -> i16/i24 in exclusive mode; none for shared (f32).
+- TPDF dither for float -> i16/i24 in exclusive mode; none for shared (f32). T-0017 convert.rs is round-to-nearest
+  today; exclusive I16 (last resort) with gain != 1 or 24-bit material is the case that needs it (T-0017 review).
 
 ## Notes
 - ADR 0006: time-stretch runs at the file rate before the resampler; check 96 kHz and mono CPU (P-0055).

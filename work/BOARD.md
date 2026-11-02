@@ -22,15 +22,14 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback (P0) | tw-builder **r2** ([review-1](reports/T-0017/review-1.md): open-timeout race, silent device tests) | `t/T-0017-windows-wasapi-output` · `D:\dev\Tinwave-worktrees\T-0017-windows-wasapi-output` |
 | [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 (E-00) | tw-builder r1 | `t/T-0007-storage-growth-test` · `D:\dev\Tinwave-worktrees\T-0007-storage-growth-test` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
-| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback (P0) | tw-reviewer r1 | [build-1](reports/T-0017/build-1.md) · 03a0ae7 |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -94,5 +93,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0081 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits).
+Proposals P-0001..P-0083 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test).

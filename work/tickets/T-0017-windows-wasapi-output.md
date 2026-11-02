@@ -3,7 +3,7 @@ id: T-0017
 title: Windows output on direct WASAPI (shared + exclusive), cpal fallback output
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P0
 size: M
 depends_on: []          # T-0016, T-0028, T-0030 done
@@ -16,7 +16,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1, same builder as T-0016/T-0028/T-0030)
 branch: t/T-0017-windows-wasapi-output
-review_round: 1
+review_round: 2
 created_by: from P-0023
 ---
 
