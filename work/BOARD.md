@@ -22,14 +22,15 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder **r2** ([review-1](reports/T-0006/review-1.md): idle checkpoint, realistic ctx; rec index dropped) | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
 | [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback (P0) | tw-builder r1 | `t/T-0017-windows-wasapi-output` · `D:\dev\Tinwave-worktrees\T-0017-windows-wasapi-output` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Build report |
+|---|---|---|
+| [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-reviewer **r2** | [build-2](reports/T-0006/build-2.md) · 698b78f (39.4 B/event) |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |

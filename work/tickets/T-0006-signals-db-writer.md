@@ -3,7 +3,7 @@ id: T-0006
 title: signals.db migrations and batched SignalWriter
 type: feature
 epic: E-00
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: [T-0005, T-0022]
