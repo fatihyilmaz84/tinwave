@@ -1,0 +1,30 @@
+[package]
+name = "tinwave-db"
+description = "Tinwave SQLite layer: the migration runner, signals.db and its batched SignalWriter. The only crate that writes SQL."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tinwave-core = { workspace = true }
+tinwave-signals = { workspace = true }
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+tempfile = { workspace = true }
+
+[[bench]]
+name = "write_batch"
+harness = false
+
+[[bench]]
+name = "writer_rss"
+harness = false
+
+[lints]
+workspace = true
