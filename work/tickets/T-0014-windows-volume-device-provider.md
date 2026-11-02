@@ -3,7 +3,7 @@ id: T-0014
 title: Windows output-device and system-volume providers in tinwave-context
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: []          # T-0005, T-0013, T-0015 done
@@ -58,3 +58,6 @@ Reuse the spike's `classify.rs`, `device.rs` and `monitor.rs` ideas, but rewrite
 in a small documented COM module, all COM calls on the provider thread (never inside callbacks — deadlock risk).
 The spike's selftest changes the real system volume — any live test must restore the volume and mute and must
 not use `panic=abort`.
+
+## Merged
+2026-11-02, merge commit f831e27 (branch head 3ee67fc). Reviews: review-1 (CHANGES_REQUESTED), review-2 (APPROVE). Gates green on main. PO-RUNBOOK rows still gate E-01 acceptance (P-0006, P-0061).
