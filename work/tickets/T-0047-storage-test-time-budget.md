@@ -3,7 +3,7 @@ id: T-0047
 title: storage_growth speed check must not fail just because the machine is busy
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: []
