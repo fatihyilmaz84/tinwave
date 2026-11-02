@@ -23,14 +23,13 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder **r2** ([review-1](reports/T-0006/review-1.md): idle checkpoint, realistic ctx; rec index dropped) | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
+| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback (P0) | tw-builder r1 | `t/T-0017-windows-wasapi-output` · `D:\dev\Tinwave-worktrees\T-0017-windows-wasapi-output` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
-| [T-0030](tickets/T-0030-engine-append-and-docs.md) Engine follow-ups (P0) | tw-reviewer r1 | [build-1](reports/T-0030/build-1.md) · a6e90ab |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -51,12 +50,11 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0007](tickets/T-0007-storage-growth-test.md) Growth test v1 | T-0006 |
 | [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | T-0006 |
-| [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | T-0006, T-0030 |
-| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output (E-01) | T-0030 (same crate) |
-| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | T-0030 (same crate) |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | T-0030 (same crate) |
-| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (E-01, P2) | T-0030 (same crate) |
-| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | T-0030 (same crate) |
+| [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | T-0006 |
+| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | after T-0017 (same crate) |
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | after T-0017 (same crate) |
+| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (E-01, P2) | after T-0017 (same crate) |
+| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | after T-0017 (same crate) |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
@@ -91,8 +89,9 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0030](tickets/T-0030-engine-append-and-docs.md) Engine follow-ups | 975e812 | build-1, review-1 (approve) |
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0080 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0081 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits).

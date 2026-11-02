@@ -3,16 +3,19 @@ id: T-0017
 title: Windows output on direct WASAPI (shared + exclusive), cpal fallback output
 type: feature
 epic: E-01
-status: backlog
+status: in_progress
 priority: P0
 size: M
-depends_on: [T-0016]
+depends_on: []          # T-0016, T-0028, T-0030 done
 scope:
   - crates/tinwave-playback/src/output/
+  - crates/tinwave-playback/src/lib.rs        # module registration / re-exports only
+  - crates/tinwave-playback/Cargo.toml        # Windows-only deps (wasapi / windows), cpal
+  - crates/tinwave-playback/tests/            # output tests
   - Cargo.toml            # [workspace.dependencies] only
   - Cargo.lock
-owner:
-branch:
+owner: tw-builder (round 1, same builder as T-0016/T-0028/T-0030)
+branch: t/T-0017-windows-wasapi-output
 review_round: 0
 created_by: from P-0023
 ---
@@ -29,6 +32,11 @@ and system-volume signals live in tinwave-context, T-0014). D-0001 Windows first
 - `output/cpal.rs`: generic output for macOS/Linux and as Windows fallback.
 - In-app volume stays in the renderer (software gain), never endpoint volume (ADR 0004 decision 5); any code that
   ever touches endpoint volume/mute passes tinwave-context's `EVENT_CONTEXT_GUID` (P-0064).
+
+## Test safety (lead)
+- The default `cargo test` must never produce audible output or open a real device. Real-device tests are
+  `#[ignore]`d, documented, quiet (≤ −30 dBFS, ≤ 1 s) and never change the system default device or volume.
+- Loopback-capture verification, if used, is also opt-in.
 
 ## Notes from the T-0016 review
 - Real outputs must honour the `OutputStream` drop contract: the callback has finished when drop returns.

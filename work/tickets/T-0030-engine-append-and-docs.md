@@ -3,7 +3,7 @@ id: T-0030
 title: Engine follow-ups — append-after-end buffering, third-fix regression test, append+switch window, event docs
 type: bug
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -38,3 +38,6 @@ current track, and "a stalled first read is buffering, not an Underrun".
 
 ## Signals & storage
 None.
+
+## Merged
+2026-11-02, merge commit 975e812 (branch head a6e90ab). Review: review-1 (APPROVE). Gates green on main (281 tests). Non-blocking → P-0081 (T-0025).
