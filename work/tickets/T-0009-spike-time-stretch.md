@@ -3,7 +3,7 @@ id: T-0009
 title: "Spike: time-stretch library for 0.75×–1.5× playback (quality, CPU, license)"
 type: spike
 epic: E-00
-status: in_progress
+status: done
 priority: P2
 size: S
 depends_on: [T-0003]
@@ -31,3 +31,6 @@ Half a working session.
 
 ## Signals & storage
 Enables `RateChanged`.
+
+## Outcome
+2026-11-02: answered — Signalsmith Stretch (MIT) in the decoder thread, bypass at 1.0×, flush-and-restart rate changes. Accepted as ADR 0006. Follow-ups T-0026 (vendored wrapper), T-0027 (rate control); PO listening pass on Needs the PO.

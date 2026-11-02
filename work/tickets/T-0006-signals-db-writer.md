@@ -3,7 +3,7 @@ id: T-0006
 title: signals.db migrations and batched SignalWriter
 type: feature
 epic: E-00
-status: backlog
+status: in_progress
 priority: P0
 size: M
 depends_on: [T-0005, T-0022]
@@ -11,8 +11,8 @@ scope:
   - crates/tinwave-db/
   - Cargo.toml            # [workspace.dependencies] only — members glob "crates/*" already covers the crate
   - Cargo.lock
-owner:
-branch:
+owner: tw-builder (round 1)
+branch: t/T-0006-signals-db-writer
 review_round: 0
 created_by: lead
 ---
@@ -37,6 +37,8 @@ docs/rules/database.md (schema, write path, pragmas), docs/rules/storage-budget.
 - Counter rows arrive keyed by (EntityKind, UUID) after T-0022: resolve via `dict_recording` (Track) or
   `dict_entity` (others) with the bounded LRU; migration 0001 includes `dict_entity` and
   `ui_counter.entity_kind` in the primary key (database.md).
+- Writer loop passes its flush interval as the `SignalDrain::wait` timeout; `wait` sleeps the full timeout while a
+  failed batch is retained, so that interval is also the retry interval (P-0040).
 - Coalescers are `&mut self`: in-app volume (UI thread) and system volume (provider thread) each own one with
   their own bus clone.
 

@@ -29,6 +29,10 @@ and system-volume signals live in tinwave-context, T-0014). D-0001 Windows first
 - `output/cpal.rs`: generic output for macOS/Linux and as Windows fallback.
 - In-app volume stays in the renderer (software gain), never endpoint volume (ADR 0004 decision 5).
 
+## Notes from the T-0016 review
+- Real outputs must honour the `OutputStream` drop contract: the callback has finished when drop returns.
+- Never drop the `Renderer` (it holds the last `Arc<Shared>`) on the RT thread.
+
 ## Acceptance criteria
 - [ ] Gapless and seek tests from T-0016 pass through both outputs on Windows (loopback or callback recording).
 - [ ] Device re-open resumes at the same frame — test with a fake notification; live run documented.

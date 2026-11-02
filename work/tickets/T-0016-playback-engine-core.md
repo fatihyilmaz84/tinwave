@@ -13,9 +13,9 @@ scope:
   - Cargo.toml            # [workspace.dependencies] only
   - Cargo.lock
   - deny.toml             # MPL-2.0 exception scoped to symphonia* (D-0003)
-owner: tw-builder (round 1)
+owner: tw-builder (round 2)
 branch: t/T-0016-playback-engine-core
-review_round: 0
+review_round: 2
 created_by: from P-0022
 ---
 

@@ -20,10 +20,10 @@ use std::time::{Duration, Instant};
 use criterion::{criterion_group, Criterion};
 use tinwave_core::{DeviceId, RecordingId, SessionId, SignalEventId, SystemClock, UtcMillis};
 use tinwave_signals::{
-    BusConfig, CounterEntity, CounterRow, ElapsedDs, EventContext, EventStamp, GestureCoalescer,
-    GestureTick, GestureTime, InputSource, PausedPayload, Section, SignalBus, SignalCategory,
-    SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
-    View, ViewOpenedPayload, Volume, VolumePayload,
+    BusConfig, CounterEntity, CounterRow, ElapsedDs, EntityKind, EventContext, EventStamp,
+    GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, Section, SignalBus,
+    SignalCategory, SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings,
+    SignalSink, SignalsError, View, ViewOpenedPayload, Volume, VolumePayload,
 };
 
 /// The budget from `docs/rules/testing.md`.
@@ -162,7 +162,10 @@ fn bench_emit(c: &mut Criterion) {
     {
         let (bus, _drain) = new_bus();
         group.bench_function("ui_counter_impression", |b| {
-            b.iter(|| bus.counters().impression(black_box(CounterEntity(42))));
+            b.iter(|| {
+                bus.counters()
+                    .impression(black_box(CounterEntity::new(EntityKind::Track, [42; 16])))
+            });
         });
     }
 
@@ -282,7 +285,7 @@ fn p99_gate() -> bool {
         all_ok &= check("reserved event, 3 low-priority flooders + writer", &samples);
         black_box(writer.finish());
         println!(
-            "  (contention run: {} dropped low events, {} reserved overflows; a tight loop emits ~10^6 events/s,              five orders above a real listener, so overflows here are expected and are timed too)",
+            "  (contention run: {} dropped low events, {} reserved overflows; a tight loop emits ~10^6 events/s, five orders above a real listener, so overflows here are expected and are timed too)",
             bus.dropped_total(),
             bus.reserved_overflows()
         );

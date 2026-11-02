@@ -36,6 +36,32 @@
 //! threads that allocate `seq`s within microseconds of each other and enqueue in the opposite
 //! order, which a batch boundary can split. Nothing relies on queue order: rowid order is only
 //! "approximately time order" (`docs/rules/storage-budget.md` section 3).
+//!
+//! # `seq` has gaps and commits slightly out of order
+//!
+//! `seq` is **not** a gap-free counter. A `seq` is spent whenever an event is built, and some
+//! of those events never reach the sink:
+//!
+//! - a low-priority event evicted by a newer one ([`SignalBus::dropped`]);
+//! - a low-priority event lost under contention after a few eviction attempts
+//!   ([`SignalBus::dropped`]);
+//! - a reserved event rejected because the reserved queue was full
+//!   ([`SignalBus::reserved_overflows`]);
+//! - an event whose constructor returned a payload of another kind
+//!   ([`SignalsError::KindMismatch`]);
+//! - events still in the queues when the process dies.
+//!
+//! And because two producer threads can enqueue in the opposite order to their `seq`
+//! allocation, a batch can commit `seq` 11 before a later batch commits `seq` 10. Therefore:
+//!
+//! - **A gap in the stored `seq`s is not a loss.** The writer, the diagnostics and any
+//!   integrity check must not report one, and must not try to fill it.
+//! - **"Highest `seq` seen" is not a cursor.** A sync cursor or a "continue from here" marker
+//!   built on the maximum committed `seq` skips an event that commits after it. Dedupe by the
+//!   exact `(device, seq)` key (that is what the key is for); a sync protocol needs its own
+//!   watermark that tolerates late arrivals.
+//! - The one legitimate use of the highest stored `seq` is [`BusConfig::first_seq`] at
+//!   start-up: one more than the maximum, so a new run cannot reuse a `seq`.
 
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -52,20 +78,37 @@ use crate::{SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalsError
 
 /// Where drained signals go. Implemented by the signals.db writer (T-0006).
 ///
-/// The bus calls it from one thread, with batches. Implementations should write the whole call
-/// in **one transaction**.
+/// The bus calls it from one thread, with batches.
+///
+/// # Contract: all or nothing
+///
+/// One call to [`write`](Self::write) **MUST** be exactly one transaction covering the events,
+/// the counter rows and everything the sink derives from them (the dictionary entries it creates
+/// to resolve counter entities, for example). It returns `Ok` only after that transaction
+/// committed, and returns `Err` only if **nothing** was committed. There is no third outcome.
+///
+/// The bus relies on it: after an `Err` it re-offers the same events and the same counter rows.
+/// Events are safe to re-offer because `(device, seq)` is a dedupe key. **Counter rows are not
+/// idempotent**: they are deltas that get added, so a sink that committed the counters (or some
+/// of the rows) and then returned `Err` would have them added a second time by the retry, and
+/// the day's counts would be too high for good.
 pub trait SignalSink {
     /// Persists a batch.
     ///
-    /// - `events` are raw events in ascending `seq` order. Insert them; `(device, seq)` is the
-    ///   dedupe key, so re-offered events after a failure must not duplicate.
-    /// - `counters` are deltas since the previous successful call. **Add** `count` and
-    ///   `total_ms` to the existing `(day, kind, entity)` row (an `INSERT .. ON CONFLICT DO
-    ///   UPDATE`), and keep the larger `max_scrolled`.
+    /// - `events` are raw events in ascending `seq` order. Insert them with `INSERT OR IGNORE`
+    ///   on `(device, seq)`. Their `seq`s have gaps and need not be above everything stored
+    ///   already (see the module docs); neither is an error.
+    /// - `counters` are deltas since the previous successful call. Resolve each row's UUID to
+    ///   its dictionary id (`dict_recording` for [`EntityKind::Track`](crate::EntityKind::Track), `dict_entity`
+    ///   otherwise), then **add** `count` and `total_ms` to the existing
+    ///   `(day, kind, entity_kind, entity)` row (an `INSERT .. ON CONFLICT DO UPDATE`) and keep
+    ///   the larger `max_scrolled`.
     ///
     /// # Errors
-    /// On `Err` nothing may have been committed. The bus keeps the batch and offers the same
-    /// events and counter rows again on the next [`SignalDrain::pump`].
+    /// On `Err` nothing has been committed (see the contract above). The bus keeps the batch
+    /// and offers the same events and counter rows again on the next [`SignalDrain::pump`].
+    /// Callers back off between attempts: [`SignalDrain::wait`] does so while a batch is
+    /// retained.
     fn write(
         &mut self,
         events: &[SignalEvent],
@@ -86,7 +129,7 @@ pub struct BusConfig {
     pub reserved_capacity: usize,
     /// Slots in the low-priority queue.
     pub low_capacity: usize,
-    /// Distinct `(day, kind, entity)` rows the counters hold between drains.
+    /// Distinct `(day, kind, entity_kind, entity)` rows the counters hold between drains.
     pub max_counter_keys: usize,
     /// Most events handed to the sink in one call.
     pub max_batch: usize,
@@ -521,17 +564,33 @@ impl SignalDrain {
     /// Blocks until an event is queued or `timeout` passes. Returns `true` if there is
     /// something to pump (queued events, or a batch retained after a failed write).
     ///
+    /// **Retry backoff.** While a batch is retained because the sink failed, this always blocks
+    /// for the full `timeout` and then returns `true`, whatever is queued: the timeout is the
+    /// retry interval. Returning at once would make a writer loop (`wait`, `pump`, repeat) spin
+    /// at full speed for as long as the database keeps failing. Pass the writer's flush interval
+    /// (seconds), not a few milliseconds.
+    ///
     /// Counter rows do not wake the drain: they are collected on every pump, so call `pump` at
     /// least every few seconds (the writer's flush interval) even when this returns `false`.
     #[must_use]
     pub fn wait(&self, timeout: Duration) -> bool {
-        if !self.events.is_empty() || self.reserved.has_work() || self.low.has_work() {
+        if self.has_retained_batch() {
+            // `pump` clears the batch on success, so a batch that is still here failed to write.
+            std::thread::sleep(timeout);
+            return true;
+        }
+        if self.reserved.has_work() || self.low.has_work() {
             return true;
         }
         let mut select = Select::new();
         select.recv(&self.reserved.rx);
         select.recv(&self.low.rx);
         select.ready_timeout(timeout).is_ok()
+    }
+
+    /// Whether a batch (events and/or counter rows) is waiting for a retry after a failed write.
+    fn has_retained_batch(&self) -> bool {
+        !self.events.is_empty() || !self.counter_rows.is_empty()
     }
 
     /// Events waiting in the queues (not counting a retained batch).
@@ -605,8 +664,28 @@ mod tests {
     use super::*;
     use crate::test_support::{bus_with as bus, device, event, VecSink, T0};
     use crate::{
-        InputSource, PausedPayload, SignalCategory, SignalPayload, View, ViewOpenedPayload,
+        CounterEntity, EntityKind, InputSource, PausedPayload, SignalCategory, SignalPayload, View,
+        ViewOpenedPayload,
     };
+
+    fn track(n: u8) -> CounterEntity {
+        CounterEntity::new(EntityKind::Track, [n; 16])
+    }
+
+    /// A database that is down: every write fails and counts the attempt.
+    #[derive(Default)]
+    struct DeadSink {
+        attempts: usize,
+    }
+
+    impl SignalSink for DeadSink {
+        fn write(&mut self, _: &[SignalEvent], _: &[CounterRow]) -> Result<(), SignalsError> {
+            self.attempts += 1;
+            Err(SignalsError::Sink {
+                reason: "database is down".into(),
+            })
+        }
+    }
 
     fn paused() -> SignalPayload {
         SignalPayload::Paused(PausedPayload {
@@ -820,7 +899,7 @@ mod tests {
         for _ in 0..3 {
             let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
         }
-        let _ = bus.counters().impression(crate::CounterEntity(5));
+        let _ = bus.counters().impression(track(5));
         let mut sink = VecSink {
             fail_next: true,
             ..VecSink::default()
@@ -835,7 +914,7 @@ mod tests {
         assert!(sink.events.is_empty());
         // A newer event and counter arrive while the sink is down.
         let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
-        let _ = bus.counters().impression(crate::CounterEntity(5));
+        let _ = bus.counters().impression(track(5));
         assert!(
             drain.wait(Duration::ZERO),
             "a retained batch counts as work"
@@ -851,10 +930,67 @@ mod tests {
     }
 
     #[test]
+    fn wait_backs_off_for_the_timeout_while_a_failed_batch_is_retained() {
+        const RETRY: Duration = Duration::from_millis(40);
+        let (bus, mut drain, _) = bus(|_| {});
+        let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
+        let mut sink = DeadSink::default();
+        drain.pump(&mut sink).unwrap_err();
+        // More events pile up behind the retained batch: the queues have work, so a `wait`
+        // that only looked at the queues would return at once, forever.
+        let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
+        let started = std::time::Instant::now();
+        for attempt in 1..=4 {
+            assert!(drain.wait(RETRY), "the retained batch is still work");
+            drain.pump(&mut sink).unwrap_err();
+            assert!(
+                started.elapsed() >= RETRY * attempt,
+                "attempt {attempt} came after only {:?}: the writer loop is spinning",
+                started.elapsed()
+            );
+        }
+        assert_eq!(
+            sink.attempts, 5,
+            "one failure, then one attempt per timeout"
+        );
+    }
+
+    #[test]
+    fn wait_backs_off_when_only_counter_rows_are_retained() {
+        const RETRY: Duration = Duration::from_millis(40);
+        let (bus, mut drain, _) = bus(|_| {});
+        let _ = bus.counters().impression(track(1));
+        let mut sink = DeadSink::default();
+        drain.pump(&mut sink).unwrap_err();
+        assert_eq!(
+            drain.queued(),
+            0,
+            "no events: only counter rows are retained"
+        );
+        let started = std::time::Instant::now();
+        assert!(drain.wait(RETRY));
+        assert!(started.elapsed() >= RETRY);
+    }
+
+    #[test]
+    fn wait_is_quick_again_once_the_retained_batch_is_written() {
+        let (bus, mut drain, _) = bus(|_| {});
+        let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
+        let mut sink = VecSink {
+            fail_next: true,
+            ..VecSink::default()
+        };
+        drain.pump(&mut sink).unwrap_err();
+        assert!(drain.wait(Duration::from_millis(1)));
+        drain.pump(&mut sink).unwrap();
+        assert!(!drain.wait(Duration::from_millis(10)), "nothing left to do");
+    }
+
+    #[test]
     fn counters_flow_through_pump() {
         let (bus, mut drain, _) = bus(|_| {});
         for _ in 0..1_000 {
-            let _ = bus.counters().impression(crate::CounterEntity(1));
+            let _ = bus.counters().impression(track(1));
         }
         let mut sink = VecSink::default();
         let r = drain.pump(&mut sink).unwrap();

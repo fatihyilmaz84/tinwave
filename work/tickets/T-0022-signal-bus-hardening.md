@@ -3,7 +3,7 @@ id: T-0022
 title: Signal bus hardening after review — sink contract, retry backoff, seek threshold, UUID-keyed counters
 type: chore
 epic: E-00
-status: in_progress
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -17,7 +17,7 @@ scope:
   - crates/tinwave-signals/benches/emit.rs
 owner: tw-builder (round 1)
 branch: t/T-0022-signal-bus-hardening
-review_round: 0
+review_round: 1
 created_by: from T-0005 review-1 non-blocking findings, P-0034, P-0035
 ---
 
@@ -54,3 +54,6 @@ tinwave-db (T-0006), enums.rs / frozen.rs / Cargo files (T-0015), the schema or 
 
 ## Signals & storage
 No new kinds. Counter rows are keyed by (day, kind, entity_kind, entity) per database.md.
+
+## Merged
+2026-11-02, merge commit a8b64dc (branch head 9b8750d). Review: review-1 (APPROVE). Gates green on main (171 tests; emit p99 200-400 ns). Non-blocking 1-3 -> T-0015.

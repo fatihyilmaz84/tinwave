@@ -23,6 +23,9 @@ boundary phase error; exclusive mode needs integer output (the spike truncates).
 - Resample in the decoder thread (never in the callback); continuous across same-rate tracks; flush on rate change.
 - TPDF dither for float -> i16/i24 in exclusive mode; none for shared (f32).
 
+## Notes
+- ADR 0006: time-stretch runs at the file rate before the resampler; check 96 kHz and mono CPU (P-0055).
+
 ## Acceptance criteria
 - [ ] 44.1 kHz pair on a 48 kHz endpoint stays gapless (<= 1 frame) — test.
 - [ ] Rate change between tracks plays without glitch and without callback allocation — test.
