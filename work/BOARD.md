@@ -23,7 +23,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0044](tickets/T-0044-artwork-image-provider.md) Artwork image provider: T-0041 pattern, RAII UI owner (P0) | tw-builder r1 | `t/T-0044-artwork-image-provider` · `D:\dev\Tinwave-worktrees\T-0044-artwork-image-provider` |
-| [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes + T-0040 shell tokens | tw-builder r2 — CHANGES_REQUESTED: no hover over selected (doc), check-accent constant, window clamp | `t/T-0035-design-token-fixes` · `D:\dev\Tinwave-worktrees\T-0035-design-token-fixes` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -31,6 +30,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes + T-0040 shell tokens | tw-reviewer r2 (build-2: no hover over selected, checkAccents, window clamp) | `t/T-0035-design-token-fixes` @ 4683dd8 · `D:\dev\Tinwave-worktrees\T-0035-design-token-fixes` |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo; initial_repeat | tw-reviewer r1 (build-1: heard-play sessions, OutputOpened) | `t/T-0034-playstarted-when-heard` @ 8255b43 · `D:\dev\Tinwave-worktrees\T-0034-playstarted-when-heard` |
 
 ## Ready (dispatch order)
