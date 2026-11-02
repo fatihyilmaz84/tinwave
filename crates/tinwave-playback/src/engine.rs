@@ -257,11 +257,19 @@ impl Engine {
 
     /// Seek the current track to `frame` of its (trimmed) timeline. Lands sample-exact.
     ///
+    /// There must be a current track. Once the queue has ended (`QueueEnded`) or after `stop`
+    /// there is none, and the seek is **rejected** with [`PlaybackError::NothingLoaded`] and emits
+    /// nothing: restarting a finished track is a [`load`](Self::load), which announces it with its
+    /// own `TrackStarted{Requested}` so that every start has exactly one matching leave.
+    ///
     /// # Errors
     /// [`PlaybackError::NothingLoaded`], or as [`load`](Self::load). A target behind the end of the
     /// track is reported later as a `SeekFailed` event and the queue moves on.
     pub fn seek(&mut self, frame: u64) -> Result<(), PlaybackError> {
         self.poll();
+        if self.cursor.is_none() && self.announced.is_none() {
+            return Err(PlaybackError::NothingLoaded);
+        }
         let from = self.position().ok_or(PlaybackError::NothingLoaded)?;
         let gen = self.next_gen();
         self.send(Cmd::Seek {
@@ -364,23 +372,32 @@ impl Engine {
         self.poll();
         let resume = match self.unapplied() {
             Some(p) => p.item.map(|item| (item, p.frame)),
-            // A finished queue has nothing to resume.
-            None if self.view().ended => None,
+            // No current track (never loaded, stopped, or the queue ended): nothing to resume. The
+            // decoder carries on with whatever has been appended, from its start.
+            None if self.cursor.is_none() && self.announced.is_none() => None,
             None => self.position().map(|p| (p.item, p.frame)),
         };
         // The old callback must be gone before the decoder re-bases on `consumed`.
         self.stream = None;
-        // The new renderer starts with an empty ring; starved callbacks before the decoder has
-        // switched over are not underruns. The decoder sets this again with its first push.
-        self.sh.primed.store(false, Release);
         let (producer, consumer) = ring(self.sample_rate);
         let gen = self.next_gen();
-        self.send(Cmd::Reconfigure {
+        let resume_item = resume.map(|r| r.0);
+        let resume_frame = resume.map_or(0, |r| r.1);
+        if let Err(error) = self.send(Cmd::Reconfigure {
             producer,
-            item: resume.map(|r| r.0),
-            frame: resume.map_or(0, |r| r.1),
+            item: resume_item,
+            frame: resume_frame,
             gen,
-        })?;
+        }) {
+            // Nothing was sent, but the old stream is already closed.
+            self.output_lost_reported = true;
+            self.emit(EventKind::OutputLost);
+            return Err(error);
+        }
+        // From here the decoder WILL restart the stream, whether or not the new device opens, so
+        // the command is recorded either way: its first mark is adopted silently instead of being
+        // announced a second time.
+        self.command_sent(gen, resume_item, resume_frame, true);
         let request = OpenRequest {
             device: device.as_deref(),
             sample_rate: self.sample_rate,
@@ -393,7 +410,6 @@ impl Engine {
                 self.stream = Some(stream);
                 self.device = device.clone();
                 self.output_lost_reported = false;
-                self.command_sent(gen, resume.map(|r| r.0), resume.map_or(0, |r| r.1), true);
                 self.emit(EventKind::OutputReopened { device });
                 Ok(())
             }

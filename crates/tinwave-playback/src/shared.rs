@@ -45,8 +45,6 @@ pub(crate) struct Shared {
     /// to `flush_ack`.
     pub flush_req: AtomicU64,
     pub flush_ack: AtomicU64,
-    /// False between a flush and the first frames of the new stream, so that gap is not an underrun.
-    pub primed: AtomicBool,
     /// The decoder has pushed everything; `eos_total` holds the final stream frame count.
     pub eos: AtomicBool,
     pub eos_total: AtomicU64,
@@ -68,7 +66,6 @@ impl Shared {
             paused: AtomicBool::new(false),
             flush_req: AtomicU64::new(0),
             flush_ack: AtomicU64::new(0),
-            primed: AtomicBool::new(false),
             eos: AtomicBool::new(true),
             eos_total: AtomicU64::new(0),
             eos_failed: AtomicBool::new(false),

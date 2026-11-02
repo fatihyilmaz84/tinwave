@@ -5,13 +5,11 @@
 
 mod common;
 
-use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::sync::Arc;
 
 use common::*;
-use symphonia::core::io::MediaSource;
 use tinwave_playback::{
-    EventKind, GaplessInfo, LeaveCause, PlaybackError, QueueItemId, SourceOpener, StartCause, Track,
+    EventKind, GaplessInfo, LeaveCause, PlaybackError, QueueItemId, StartCause, Track,
 };
 
 /// A 3 s tag-less MP3 made of the fixture's audio frames three times over, with the side info of
@@ -137,62 +135,6 @@ fn corrupt_packets_are_reported_when_the_device_is_switched() {
     assert_eq!(found[0].0, QueueItemId(1));
 }
 
-/// A WAV that reads fine up to `fail_after` bytes and then returns an IO error.
-struct BrokenSource {
-    inner: Cursor<Vec<u8>>,
-    delivered: usize,
-    fail_after: usize,
-}
-
-impl Read for BrokenSource {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.delivered >= self.fail_after {
-            return Err(std::io::Error::other("disk went away"));
-        }
-        let n = self.inner.read(buf)?;
-        self.delivered += n;
-        Ok(n)
-    }
-}
-
-impl Seek for BrokenSource {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.inner.seek(pos)
-    }
-}
-
-impl MediaSource for BrokenSource {
-    fn is_seekable(&self) -> bool {
-        true
-    }
-    fn byte_len(&self) -> Option<u64> {
-        Some(self.inner.get_ref().len() as u64)
-    }
-}
-
-/// Opens the named file normally, except `broken` which fails mid-stream.
-#[derive(Debug)]
-struct BreakingOpener {
-    broken: std::path::PathBuf,
-    fail_after: usize,
-}
-
-impl SourceOpener for BreakingOpener {
-    fn open(&self, track: &Track) -> std::io::Result<Box<dyn MediaSource>> {
-        let bytes = std::fs::read(&track.path)?;
-        let fail_after = if track.path == self.broken {
-            self.fail_after
-        } else {
-            usize::MAX
-        };
-        Ok(Box::new(BrokenSource {
-            inner: Cursor::new(bytes),
-            delivered: 0,
-            fail_after,
-        }))
-    }
-}
-
 fn wav_files(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, TempDir) {
     let dir = TempDir::new(tag);
     let (l, r) = sweep(RATE, TOTAL);
@@ -216,26 +158,17 @@ fn a_track_failing_mid_decode_is_left_as_failed_not_finished() {
     // Whatever A delivered before breaking, then all of B.
     h.settle();
     h.wait_buffered(10_000);
-    let mut heard = 0usize;
-    while !h.sink.kinds().iter().any(|k| {
-        matches!(
-            k,
-            EventKind::TrackLeft {
-                item: QueueItemId(2),
-                ..
-            }
-        )
-    }) {
-        h.wait_buffered(480.min(h.out.buffered_frames().unwrap_or(0).max(1)));
-        let (_, real) = h.render_block(480);
-        heard += real;
-        if heard > 3 * TOTAL {
-            panic!("track B never ended");
-        }
-        if real == 0 {
-            std::thread::sleep(std::time::Duration::from_micros(200));
-        }
-    }
+    h.run_until("track B left", |h| {
+        h.saw(|k| {
+            matches!(
+                k,
+                EventKind::TrackLeft {
+                    item: QueueItemId(2),
+                    ..
+                }
+            )
+        })
+    });
     let kinds = h.sink.kinds();
     assert!(
         kinds.iter().any(|k| matches!(
@@ -284,13 +217,7 @@ fn the_last_track_failing_mid_decode_ends_the_queue_as_failed() {
     h.engine.load(vec![track(1, &a)], 0, 0).expect("load");
     h.settle();
     h.wait_buffered(10_000);
-    for _ in 0..30_000 {
-        let (_, _) = h.render_block(480);
-        if h.sink.kinds().contains(&EventKind::QueueEnded) {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_micros(100));
-    }
+    h.run_until("queue ended", |h| h.saw(|k| *k == EventKind::QueueEnded));
     let kinds = h.sink.kinds();
     assert!(kinds.contains(&EventKind::QueueEnded), "{kinds:?}");
     assert!(kinds.iter().any(|k| matches!(
