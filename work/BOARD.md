@@ -21,7 +21,9 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r1 — built (ed6d064); amending: stale outcomes into a new session; then review | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
+| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-builder r1 | `t/T-0040-desktop-skeleton` · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
+| [T-0041](tickets/T-0041-image-provider-crash.md) Image-provider Qt6Core crash investigation (P0) | tw-spike | `t/T-0041-image-provider-crash` · `D:\dev\Tinwave-worktrees\T-0041-image-provider-crash` |
+| [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-reviewer r1 — in review (660dcf0) | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -54,8 +56,6 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo (E-01) | T-0024 |
-| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | — (dispatching) |
-| [T-0041](tickets/T-0041-image-provider-crash.md) Image-provider Qt6Core crash investigation (P0) | — (dispatching) |
 | [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | T-0040 |
 | [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes (accentFill, contrast) | — (ready to groom) |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | T-0040 |

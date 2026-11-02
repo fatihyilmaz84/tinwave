@@ -3,14 +3,14 @@ id: T-0041
 title: Investigate the intermittent Qt6Core access violation near the async image provider (T-0002)
 type: bug
 epic: E-01
-status: backlog
+status: in_progress
 priority: P0
 size: S
 depends_on: []
 scope:
   - spikes/T-0002-cxx-qt/
-owner:
-branch:
+owner: tw-spike
+branch: t/T-0041-image-provider-crash
 review_round: 0
 created_by: from T-0002 (risk)
 ---
