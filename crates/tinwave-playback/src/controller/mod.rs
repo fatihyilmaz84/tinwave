@@ -27,8 +27,8 @@
 //! | `PlaybackEvent` | Signal |
 //! |---|---|
 //! | `TrackStarted` | `PreviousPressed` for a [`LoadIntent::Previous`] load (opening a session if none); otherwise nothing yet: the track's `PlayStarted` waits for its first audio (see `PositionMark`) |
-//! | `PositionMark` | the first one for the current track: `PlayStarted` (origin, input; `Advance` is `Auto` with the origin derived from the entry's [`QueueOrigin`](tinwave_signals::QueueOrigin); position = where the play began), opening a session if none; later ones: none |
-//! | `TrackLeft { Finished }` | `Completed { listened, paused }` (preceded by `PlayStarted` if no mark had been heard yet: it played to its end) |
+//! | `PositionMark` | the first one that names the current track: `PlayStarted` (origin, input; `Advance` is `Auto` with the origin derived from the entry's [`QueueOrigin`](tinwave_signals::QueueOrigin); position = where the play began), opening a session if none; later ones: none |
+//! | `TrackLeft { Finished }` | `Completed { listened, paused }` (preceded by `PlayStarted` if no mark had named the track yet, provided it advanced past where its stream began: it played to its end; an empty or undecodable file did not) |
 //! | `TrackLeft { Replaced }` | `Skipped`, or `Completed` when the track was left with at most 3 % to go; nothing if its audio was never heard |
 //! | `TrackLeft { Stopped }` | `Completed` when left with at most 3 % to go, otherwise nothing: stopping is not a preference; nothing if its audio was never heard |
 //! | `TrackLeft { Failed }` | **nothing**: a track that could not be played to its end is neither completed nor skipped |
@@ -39,6 +39,9 @@
 //! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one |
 //! | `QueueEnded` | none (silence starts) |
 //! | `Underrun`, `CorruptPackets`, `TrackFailed`, `SeekFailed`, `OutputLost` | none; logged at `warn` |
+//!
+//! `Paused`, `Resumed`, `Seeked` and `VolumeChanged` with a listener's input, on a play that has not
+//! been heard yet while no session is open, open the session first (see "Sessions").
 //!
 //! Plus [`Controller::set_repeat_mode`] -> `RepeatModeChanged`, and the session pair
 //! `SessionStarted` / `SessionEnded` (catalog section 8).
@@ -54,14 +57,16 @@
 //!   `ms_since_section_start` is 0 until audio analysis (`tinwave-analysis`) can name sections.
 //!   Consumers must check `section` before reading the elapsed time.
 //! - **`PlayStarted` means the listener heard the track.** It is emitted with the first position
-//!   mark of the track (100 ms of heard audio, counted from when the output plays it, never while
-//!   paused), stamped with that moment, and carries the position the play began at. A track that
-//!   fails to open or decode, or is replaced or stopped before that first mark, leaves no
-//!   `PlayStarted`, and no `Skipped` / `Completed` either: an outcome only ever follows its start.
-//!   A track that plays to its end before any mark (shorter than 100 ms, or a seek to its very
-//!   end) is heard: `PlayStarted` then `Completed` at the end. Signals about the play that the
-//!   listener makes in its first 100 ms (a pause, a seek, a volume change) can precede its
-//!   `PlayStarted`.
+//!   mark that names the track (the engine makes one per 100 ms of heard audio, never while
+//!   paused; the first one of a gaplessly advanced track can come sooner than 100 ms in, because
+//!   the engine's mark grid does not restart at a gapless hand-off), stamped with that moment, and
+//!   carries the position the play began at. A track that fails to open or decode, or is replaced
+//!   or stopped before that first mark, leaves no `PlayStarted`, and no `Skipped` / `Completed`
+//!   either: an outcome only ever follows its start. A track that plays to its end before any
+//!   mark (shorter than 100 ms) is heard: `PlayStarted` then `Completed` at the end. "Plays to its
+//!   end" needs audio: leaving at the frame its stream began at (a file with no audio, every
+//!   packet undecodable, a seek to the very end) is not a play. Signals about the play that the
+//!   listener makes before its `PlayStarted` (a pause, a seek, a volume change) can precede it.
 //! - **Every `TrackStarted` has one `TrackLeft`** (engine contract), so every play the controller
 //!   opens it closes; gestures are flushed on both, so a seek or volume gesture never spans a
 //!   track change. A seek to exactly the end is `Seeked` then `TrackLeft { Finished }`, hence
@@ -69,8 +74,12 @@
 //! - **Position** (`pos_ds`) is the engine's audio position, never a clock. **Listening time**
 //!   (`listened`, `paused`) is wall time between the engine's event timestamps minus the pauses
 //!   in between, so it is accurate to one poll (100 ms) and ignores playback rate.
-//! - **Sessions** start with the first *heard* play after 30 minutes of silence (a session is
-//!   never made of failed tracks alone; `SessionEnded.tracks` counts heard plays) and end after 30 minutes
+//! - **Sessions** start with the first *heard* play after 30 minutes of silence (`SessionEnded.tracks`
+//!   counts heard plays) or, if the listener acts first, with that act: pressing "previous", or a
+//!   pause, resume, seek or volume change (with a listener's input, not `Auto`) on a play that has not
+//!   been heard yet, such as a track restored paused at launch. Such a session carries the play's
+//!   origin and can end with `tracks = 0` if the track then fails to open. A track that fails to
+//!   open with no listener act opens none. Sessions end after 30 minutes
 //!   of silence, measured on the injected clock: silence is the absence of audible playback
 //!   (paused, stopped, queue ended). A play that outlives its session (paused for over 30
 //!   minutes) is still scored when the listener finally leaves it: that action is the first
@@ -117,8 +126,8 @@ use mapper::{Cx, Mapper};
 pub use runtime::ControllerHandle;
 pub use sink::{BoundedSink, SinkStats, CRITICAL_CAPACITY, MARK_CAPACITY};
 pub use types::{
-    ControllerConfig, FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus,
-    QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
+    ControllerConfig, ControllerDiagnostics, FixedTimezone, LoadIntent, LoadRequest, PlayState,
+    PlaybackStatus, QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
 };
 
 /// The synchronous controller. See the module docs.
@@ -329,6 +338,16 @@ impl Controller {
     #[must_use]
     pub fn command_pending(&self) -> bool {
         self.engine.command_pending()
+    }
+
+    /// Position, pending command and sink losses in one snapshot.
+    #[must_use]
+    pub fn diagnostics(&self) -> ControllerDiagnostics {
+        ControllerDiagnostics {
+            position: self.position(),
+            command_pending: self.command_pending(),
+            sink: self.sink_stats(),
+        }
     }
 
     /// The software volume target.

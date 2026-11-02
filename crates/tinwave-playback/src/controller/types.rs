@@ -6,7 +6,8 @@ use std::time::Duration;
 use tinwave_core::{Clock, IdGenerator, RecordingId, SessionId, SourceId, TzOffsetMin};
 use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus};
 
-use crate::{SourceOpener, Track};
+use super::sink::SinkStats;
+use crate::{Position, SourceOpener, Track};
 
 /// A queue entry as the controller needs to know it: the file to play plus the identity and
 /// facts every signal about it carries.
@@ -94,6 +95,19 @@ impl PlaybackStatus {
     pub fn is_live(&self) -> bool {
         self.session.is_some() && self.state != PlayState::Idle
     }
+}
+
+/// What the engine side looks like right now: for the Diagnostics screen and for failure
+/// messages that must say why nothing happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControllerDiagnostics {
+    /// Where playback is (see [`Engine::position`](crate::Engine::position)).
+    pub position: Option<Position>,
+    /// The decoder thread has yet to carry out the last `load`, `seek`, `stop` or
+    /// `switch_device` (see [`Engine::command_pending`](crate::Engine::command_pending)).
+    pub command_pending: bool,
+    /// Events the engine's sink had to coalesce or lose.
+    pub sink: SinkStats,
 }
 
 /// The local timezone, which the controller needs once per listening session.

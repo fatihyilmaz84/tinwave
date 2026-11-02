@@ -962,20 +962,26 @@ fn a_track_that_ends_before_its_first_position_mark_was_still_heard() {
 }
 
 #[test]
-fn a_play_paused_before_it_is_heard_starts_when_it_is() {
+fn a_play_paused_before_it_is_heard_starts_a_session_with_the_pause() {
     let mut rig = Rig::new("sig-paused-unheard");
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.ctl.pause(InputSource::Mouse);
+    assert!(rig.signals().is_empty(), "nothing yet");
+    rig.ctl.pause(InputSource::Keyboard);
     rig.clock.advance(5_000);
-    rig.ctl.resume(InputSource::Mouse);
-    assert!(rig.signals().is_empty(), "nothing was heard");
+    rig.ctl.resume(InputSource::MediaKey);
     rig.hear();
     let signals = rig.signals();
     assert_eq!(
         kinds(&signals),
-        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+        [
+            SignalKind::SessionStarted,
+            SignalKind::Paused,
+            SignalKind::Resumed,
+            SignalKind::PlayStarted
+        ],
+        "the listener's pause and resume are recorded, in the session they began"
     );
     let SignalPayload::SessionStarted(p) = signals[0].payload else {
         panic!("kind");
@@ -983,8 +989,152 @@ fn a_play_paused_before_it_is_heard_starts_when_it_is() {
     assert_eq!(
         p.start_origin,
         PlayOrigin::Album,
-        "the session began with the choice, not with the resume"
+        "the origin of the play, not of the resume"
     );
+    let SignalPayload::Paused(paused) = signals[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(paused.input, InputSource::Keyboard);
+    let SignalPayload::Resumed(resumed) = signals[2].payload else {
+        panic!("kind");
+    };
+    assert_eq!(
+        (resumed.input, resumed.pause_ds),
+        (InputSource::MediaKey, ds(5_000))
+    );
+}
+
+#[test]
+fn a_track_restored_paused_then_sought_and_resumed_records_what_the_listener_did() {
+    let mut rig = Rig::new("sig-restored-paused");
+    let a = rig.wav("a.wav", 20 * SECOND);
+    let e = rig.entry(1, &a, 20 * SECOND);
+    // The shell restores the last track paused: its own commands are `Auto`, not the listener's.
+    rig.ctl.pause(InputSource::Auto);
+    rig.select(vec![e], 0, PlayOrigin::Resume, InputSource::Auto);
+    assert!(
+        rig.signals().is_empty(),
+        "restoring is not the listener's act"
+    );
+
+    rig.ctl.seek_ms(5_000, InputSource::Mouse).expect("seek");
+    rig.ctl.resume(InputSource::MediaKey);
+    rig.clock.advance(2_000);
+    rig.ctl.poll();
+    rig.hear();
+
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::Resumed,
+            SignalKind::SeekForward,
+            SignalKind::PlayStarted
+        ]
+    );
+    let SignalPayload::SessionStarted(p) = signals[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.start_origin, PlayOrigin::Resume);
+    let SignalPayload::Resumed(resumed) = signals[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(resumed.input, InputSource::MediaKey);
+    let SignalPayload::SeekForward(seek) = signals[2].payload else {
+        panic!("kind");
+    };
+    assert_eq!(
+        (seek.from_ds, seek.to_ds, seek.input),
+        (ds(0), ds(5_000), InputSource::Mouse)
+    );
+}
+
+#[test]
+fn a_volume_change_on_a_play_not_yet_heard_is_recorded() {
+    let mut rig = Rig::new("sig-volume-unheard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Search, InputSource::Mouse);
+    rig.ctl
+        .set_volume(0.5, InputSource::Keyboard)
+        .expect("volume");
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [SignalKind::SessionStarted, SignalKind::VolumeChanged]
+    );
+}
+
+#[test]
+fn a_file_that_opens_but_has_no_audio_is_not_a_play() {
+    let mut rig = Rig::new("sig-empty-file");
+    let empty = rig.wav("empty.wav", 0);
+    let a = rig.wav("a.wav", SECOND);
+    let entries = vec![
+        entry(1, &empty, SECOND, QueueOrigin::Manual),
+        entry(2, &a, SECOND, QueueOrigin::Manual),
+    ];
+    rig.select(entries.clone(), 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.run_until("the empty track was left", |r| {
+        r.ctl.status().recording == Some(recording(2))
+    });
+    assert!(
+        rig.signals().is_empty(),
+        "no session, play or outcome for a track that decoded nothing: {:?}",
+        kinds(&rig.signals())
+    );
+    rig.play_to_end();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::PlayStarted,
+            SignalKind::Completed
+        ],
+        "only the track that played"
+    );
+}
+
+#[test]
+fn a_seek_to_the_very_end_before_any_audio_is_not_a_play() {
+    let mut rig = Rig::new("sig-seek-end-unheard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.ctl.pause(InputSource::Auto);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Auto);
+    rig.ctl.seek_ms(10_000, InputSource::Auto).expect("seek");
+    rig.ctl.resume(InputSource::Auto);
+    rig.settle();
+    rig.run_until("the queue ended", |r| r.ctl.status().recording.is_none());
+    assert!(rig.signals().is_empty(), "{:?}", kinds(&rig.signals()));
+}
+
+#[test]
+fn previous_to_a_track_that_fails_still_records_the_press_and_its_session() {
+    let mut rig = Rig::new("sig-previous-fails");
+    let missing = rig.dir.path("missing.wav");
+    let entries = vec![entry(1, &missing, SECOND, QueueOrigin::Album)];
+    rig.load_with(entries, 0, LoadIntent::Previous, InputSource::Keyboard)
+        .expect("previous");
+    rig.run_until("the failed track is closed", |r| {
+        r.ctl.status().recording.is_none()
+    });
+    let signals = rig.shutdown();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::PreviousPressed,
+            SignalKind::SessionEnded
+        ],
+        "the listener's act is recorded; the track was never a play"
+    );
+    let SignalPayload::SessionEnded(p) = signals[2].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.tracks, 0);
 }
 
 #[test]
