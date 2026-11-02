@@ -28,6 +28,8 @@ cxx-qt = "0.10"
 cxx-qt-build = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_gui", "qt_qml", "qt_quickcontrols"] }
 getrandom = "0.4"
+# Dev-only (storage_growth speed check): per-thread CPU time, a safe API (the workspace forbids unsafe). MIT/Apache-2.0.
+cpu-time = "1.0"
 # Dev-only (benchmarks). No plotting, rayon or HTML report: smaller dependency tree.
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 proptest = { version = "1", default-features = false, features = ["std"] }

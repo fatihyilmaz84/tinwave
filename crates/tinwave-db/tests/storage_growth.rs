@@ -5,8 +5,9 @@
 //! Default run (fast): the P-0010 burst assertion and a 3-day determinism run.
 //!
 //! The 90-day run takes about 15 s (the writer's commits, not the generator, are the cost; a debug
-//! build is as fast because SQLite is compiled optimized), so it is in the default run. Its report
-//! is printed with `--nocapture`:
+//! build is as fast because SQLite is compiled optimized), so it is in the default run. The speed
+//! check is on the writer thread's CPU time, not the wall clock, so a busy machine cannot fail it.
+//! Its report is printed with `--nocapture`:
 //!
 //! ```text
 //! cargo test -p tinwave-db --release --test storage_growth -- --nocapture
@@ -25,10 +26,11 @@
 mod common;
 mod growth;
 
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use common::{Ids, TempDb};
+use cpu_time::{ProcessTime, ThreadTime};
 use growth::{measure, run, GrowthConfig};
 use rusqlite::Connection;
 use tinwave_db::{SignalStore, SignalWriter, WriterConfig};
@@ -220,11 +222,11 @@ fn assert_identical(a: &growth::Run, b: &growth::Run) {
 #[test]
 fn the_same_seed_gives_the_same_sizes() {
     let cfg = GrowthConfig::reference(3);
-    let a = run(cfg, &mut |_| {});
-    let b = run(cfg, &mut |_| {});
+    let a = run_alone(cfg);
+    let b = run_alone(cfg);
     assert_identical(&a, &b);
     // A different seed is different data.
-    let other = run(GrowthConfig { seed: 7, ..cfg }, &mut |_| {});
+    let other = run_alone(GrowthConfig { seed: 7, ..cfg });
     assert_ne!(measure(&other).file_bytes, measure(&a).file_bytes);
 
     // And the run was clean: nothing dropped, nothing failed.
@@ -243,14 +245,11 @@ fn the_same_seed_gives_the_same_sizes() {
 #[test]
 fn the_rows_are_the_same_when_the_producer_is_preempted_after_a_pause() {
     let cfg = GrowthConfig::reference(5);
-    let calm = run(cfg, &mut |_| {});
-    let preempted = run(
-        GrowthConfig {
-            preempt_after_pause: true,
-            ..cfg
-        },
-        &mut |_| {},
-    );
+    let calm = run_alone(cfg);
+    let preempted = run_alone(GrowthConfig {
+        preempt_after_pause: true,
+        ..cfg
+    });
     // The test would prove nothing without pauses in the run.
     let (events, _) = stored_rows(&calm.db);
     let pauses = events
@@ -265,30 +264,86 @@ fn assert_no_violations(violations: &[String]) {
     assert!(violations.is_empty(), "\n{}", violations.join("\n"));
 }
 
+/// Simulations running one at a time: the speed check reads the process's CPU time, which counts
+/// every thread of the test binary, so no other simulation may overlap the 90-day run. (Under
+/// `cargo nextest` every test is its own process and the lock is free; under `cargo test` the
+/// small runs just queue behind it.)
+static SIMULATION: Mutex<()> = Mutex::new(());
+
+/// `run` with nothing else simulating in this process.
+fn run_alone(cfg: GrowthConfig) -> growth::Run {
+    let _alone = SIMULATION.lock().unwrap_or_else(PoisonError::into_inner);
+    run(cfg, &mut |_| {})
+}
+
+/// The 90-day run, its report and what the writer cost in CPU time.
+struct NinetyDays {
+    run: growth::Run,
+    report: growth::Report,
+    /// CPU time the writer thread (batching, SQL, SQLite) spent during the run. See
+    /// [`writer_cpu`].
+    writer_cpu: Duration,
+}
+
+/// CPU time the writer thread spent while `body` ran on this thread.
+///
+/// The speed check exists to catch a slowdown of the writer path, and the wall clock cannot: it
+/// stretches 2-3x when other processes (a parallel test run) compete for the cores. CPU time does
+/// not. The process total counts every thread of the test binary; the generator thread (this one)
+/// is read separately, and its share includes the time it spins waiting for the writer at the
+/// barriers, which does grow under load, so it is subtracted and not asserted. What is left is
+/// the writer thread, the only other thread running while `SIMULATION` is held.
+fn writer_cpu<T>(body: impl FnOnce() -> T) -> (T, Duration) {
+    let (process_start, thread_start) = (ProcessTime::now(), ThreadTime::now());
+    let result = body();
+    let (process, generator) = (process_start.elapsed(), thread_start.elapsed());
+    (result, process.saturating_sub(generator))
+}
+
+/// The writer's CPU time for the 90-day run is about 6 s (debug build, the same under load: 6.0
+/// to 6.5 s while the wall clock went from 16 s to 59 s). 15 s is 2.4x that: room for another
+/// machine, a slowdown of 3x or more fails.
+const WRITER_CPU_BUDGET: Duration = Duration::from_secs(15);
+
 /// The 90-day run, shared by the tests below (one run, one report).
-fn ninety_days() -> &'static (growth::Run, growth::Report) {
-    static RUN: OnceLock<(growth::Run, growth::Report)> = OnceLock::new();
+fn ninety_days() -> &'static NinetyDays {
+    static RUN: OnceLock<NinetyDays> = OnceLock::new();
     RUN.get_or_init(|| {
-        let r = run(GrowthConfig::reference(90), &mut |_| {});
-        let report = measure(&r);
-        println!("{}", report.render(&r));
-        (r, report)
+        let _alone = SIMULATION.lock().unwrap_or_else(PoisonError::into_inner);
+        let (run, writer_cpu) = writer_cpu(|| run(GrowthConfig::reference(90), &mut |_| {}));
+        let report = measure(&run);
+        println!("{}", report.render(&run));
+        println!(
+            "speed: writer thread {:.1} s of CPU time (budget {:.0} s); {:.1} s of wall clock, not asserted (it grows with the machine's load)",
+            writer_cpu.as_secs_f64(),
+            WRITER_CPU_BUDGET.as_secs_f64(),
+            run.elapsed.as_secs_f64()
+        );
+        NinetyDays {
+            run,
+            report,
+            writer_cpu,
+        }
     })
 }
 
 /// 90 simulated days of the reference heavy user: nothing may be lost on the way, the hot
-/// window must fit 6 MB, the 5-year extrapolation must fit 60 MB, and the run must be fast.
+/// window must fit 6 MB, the 5-year extrapolation must fit 60 MB, and the writer must stay
+/// within its CPU budget.
 #[test]
 fn ninety_days_of_a_heavy_listener_fit_the_hot_window_and_the_five_year_budget() {
-    let (r, report) = ninety_days();
+    let NinetyDays {
+        run: r,
+        report,
+        writer_cpu,
+    } = ninety_days();
     assert_eq!((r.dropped, r.reserved_overflows, r.keys_dropped), (0, 0, 0));
     assert_eq!((r.writer.failed_commits, r.writer.events_lost), (0, 0));
     let violations = report.budget_violations();
     assert_no_violations(&violations);
     assert!(
-        r.elapsed < Duration::from_secs(60),
-        "took {:?}, budget 60 s",
-        r.elapsed
+        *writer_cpu < WRITER_CPU_BUDGET,
+        "the writer used {writer_cpu:?} of CPU time, budget {WRITER_CPU_BUDGET:?}"
     );
 }
 
@@ -297,7 +352,7 @@ fn ninety_days_of_a_heavy_listener_fit_the_hot_window_and_the_five_year_budget()
 /// the catalog's rates.
 #[test]
 fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
-    let (_, report) = ninety_days();
+    let NinetyDays { report, .. } = ninety_days();
     let violations = report.catalog_violations();
     assert_no_violations(&violations);
 }
@@ -306,7 +361,7 @@ fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
 /// hash with its UNIQUE index and the key included): rate within 25%, bytes/day within +50%.
 #[test]
 fn ninety_days_context_snapshots_match_the_catalog_estimate() {
-    let (_, report) = ninety_days();
+    let NinetyDays { report, .. } = ninety_days();
     let violations = report.context_violations();
     assert_no_violations(&violations);
 }
