@@ -3,7 +3,7 @@ id: T-0031
 title: Engine boundary follow-ups — resume at a track's exact end, positions with no current track, open-wait doc
 type: bug
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: S
 depends_on: []
@@ -16,7 +16,7 @@ scope:
   - crates/tinwave-playback/tests/
 owner: tw-builder (round 1, same builder as T-0016/T-0017)
 branch: t/T-0031-engine-boundary-followups
-review_round: 0
+review_round: 1
 created_by: lead, from T-0017 review-2 non-blocking 1–3
 ---
 

@@ -22,14 +22,15 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0031](tickets/T-0031-engine-boundary-followups.md) Engine boundary follow-ups (P0) | tw-builder r1 | `t/T-0031-engine-boundary-followups` · `D:\dev\Tinwave-worktrees\T-0031-engine-boundary-followups` |
 | [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | tw-builder r1 | `t/T-0021-persist-signal-settings` · `D:\dev\Tinwave-worktrees\T-0021-persist-signal-settings` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Build report |
+|---|---|---|
+| [T-0031](tickets/T-0031-engine-boundary-followups.md) Engine boundary follow-ups (P0) | tw-reviewer r1 | [build-1](reports/T-0031/build-1.md) · a16046f |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
