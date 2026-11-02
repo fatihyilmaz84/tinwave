@@ -3,7 +3,7 @@ id: T-0031
 title: Engine boundary follow-ups — resume at a track's exact end, positions with no current track, open-wait doc
 type: bug
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -41,3 +41,6 @@ track must never be labelled Failed, and every event position must name an annou
 
 ## Signals & storage
 None (protects T-0024's Completed/Skipped mapping).
+
+## Merged
+2026-11-02, merge commit 0bf81c2 (branch head a16046f). Review: review-1 (APPROVE). Gates green on main.

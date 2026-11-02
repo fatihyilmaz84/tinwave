@@ -32,6 +32,9 @@ signals are built outside the engine.
   `DeviceSecret` in the OS keychain (Windows Credential Manager first), generated via `&mut impl CryptoRng`.
 - `PlaybackContextSource::current()` returns `Some` for the whole live session, **including while paused** (lead
   decision on the T-0014 review), so a headphone switch while paused still becomes `OutputDeviceChanged`.
+- From the T-0031 review: flush the seek gesture (`GestureCoalescer::flush_all`) on TrackLeft/TrackStarted so a seek on
+  A never merges with one on B or lands after A's Completed; a seek to exactly the end is `Seeked` then
+  `TrackLeft{Finished}` ⇒ SeekForward + Completed; event positions are None when no track is current.
 - Engine contract after T-0028: `seek` with no current track is rejected and emits nothing; exactly one
   `TrackLeft` per `TrackStarted`; a stalled first read is buffering, not an Underrun.
 

@@ -3,7 +3,7 @@ id: T-0021
 title: Persist Signal Center toggles (SignalSettings) across restarts
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: []          # T-0006, T-0007 done
@@ -14,7 +14,7 @@ scope:
   - crates/tinwave-db/
 owner: tw-builder (round 1, same builder as T-0006/T-0007)
 branch: t/T-0021-persist-signal-settings
-review_round: 0
+review_round: 1
 created_by: from P-0031
 ---
 
