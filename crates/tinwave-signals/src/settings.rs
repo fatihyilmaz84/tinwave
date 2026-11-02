@@ -9,27 +9,31 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use serde::{Deserialize, Serialize};
 use tinwave_core::Tier;
 
-use crate::SignalKind;
+use crate::{SignalKind, SignalsError};
 
 /// A Signal Center toggle: one per catalog section that holds signals.
 ///
 /// The catalog groups its signals into these sections; section 7 (context) is not a signal.
+///
+/// The discriminant is the category's bit in [`SignalSettings::mask`], which is stored in
+/// `signals.db` (`signal_settings.mask`): like a `SignalKind` discriminant it is **stable and
+/// never reused**. A new category takes the next number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SignalCategory {
     /// Catalog section 1: volume, system volume, mute.
-    Volume,
+    Volume = 0,
     /// Catalog section 2: playback rate.
-    Speed,
+    Speed = 1,
     /// Catalog section 3: seek, skip, replay, pause, repeat.
-    SeekSkipReplay,
+    SeekSkipReplay = 2,
     /// Catalog section 4: queue, favorites, ratings, playlists, edits, search.
-    QueueLibrary,
+    QueueLibrary = 3,
     /// Catalog section 5: dwell, hover, impressions, views, window state.
-    Browsing,
+    Browsing = 4,
     /// Catalog section 6: output device, EQ, exclusive mode, crossfade.
-    OutputSound,
+    OutputSound = 5,
     /// Catalog section 8: sessions, radio feedback, explanations.
-    Session,
+    Session = 6,
 }
 
 impl SignalCategory {
@@ -118,6 +122,13 @@ const fn all_categories() -> u32 {
     mask
 }
 
+/// Every bit a stored mask may have: the categories and the four tiers.
+const KNOWN_BITS: u32 = all_categories()
+    | tier_bit(Tier::T0)
+    | tier_bit(Tier::T1)
+    | tier_bit(Tier::T2)
+    | tier_bit(Tier::T3);
+
 /// Which categories and tiers are collected. Shared by every producer; flipping a toggle takes
 /// effect on the next `enabled` call from any thread.
 ///
@@ -136,6 +147,32 @@ impl SignalSettings {
         Self {
             mask: AtomicU32::new(all_categories() | tier_bit(Tier::T0) | tier_bit(Tier::T1)),
         }
+    }
+
+    /// Settings restored from a stored [`mask`](Self::mask).
+    ///
+    /// # Errors
+    /// [`SignalsError::InvalidValue`] if the mask has a bit that is neither a category nor a tier
+    /// (a corrupt or newer-than-this-build value): the caller decides what to do, it is not
+    /// silently trimmed.
+    pub fn from_mask(mask: u32) -> Result<Self, SignalsError> {
+        if mask & !KNOWN_BITS != 0 {
+            return Err(SignalsError::InvalidValue {
+                what: "SignalSettings mask",
+                value: mask,
+            });
+        }
+        Ok(Self {
+            mask: AtomicU32::new(mask),
+        })
+    }
+
+    /// The toggles as one word, for storage: bit `n` of `0..7` is the category with discriminant
+    /// `n`, bit `8 + t` is tier `T<t>`. Defaults are `0x37F`. The layout is persisted
+    /// (`signal_settings.mask`) and never changes; see [`SignalCategory`].
+    #[must_use]
+    pub fn mask(&self) -> u32 {
+        self.mask.load(Ordering::Relaxed)
     }
 
     /// Everything off. The state of a user who disabled collection entirely.
@@ -195,6 +232,54 @@ impl Default for SignalSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stored_mask_layout_is_frozen() {
+        // These numbers are in users' databases (`signal_settings.mask`).
+        let expected = [
+            (SignalCategory::Volume, 0),
+            (SignalCategory::Speed, 1),
+            (SignalCategory::SeekSkipReplay, 2),
+            (SignalCategory::QueueLibrary, 3),
+            (SignalCategory::Browsing, 4),
+            (SignalCategory::OutputSound, 5),
+            (SignalCategory::Session, 6),
+        ];
+        for (category, bit) in expected {
+            let s = SignalSettings::all_off();
+            s.set_category(category, true);
+            assert_eq!(s.mask(), 1 << bit, "{category:?}");
+        }
+        for tier in Tier::ALL {
+            let s = SignalSettings::all_off();
+            s.set_tier(tier, true);
+            assert_eq!(s.mask(), 1 << (8 + u32::from(tier.number())), "{tier:?}");
+        }
+        assert_eq!(SignalSettings::new().mask(), 0x37F, "the defaults");
+    }
+
+    #[test]
+    fn a_mask_round_trips_and_unknown_bits_are_refused() {
+        let s = SignalSettings::new();
+        s.set_category(SignalCategory::Browsing, false);
+        s.set_tier(Tier::T2, true);
+        let back = SignalSettings::from_mask(s.mask()).unwrap();
+        assert_eq!(back.mask(), s.mask());
+        for &kind in SignalKind::ALL {
+            assert_eq!(back.enabled(kind), s.enabled(kind), "{kind}");
+        }
+        for bad in [1 << 7, 1 << 12, 1 << 31, u32::MAX] {
+            assert_eq!(
+                SignalSettings::from_mask(bad).unwrap_err(),
+                SignalsError::InvalidValue {
+                    what: "SignalSettings mask",
+                    value: bad
+                }
+            );
+        }
+        assert_eq!(SignalSettings::from_mask(0).unwrap().mask(), 0);
+        assert_eq!(SignalSettings::from_mask(0xF7F).unwrap().mask(), 0xF7F);
+    }
 
     #[test]
     fn defaults_follow_the_privacy_rules() {
