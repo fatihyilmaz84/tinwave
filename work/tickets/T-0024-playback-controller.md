@@ -9,6 +9,7 @@ size: M
 depends_on: [T-0006, T-0030]   # T-0016 done
 scope:
   - crates/tinwave-playback/src/controller/   # or a small crate named in grooming
+  - crates/tinwave-playback/src/event.rs     # StreamInfo in OutputReopened (P-0082)
 owner:
 branch:
 review_round: 0
@@ -24,6 +25,7 @@ signals are built outside the engine.
 
 ## Scope
 - A controller thread owning poll() cadence and the event → signal mapping (with input source and position).
+- Surface `StreamInfo` (mode, format, latency, exclusive fallback reason) in `OutputReopened` (P-0082).
 - A bounded `EventSink` with a reserved slot for playback-critical events (P-0042), per rust.md Concurrency.
 - Emission tests for every mapped signal kind (testing.md "Signals must be tested").
 - Implements `PlaybackContextSource` for tinwave-context's audio providers (P-0062) and loads/stores the
