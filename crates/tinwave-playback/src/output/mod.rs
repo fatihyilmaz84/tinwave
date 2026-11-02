@@ -18,6 +18,7 @@ mod follow;
 mod info;
 mod plan;
 mod pump;
+mod stream_thread;
 #[cfg(windows)]
 mod windows;
 
@@ -27,6 +28,7 @@ pub use follow::{DeviceEvent, DeviceFollower, DeviceStateChange, FollowTarget};
 pub use info::{StreamInfo, StreamMode};
 pub use plan::{plan_exclusive, resolve_mode, ModeOutcome, EXCLUSIVE_CANDIDATES};
 pub use pump::{DeviceLost, Pump, PumpStep, RenderDevice};
+pub use stream_thread::{run_render_thread, DeviceSetup, OpenState};
 #[cfg(windows)]
 pub use windows::{WasapiControl, WasapiOutput};
 

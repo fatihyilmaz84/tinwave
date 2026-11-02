@@ -37,10 +37,10 @@ pub use engine::{Engine, EngineConfig};
 pub use error::PlaybackError;
 pub use event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
 pub use output::{
-    convert_into, plan_exclusive, resolve_mode, AudioOutput, CpalControl, CpalOutput, DeviceEvent,
-    DeviceFollower, DeviceLost, DeviceStateChange, FollowTarget, ManualHandle, ManualOutput,
-    ModeOutcome, OpenRequest, OutputStream, Pump, PumpStep, RenderDevice, SampleFormat, StreamInfo,
-    StreamMode, EXCLUSIVE_CANDIDATES,
+    convert_into, plan_exclusive, resolve_mode, run_render_thread, AudioOutput, CpalControl,
+    CpalOutput, DeviceEvent, DeviceFollower, DeviceLost, DeviceSetup, DeviceStateChange,
+    FollowTarget, ManualHandle, ManualOutput, ModeOutcome, OpenRequest, OpenState, OutputStream,
+    Pump, PumpStep, RenderDevice, SampleFormat, StreamInfo, StreamMode, EXCLUSIVE_CANDIDATES,
 };
 #[cfg(windows)]
 pub use output::{WasapiControl, WasapiOutput};

@@ -7,6 +7,8 @@
 //! the call must pass `tinwave_context::EVENT_CONTEXT_GUID`.
 #![allow(unsafe_code)]
 
+use std::marker::PhantomData;
+
 use ::windows::core::w;
 use ::windows::Win32::Foundation::HANDLE;
 use ::windows::Win32::Media::Audio::IAudioClient;
@@ -15,9 +17,9 @@ use ::windows::Win32::System::Threading::{
 };
 
 /// The calling thread is registered with MMCSS as a "Pro Audio" task; dropping reverts it.
-/// Must be dropped on the thread that created it.
+/// Must be dropped on the thread that created it, which the type enforces: it is `!Send`.
 #[derive(Debug)]
-pub(super) struct MmcssGuard(HANDLE);
+pub(super) struct MmcssGuard(HANDLE, PhantomData<*const ()>);
 
 impl MmcssGuard {
     /// Register the calling thread. The error text is for the stream's `fallback` note: the
@@ -28,7 +30,7 @@ impl MmcssGuard {
         // `task_index` is a live, writable `u32` for the duration of the call.
         let result = unsafe { AvSetMmThreadCharacteristicsW(w!("Pro Audio"), &mut task_index) };
         result
-            .map(Self)
+            .map(|handle| Self(handle, PhantomData))
             .map_err(|e| format!("MMCSS Pro Audio refused: {e}"))
     }
 }

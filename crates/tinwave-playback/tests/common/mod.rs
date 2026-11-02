@@ -540,6 +540,10 @@ impl RenderDevice for FakeDevice {
     fn is_alive(&mut self) -> bool {
         true
     }
+    fn start(&mut self) -> Result<(), DeviceLost> {
+        Ok(())
+    }
+    fn stop(&mut self) {}
 }
 
 struct Rig {

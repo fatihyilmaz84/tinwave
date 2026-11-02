@@ -39,6 +39,15 @@ pub trait RenderDevice {
     /// [`DeviceLost`] when the write failed.
     fn write(&mut self, frames: usize, bytes: &[u8]) -> Result<(), DeviceLost>;
 
+    /// Start the device after the first buffer was written.
+    ///
+    /// # Errors
+    /// [`DeviceLost`] when the device would not start.
+    fn start(&mut self) -> Result<(), DeviceLost>;
+
+    /// Stop the device. Best effort: the stream is ending anyway.
+    fn stop(&mut self);
+
     /// Asked after a wait timed out: is the device still there? (A removed device stops
     /// signalling its event, so a timeout is the only symptom.)
     fn is_alive(&mut self) -> bool;

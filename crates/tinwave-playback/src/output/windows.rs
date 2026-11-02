@@ -39,7 +39,8 @@ use super::convert::SampleFormat;
 use super::follow::{DeviceEvent, DeviceFollower, DeviceStateChange, FollowTarget};
 use super::info::{StreamInfo, StreamMode};
 use super::plan::{plan_exclusive, resolve_mode};
-use super::pump::{DeviceLost, Pump, PumpStep, RenderDevice};
+use super::pump::{DeviceLost, RenderDevice};
+use super::stream_thread::{run_render_thread, DeviceSetup, OpenState};
 use super::{AudioOutput, OpenRequest, OutputStream};
 use crate::types::CHANNELS;
 use crate::{PlaybackError, Renderer};
@@ -87,6 +88,13 @@ impl WasapiControl {
 }
 
 /// The WASAPI [`AudioOutput`].
+///
+/// # Dropping a stream waits for its thread
+/// The `OutputStream` contract says the callback has finished when `drop` returns, so dropping
+/// the stream (which `Engine::switch_device`, `Engine::shutdown` and dropping the `Engine` do)
+/// **joins the render thread**. The thread leaves its loop within one device period, so this is
+/// quick unless a driver hangs inside `GetBuffer` / `ReleaseBuffer`; then the drop, and with it the
+/// engine's, is delayed until the driver returns. That is the price of the guarantee.
 #[derive(Debug)]
 pub struct WasapiOutput {
     control: WasapiControl,
@@ -112,6 +120,7 @@ struct ThreadSpec {
     exclusive: bool,
     stop: Arc<AtomicBool>,
     lost: Arc<AtomicBool>,
+    state: Arc<OpenState>,
 }
 
 struct Stream {
@@ -160,19 +169,37 @@ impl AudioOutput for WasapiOutput {
     ) -> Result<Box<dyn OutputStream>, PlaybackError> {
         let stop = Arc::new(AtomicBool::new(false));
         let lost = Arc::new(AtomicBool::new(false));
+        let state = Arc::new(OpenState::new());
         let spec = ThreadSpec {
             device: request.device.map(str::to_owned),
             rate: request.sample_rate,
             exclusive: self.control.exclusive(),
             stop: Arc::clone(&stop),
             lost: Arc::clone(&lost),
+            state: Arc::clone(&state),
         };
         let (opened_tx, opened_rx) = sync_channel::<Result<StreamInfo, String>>(1);
         let thread = std::thread::Builder::new()
             .name("tinwave-wasapi".into())
             .spawn(move || render_thread(&spec, renderer, &opened_tx))
             .map_err(|e| PlaybackError::Output(format!("cannot start the WASAPI thread: {e}")))?;
-        match opened_rx.recv_timeout(OPEN_TIMEOUT) {
+        let mut outcome = opened_rx.recv_timeout(OPEN_TIMEOUT);
+        if outcome.is_err() {
+            if state.abandon() {
+                // The device is still being built. From here the thread owns nothing it may
+                // render with: it drops what it built and ends without touching the renderer.
+                stop.store(true, Ordering::Release);
+                return Err(PlaybackError::Output(
+                    "WASAPI: opening the stream timed out".into(),
+                ));
+            }
+            // The thread claimed the stream just before the deadline: it is priming and will
+            // report in a moment.
+            outcome = opened_rx
+                .recv()
+                .map_err(|_| std::sync::mpsc::RecvTimeoutError::Disconnected);
+        }
+        match outcome {
             Ok(Ok(info)) => {
                 *self
                     .control
@@ -190,28 +217,16 @@ impl AudioOutput for WasapiOutput {
             Ok(Err(message)) => {
                 // The thread ended and returned the renderer; it is dropped here.
                 let _ = thread.join();
-                Err(PlaybackError::Output(message))
+                Err(PlaybackError::Output(format!("WASAPI: {message}")))
             }
             Err(_) => {
-                stop.store(true, Ordering::Release);
+                let _ = thread.join();
                 Err(PlaybackError::Output(
-                    "WASAPI: opening the stream timed out".into(),
+                    "WASAPI: the render thread ended unexpectedly".into(),
                 ))
             }
         }
     }
-}
-
-/// Everything the render loop needs, built on the render thread.
-struct Opened {
-    info: StreamInfo,
-    format: SampleFormat,
-    device: WasapiDevice,
-    stream_latency_frames: u64,
-    buffer_frames: usize,
-    /// Kept alive for the notification registration and the endpoint objects.
-    _enumerator: DeviceEnumerator,
-    _registration: Option<DeviceEventRegistration>,
 }
 
 fn render_thread(
@@ -221,36 +236,17 @@ fn render_thread(
 ) -> Renderer {
     let com = initialize_mta().is_ok();
     let mmcss = os::MmcssGuard::enter();
-    let result = open_device(spec, mmcss.as_ref().err().cloned());
-    let renderer = match result {
-        Err(message) => {
-            let _ = opened.send(Err(message));
-            renderer
-        }
-        Ok(mut o) => {
-            let mut pump = Pump::new(renderer, o.format, o.buffer_frames, o.stream_latency_frames);
-            // Prime the buffer with real audio, then start: the first period already plays.
-            let primed = matches!(
-                pump.feed(&mut o.device),
-                PumpStep::Fed { .. } | PumpStep::Idle
-            ) && o.device.client.start_stream().is_ok();
-            if primed {
-                let _ = opened.send(Ok(o.info.clone()));
-                while !spec.stop.load(Ordering::Acquire) {
-                    if pump.step(&mut o.device, WAIT_TIMEOUT_MS) == PumpStep::Lost {
-                        spec.lost.store(true, Ordering::Release);
-                        break;
-                    }
-                }
-                let _ = o.device.client.stop_stream();
-            } else {
-                let _ = opened.send(Err(
-                    "WASAPI: the device refused the first buffer or could not start".into(),
-                ));
-            }
-            pump.into_renderer()
-        }
-    };
+    let realtime = mmcss.is_ok();
+    let mmcss_failure = mmcss.as_ref().err().cloned();
+    let renderer = run_render_thread(
+        &spec.state,
+        &spec.stop,
+        &spec.lost,
+        renderer,
+        || open_device(spec, realtime, mmcss_failure),
+        opened,
+        WAIT_TIMEOUT_MS,
+    );
     drop(mmcss);
     if com {
         deinitialize();
@@ -258,7 +254,11 @@ fn render_thread(
     renderer
 }
 
-fn open_device(spec: &ThreadSpec, mmcss_failure: Option<String>) -> Result<Opened, String> {
+fn open_device(
+    spec: &ThreadSpec,
+    realtime_priority: bool,
+    mmcss_failure: Option<String>,
+) -> Result<DeviceSetup<WasapiDevice>, String> {
     let enumerator = DeviceEnumerator::new().map_err(|e| format!("WASAPI: {e}"))?;
     let (device, target) = match &spec.device {
         None => (
@@ -278,7 +278,6 @@ fn open_device(spec: &ThreadSpec, mmcss_failure: Option<String>) -> Result<Opene
     let device_name = device.get_friendlyname().unwrap_or_default();
 
     let mut notes: Vec<String> = Vec::new();
-    notes.extend(mmcss_failure.clone());
     let registration = match register_following(&enumerator, target, &device_id, &spec.lost) {
         Ok(r) => Some(r),
         Err(why) => {
@@ -324,6 +323,7 @@ fn open_device(spec: &ThreadSpec, mmcss_failure: Option<String>) -> Result<Opene
     }
     if let Some(why) = mmcss_failure {
         tracing::warn!(reason = %why, "audio thread runs without MMCSS priority");
+        notes.push(why);
     }
     notes.extend(outcome.fallback.clone());
 
@@ -348,10 +348,10 @@ fn open_device(spec: &ThreadSpec, mmcss_failure: Option<String>) -> Result<Opene
         period_frames: hns_to_frames(outcome.period_hns),
         buffer_frames: buffer_frames as u32,
         stream_latency_frames: hns_to_frames(latency_hns),
-        realtime_priority: notes.iter().all(|n| !n.starts_with("MMCSS")),
+        realtime_priority,
         fallback: (!notes.is_empty()).then(|| notes.join("; ")),
     };
-    Ok(Opened {
+    Ok(DeviceSetup {
         stream_latency_frames: u64::from(info.stream_latency_frames),
         info,
         format: outcome.format,
@@ -360,9 +360,9 @@ fn open_device(spec: &ThreadSpec, mmcss_failure: Option<String>) -> Result<Opene
             client,
             render,
             events,
+            _enumerator: enumerator,
+            _registration: registration,
         },
-        _enumerator: enumerator,
-        _registration: registration,
     })
 }
 
@@ -454,6 +454,9 @@ struct WasapiDevice {
     client: AudioClient,
     render: AudioRenderClient,
     events: Handle,
+    /// Kept alive for the endpoint objects and the notification registration.
+    _enumerator: DeviceEnumerator,
+    _registration: Option<DeviceEventRegistration>,
 }
 
 impl RenderDevice for WasapiDevice {
@@ -478,5 +481,13 @@ impl RenderDevice for WasapiDevice {
 
     fn is_alive(&mut self) -> bool {
         self.client.get_current_padding().is_ok()
+    }
+
+    fn start(&mut self) -> Result<(), DeviceLost> {
+        self.client.start_stream().map_err(|_| DeviceLost)
+    }
+
+    fn stop(&mut self) {
+        let _ = self.client.stop_stream();
     }
 }

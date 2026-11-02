@@ -5,8 +5,12 @@
 //! `cargo test -p tinwave-playback --test device -- --ignored --nocapture --test-threads=1`.
 //!
 //! Safety rules, kept by every test in this file:
-//! - **Silent.** The engine's software volume is set to 0.0 before any audio is loaded, so the
-//!   device receives digital silence. Nothing is audible, whatever the endpoint volume is.
+//! - **Silent by construction.** The clip that is played is a WAV of all-zero samples, so the
+//!   samples that reach the device are digital silence at any endpoint volume and at any
+//!   software gain. (Playing the sweep with the software volume lowered afterwards is NOT
+//!   enough: the engine starts at gain 1.0 and a load's first block can play before the volume
+//!   change is seen.) The measurements only need frames to flow, which they do.
+//!   `set_volume(0.0)` is still applied as a second guard, but nothing relies on it.
 //! - **Short.** Under one second of playback each.
 //! - **Hands off the system.** No test changes the default device, the endpoint volume or mute.
 //!   (The output code has no such call; `Engine::set_volume` is the renderer's software gain.)
@@ -28,11 +32,12 @@ use tinwave_playback::{
     AudioOutput, Engine, EngineConfig, FsOpener, StreamInfo, StreamMode, Track,
 };
 
-/// A 0.6 s stretch of the reference sweep, 16-bit stereo.
+/// 0.6 s of digital silence, 16-bit stereo. Silent whatever the volume, so these tests can never
+/// be audible.
 fn short_clip(dir: &TempDir) -> Track {
-    let (l, r) = sweep(RATE, TOTAL);
+    let silence = vec![0.0f64; 28_800];
     let path = dir.path("clip.wav");
-    write_wav(&path, RATE, 16, &l[..28_800], &r[..28_800]);
+    write_wav(&path, RATE, 16, &silence, &silence);
     track(1, path)
 }
 
@@ -57,7 +62,7 @@ fn start_silent(output: Box<dyn AudioOutput>) -> Opened {
     )
     .expect("the default output opens");
     let open_time = t0.elapsed();
-    // Before anything is loaded: from here the device receives digital silence only.
+    // Second guard only; the clip itself is all zeros.
     engine.set_volume(0.0).expect("volume");
     Opened {
         engine,
