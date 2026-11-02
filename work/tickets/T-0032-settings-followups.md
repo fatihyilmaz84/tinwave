@@ -3,7 +3,7 @@ id: T-0032
 title: Signal settings follow-ups — clear the paused banner after a save, read-only producer view, lock invariant test
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: []
@@ -33,3 +33,6 @@ work/reports/T-0021/review-1.md.
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-02: approved round 1, merged 48b97ad. Item 2 as documented contract (P-0126 parked). Review nits (scoped-thread test can hang if an in-scope assert fails; SQL whitespace) → P-0127 folded into T-0029.

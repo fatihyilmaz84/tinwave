@@ -33,3 +33,6 @@ Warm tier per storage-budget.md.
 
 ## Added from P-0111 (T-0024 review)
 A play's Completed/Skipped can land in a later session than its PlayStarted (stale play after a 30-min gap). Pair a play start with its outcome per device (by seq order), never per session; test it.
+
+## Added from P-0127 (T-0032 review)
+In crates/tinwave-db/src/settings.rs test `the_mask_is_read_under_the_connection_lock`, send `go` before the in-scope asserts (or a drop guard) so a failure cannot hang the test; tidy the trigger SQL literal whitespace in tests/signal_settings.rs:452. Scope extends to those two spots.
