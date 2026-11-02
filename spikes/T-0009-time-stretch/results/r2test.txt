@@ -1,0 +1,8 @@
+finer=false maxproc=4096 chunk=4096: purity 13.4 dB tremolo 36.02%
+finer=false maxproc=1024 chunk=1024: purity 13.4 dB tremolo 36.02%
+finer=false maxproc=512 chunk=512: purity 13.4 dB tremolo 36.02%
+finer=false maxproc=256 chunk=256: purity 13.4 dB tremolo 36.02%
+finer=true maxproc=4096 chunk=4096: purity 40.7 dB tremolo 0.78%
+finer=true maxproc=1024 chunk=1024: purity 40.7 dB tremolo 0.74%
+finer=true maxproc=512 chunk=512: purity 40.7 dB tremolo 0.77%
+finer=true maxproc=256 chunk=256: purity 40.7 dB tremolo 0.84%

@@ -1,0 +1,26 @@
+# algorithmic latency: 3 ms click at source frame S, constant rate; lag = (output click position) - S/rate, in ms, at 44.1 kHz
+option | library-reported | rate | lag ms (argmax) | click energy spread (ms, 5%..95% energy)
+signalsmith-default    | in 2646 + out 2646 frames | 0.75 |   140.4 |    1.6
+signalsmith-default    | in 2646 + out 2646 frames | 1.00 |   120.0 |    1.4
+signalsmith-default    | in 2646 + out 2646 frames | 1.25 |   107.9 |    1.5
+signalsmith-default    | in 2646 + out 2646 frames | 1.50 |   100.1 |    1.2
+signalsmith-cheaper    | in 2205 + out 3969 frames | 0.75 |   156.0 |    1.6
+signalsmith-cheaper    | in 2205 + out 3969 frames | 1.00 |   140.0 |    1.4
+signalsmith-cheaper    | in 2205 + out 3969 frames | 1.25 |   130.1 |    1.3
+signalsmith-cheaper    | in 2205 + out 3969 frames | 1.50 |   123.4 |    1.2
+signalsmith-b2048      | in 1024 + out 1024 frames | 0.75 |    54.4 |    1.6
+signalsmith-b2048      | in 1024 + out 1024 frames | 1.00 |    46.5 |    1.4
+signalsmith-b2048      | in 1024 + out 1024 frames | 1.25 |    41.9 |    1.3
+signalsmith-b2048      | in 1024 + out 1024 frames | 1.50 |    39.0 |    1.3
+rubberband-R3-finer    | start_delay 2048 preferred_start_pad 2048 latency 2048 frames (engine R3) | 0.75 |   -17.5 |    3.4
+rubberband-R3-finer    | start_delay 2048 preferred_start_pad 2048 latency 2048 frames (engine R3) | 1.00 |     0.0 |    1.4
+rubberband-R3-finer    | start_delay 2048 preferred_start_pad 2048 latency 2048 frames (engine R3) | 1.25 |     9.5 |    1.5
+rubberband-R3-finer    | start_delay 2048 preferred_start_pad 2048 latency 2048 frames (engine R3) | 1.50 |    16.2 |    1.5
+rubberband-R2-faster   | start_delay 1024 preferred_start_pad 1024 latency 1024 frames (engine R2) | 0.75 |   -10.5 |   16.1
+rubberband-R2-faster   | start_delay 1024 preferred_start_pad 1024 latency 1024 frames (engine R2) | 1.00 |     0.0 |    1.4
+rubberband-R2-faster   | start_delay 1024 preferred_start_pad 1024 latency 1024 frames (engine R2) | 1.25 |     6.2 |    5.3
+rubberband-R2-faster   | start_delay 1024 preferred_start_pad 1024 latency 1024 frames (engine R2) | 1.50 |    10.3 |   11.4
+wsola-hop15ms          | none reported (window ~1322 frames) | 0.75 |     6.7 |    8.2
+wsola-hop15ms          | none reported (window ~1322 frames) | 1.00 |    12.0 |    1.4
+wsola-hop15ms          | none reported (window ~1322 frames) | 1.25 |    13.0 |    1.4
+wsola-hop15ms          | none reported (window ~1322 frames) | 1.50 |     9.8 |    1.5

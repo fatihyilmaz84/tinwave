@@ -1,0 +1,18 @@
+## T1 RT safety: allocations inside Renderer::render while rates change (counting global allocator, IN_RT flag)
+callbacks 900 | allocs/frees inside render: 0 | max callback 43.6 us | underruns 0 | rate changes 5
+## T2 rate-change latency (engine level): wall time from set_rate() to the first rendered block that carries the new effective rate
+(device period 10 ms, ring 1 s; 'block at new rate' = first block with real frames whose effective rate is closest to the new rate)
+1.00 -> 1.25 | flush, full ring                     | min 10 / median 13 / max 19 ms (5 runs)
+1.25 -> 0.75 | flush, full ring                     | min 12 / median 17 / max 19 ms (5 runs)
+0.75 -> 1.00 | flush, full ring                     | min 11 / median 13 / max 18 ms (5 runs)
+1.25 -> 0.75 | no flush, ring fill target 150 ms    | min 154 / median 160 / max 166 ms (5 runs)
+1.25 -> 0.75 | no flush, ring fill target 300 ms    | min 299 / median 310 / max 316 ms (5 runs)
+1.25 -> 0.75 | no flush, full ring (1 s)            | min 990 / median 994 / max 1006 ms (5 runs)
+## T3 RateSession + position accounting: click train every 250 ms in the source, rate schedule applied by wall clock
+flush mode: time-weighted rate (engine) 1.1045 vs wall-clock schedule 1.1042 (diff +0.0004) | wall frames 528316, source frames 583551 | position error vs ground truth over 51 clicks: mean +1.2 ms, mean|e| 1.2 ms, max|e| 1.9 ms | underruns 0
+no-flush mode (stretch<->stretch only, 1.0 step skipped): time-weighted rate (engine) 1.2465 vs wall-clock schedule 1.2500 (diff -0.0035) | wall frames 529200, source frames 659656 | position error vs ground truth over 59 clicks: mean +3.9 ms, mean|e| 9.7 ms, max|e| 29.3 ms | underruns 0
+## T4 splice quality at a rate change (440 Hz sine, 0.5 amplitude): dip depth/duration and largest sample step
+flush 1.00 -> 1.25 (bypass->stretch): deepest 5 ms RMS 0.0% of steady, time below 70% = 15 ms, max sample step 0.033 (steady sine 0.031)
+flush 1.25 -> 0.75 (stretch->stretch): deepest 5 ms RMS 0.0% of steady, time below 70% = 15 ms, max sample step 0.033 (steady sine 0.031)
+flush 1.50 -> 1.00 (stretch->bypass): deepest 5 ms RMS 0.0% of steady, time below 70% = 15 ms, max sample step 0.031 (steady sine 0.031)
+no-flush 1.25 -> 0.75 (continuous set_rate, fill 150 ms): deepest 5 ms RMS 96.4% of steady, time below 70% = 0 ms, max sample step 0.032 (steady sine 0.031)
