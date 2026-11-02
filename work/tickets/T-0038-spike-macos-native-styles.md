@@ -1,0 +1,22 @@
+---
+id: T-0038
+title: "Spike: macOS native styles on real hardware (macOS style, vibrancy, global menu bar, native dialogs and alerts, ExpandedClientAreaHint)"
+type: spike
+epic: E-01
+status: blocked
+priority: P2
+size: M
+depends_on: []
+scope:
+  - spikes/T-0038-macos-native-styles/
+owner:
+branch:
+review_round: 0
+created_by: from T-0011 (D-0001 Windows first)
+---
+
+## Question
+Do the design-system §2 macOS rows hold on a real macOS machine with Qt ≥ 6.10?
+
+## Notes
+Blocked: needs a macOS machine or CI runner (D-0001). Must run before E-01 acceptance.

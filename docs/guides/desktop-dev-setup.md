@@ -16,7 +16,7 @@ Phase 0 validates the Rust–Qt bridge (CXX-Qt) and audio backend; update this g
 - Visual Studio 2022 or later Build Tools (MSVC, Windows SDK); VS 2026 / MSVC 14.5x works with the
   `msvc2022_64` Qt kits.
 - Qt 6 **MSVC 64-bit** kit (`msvc2022_64`) — the MinGW kit cannot link with the `x86_64-pc-windows-msvc`
-  Rust toolchain. Install the 6.8 LTS kit (the floor) at minimum. Add `<Qt>\<version>\msvc2022_64\bin` to
+  Rust toolchain. Install Qt 6.10 or newer (the floor, ADR 0007); the dev machine uses 6.12.0. Add `<Qt>\<version>\msvc2022_64\bin` to
   `PATH` for running. The Qt installer's `Tools\Ninja` works as the Ninja binary.
 - WASAPI and WinRT APIs come through the `windows` crate (features enabled per module only).
 

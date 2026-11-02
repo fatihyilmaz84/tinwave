@@ -36,7 +36,7 @@ Tinwave must be useful without an internet connection, cloud account, or subscri
 
 **Technology**
 - Rust for application logic, library indexing, synchronization, file operations, metadata, and audio-related services.
-- Qt 6 Quick/QML for the desktop user interface (minimum Qt 6.8 LTS, native Qt Quick Controls styles per OS — ADR 0003).
+- Qt 6 Quick/QML for the desktop user interface (minimum Qt 6.10, native Qt Quick Controls styles per OS — ADR 0003, ADR 0007).
 - Evaluate CXX-Qt as the Rust–Qt bridge in a Phase 0 proof of concept.
 - SQLite for the local database.
 - SQLite FTS5 for fast text search.
@@ -505,7 +505,9 @@ Initial engineering targets, subject to prototype validation:
 - Normal browsing and playback: aim for approximately 80–160 MB.
 - Scanning/import: aim for approximately 150–300 MB.
 
-These are targets, not guarantees, and must include relevant Qt and helper-process memory.
+These are targets, not guarantees, and must include relevant Qt and helper-process memory. They are measured as
+**private working set** (memory the process itself owns, excluding shared system libraries; D-0006). For
+reference, an empty Qt Quick window is ~20–30 MB private (~72 MB total working set) on Windows (T-0011).
 
 Required techniques:
 - No browser engine in the desktop UI.

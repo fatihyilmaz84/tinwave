@@ -3,7 +3,7 @@ id: T-0011
 title: "Spike: native Qt Quick styles and OS integration for the Quiet Native design system"
 type: spike
 epic: E-00
-status: in_progress
+status: done
 priority: P1
 size: M
 depends_on: []
@@ -75,3 +75,7 @@ None. (Note whether theme/accent changes should feed context — they should not
 - Native controls: Button, TextField, ComboBox, Switch, CheckBox, Slider, Menu, FileDialog, MessageDialog.
 - Tw components: none.
 - Platform notes: Windows measured; macOS/Linux reported as "unverified" where not runnable.
+
+## Outcome
+2026-11-02: Windows confirmed on Qt 6.12 with amendments → ADR 0007; PO decisions D-0006 (native menus +
+dark fix, Qt themed confirmations, floor 6.10, private working set). Follow-ups T-0035..T-0039.

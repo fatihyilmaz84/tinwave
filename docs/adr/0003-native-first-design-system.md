@@ -1,6 +1,6 @@
 # ADR 0003 — Native-first desktop design system ("Quiet Native")
 
-- **Status:** Accepted
+- **Status:** Accepted — amended by [ADR 0007](0007-native-style-findings.md) (Qt floor 6.10, menus, dialogs, Mica)
 - **Date:** 2026-10-29
 
 ## Context

@@ -21,7 +21,7 @@ quality gates exist, and the signal pipeline core (schema → bus → compact st
 - T-0002 Spike: CXX-Qt + QML virtualized list, memory & startup — ready, blocked on the Qt MSVC kit (PO)
 - T-0003 Spike: audio backend selection — done (ADR 0005)
 - T-0008 Spike: Windows system-volume & output-device notifications — done (ADR 0004)
-- T-0011 Spike: native Qt Quick styles & OS integration (design system, ADR 0003) — ready, blocked on the Qt MSVC kit (PO)
+- T-0011 Spike: native Qt Quick styles & OS integration (design system, ADR 0003) — done (ADR 0007, D-0006)
 - T-0004 Signal schema and packed payload codec — done
 - T-0005 Signal bus with priority drop policy and UI counters — done (+ T-0022 hardening)
 - T-0006 signals.db migrations and batched SignalWriter — done (39.4 B/event)
@@ -31,6 +31,7 @@ quality gates exist, and the signal pipeline core (schema → bus → compact st
 
 ## Risks & open questions
 - CXX-Qt maturity / build complexity on Windows (T-0002).
-- Native style coverage on Qt 6.8, especially Linux (Fusion) and macOS without a Mac for agents (T-0011, D-0001).
+- Native style coverage: Windows confirmed on Qt 6.12 (T-0011, ADR 0007; floor raised to 6.10, D-0006); macOS and
+  Linux unverified (D-0001) — spikes T-0038/T-0039.
 - Gapless + device switching across backends (T-0003).
 - macOS/Linux measurements deferred per D-0001.

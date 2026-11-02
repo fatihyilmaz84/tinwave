@@ -28,13 +28,13 @@ One QML tree. The controls style is selected at startup from the OS; layout and 
 
 | Element | Windows 11 | macOS | Linux |
 |---|---|---|---|
-| Qt Quick Controls style | `FluentWinUI3` | `macOS` | `Fusion` + platform palette (Breeze/Adwaita colors via the platform theme) |
+| Qt Quick Controls style | `FluentWinUI3`, selected explicitly at start-up (Qt's default `Windows` style has no dark mode) | `macOS` | `Fusion` + platform palette (Breeze/Adwaita colors via the platform theme) |
 | Window chrome | System title bar + caption buttons | System title bar, traffic lights, full-size content | Server-side decorations (client-side only if the compositor forces it) |
-| Sidebar backdrop | Mica where supported, else solid `sidebar` | Vibrancy where supported, else solid | Solid `sidebar` |
+| Sidebar backdrop | Mica where supported (needs `QT_QPA_DISABLE_REDIRECTION_SURFACE=1`), else solid `sidebar` | Vibrancy where supported, else solid | Solid `sidebar` |
 | Menu bar | None visible; app-menu button in sidebar header | Global native menu bar (required) | None visible; app-menu button |
-| Menus / context menus | `popupType: Popup.Native` | Native | Native where supported, else Fusion |
+| Menus / context menus | `popupType: Popup.Native` + dark-mode opt-in (`SetPreferredAppMode`, ADR 0007); `Popup.Window` if that fails | Native | Native where supported, else Fusion |
 | File / folder dialogs | `QtQuick.Dialogs` native | Native | XDG portal |
-| Confirmations | Native `MessageDialog` | Native alert/sheet | Native `MessageDialog` |
+| Confirmations | Qt Quick `MessageDialog` (FluentWinUI3-themed; Qt has no native one here) | Native alert/sheet | Qt Quick `MessageDialog` (Fusion-themed) |
 | Font | Segoe UI Variable (system) | SF Pro (system) | Desktop font setting |
 | Light / dark | Follow system, override in Settings | Follow Appearance, override | Follow portal `color-scheme`, override |
 | Accent | OS accent | OS accent | Desktop accent if exposed, else Tin Teal |
@@ -44,8 +44,8 @@ One QML tree. The controls style is selected at startup from the OS; layout and 
 | Notifications | Off by default, native | Off by default, native | Off by default, freedesktop |
 
 Rules:
-- Minimum Qt is **6.8 LTS** (FluentWinUI3 style, native Qt Quick menus, `QStyleHints::setColorScheme`,
-  `QPalette::Accent`). Validated by spike T-0011.
+- Minimum Qt is **6.10** (FluentWinUI3 with contrast themes, native Qt Quick menus, `QStyleHints::setColorScheme`,
+  `QPalette::Accent`, `QAccessibilityHints`, `SearchField`). Measured on 6.12 by spike T-0011; ADR 0007, D-0006.
 - **Never restyle a native control** to look like another platform or like a web control. You may set size,
   `palette` roles from tokens, and layout — not backgrounds/contentItems of native controls.
 - Window effects (Mica, vibrancy) sit behind a `WindowEffects` trait in `apps/tinwave-desktop`
@@ -89,7 +89,8 @@ the color scheme, the user's overrides and the platform.
 
 ### 3.2 Type — system font, scaled from the platform base
 
-`base = Qt.application.font.pixelSize` (Windows 14, macOS 13, Linux: desktop setting).
+`base` = the active style's control font size (Windows FluentWinUI3 draws 14 px Segoe UI Variable while
+`Qt.application.font` reports 12 px — T-0011; macOS 13, Linux: desktop setting). Token fixes pending in T-0035.
 
 | Token | Size | Weight | Use |
 |---|---|---|---|
