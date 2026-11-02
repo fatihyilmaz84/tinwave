@@ -4,6 +4,9 @@ use crate::CoreError;
 ///
 /// Domain code takes an `Rng` instead of reaching for the operating system, so replay and golden
 /// tests can pin every random value. Ids need uniqueness, not secrecy.
+///
+/// **Secrets** (e.g. `device_secret`) must not accept a plain `Rng`: a deterministic generator
+/// would compile and silently produce guessable keys. Take `impl CryptoRng` instead.
 pub trait Rng: Send {
     /// Fills `dest` with random bytes.
     ///
@@ -11,6 +14,14 @@ pub trait Rng: Send {
     /// [`CoreError::RandomUnavailable`] if the source cannot produce randomness.
     fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), CoreError>;
 }
+
+/// Marks an [`Rng`] whose output is unpredictable, so it may generate secrets.
+///
+/// Required for anything secret (e.g. `device_secret`): write such functions against
+/// `impl CryptoRng`. Only operating-system randomness ([`SystemRng`]) implements it.
+/// [`SeededRng`] deliberately does not, and the orphan rule keeps other crates from adding it.
+/// Do not implement this for a deterministic or replayable generator.
+pub trait CryptoRng: Rng {}
 
 /// Operating-system randomness. The only place in `tinwave-core` that touches the system RNG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -21,6 +32,8 @@ impl Rng for SystemRng {
         getrandom::fill(dest).map_err(|e| CoreError::RandomUnavailable(e.to_string()))
     }
 }
+
+impl CryptoRng for SystemRng {}
 
 /// A deterministic generator: the same seed always yields the same byte stream.
 ///
@@ -81,6 +94,22 @@ mod tests {
         rng.fill_bytes(&mut a).unwrap();
         rng.fill_bytes(&mut b).unwrap();
         assert_ne!(a, b);
+    }
+
+    /// `check` resolves to exactly one impl only while `T` is not a `CryptoRng`; with
+    /// `CryptoRng` the two blanket impls both apply and the call fails to compile (ambiguity).
+    trait NotCrypto<A> {
+        fn check() {}
+    }
+    impl<T> NotCrypto<()> for T {}
+    impl<T: CryptoRng> NotCrypto<u8> for T {}
+
+    fn requires_crypto<R: CryptoRng>() {}
+
+    #[test]
+    fn only_the_system_rng_may_generate_secrets() {
+        requires_crypto::<SystemRng>();
+        <SeededRng as NotCrypto<_>>::check();
     }
 
     #[test]

@@ -43,6 +43,10 @@
 //!   carries the first `from` and the last `to`. Two 1 s forward nudges 1.5 s apart add up to
 //!   2 s: no event (the first `from` to the last `to` would be 3.5 s). Three of them add up to
 //!   3 s: one `SeekForward`.
+//! - The payload must agree with its kind: `SeekBack` always has `to < from` and `SeekForward`
+//!   `to > from`. When playback outran small back-nudges (or the other way round) so that the
+//!   sign of `to - from` differs from the sign of the summed jumps, the gesture emits nothing
+//!   and is counted by [`GestureCoalescer::suppressed`].
 
 use tinwave_core::{RecordingId, SessionId, SourceId, UtcMillis};
 
@@ -62,7 +66,7 @@ pub const SYSTEM_VOLUME_WINDOW_MS: u32 = 400;
 pub const SEEK_WINDOW_MS: u32 = 2_000;
 /// A merged seek is only an event when the listener's jumps add up to more than this many
 /// deciseconds (2 s, the catalog's "seek of more than 2 s"). See the module docs.
-pub const SEEK_MIN_NET_DS: u32 = 20;
+pub const SEEK_MIN_TOTAL_DS: u32 = 20;
 
 /// The coalescing window of a kind, `None` for kinds that are not coalesced.
 #[must_use]
@@ -221,12 +225,17 @@ impl Gesture for SeekPayload {
     }
 
     fn finish(self, _span_ms: u32, jump_ds: i64) -> Option<SignalPayload> {
-        if jump_ds.unsigned_abs() <= u64::from(SEEK_MIN_NET_DS) {
-            None
-        } else if jump_ds > 0 {
+        if jump_ds.unsigned_abs() <= u64::from(SEEK_MIN_TOTAL_DS) {
+            return None;
+        }
+        // The kind follows the jumps; the payload must not contradict it.
+        let net_ds = self.jump_ds();
+        if jump_ds > 0 && net_ds > 0 {
             Some(SignalPayload::SeekForward(self))
-        } else {
+        } else if jump_ds < 0 && net_ds < 0 {
             Some(SignalPayload::SeekBack(self))
+        } else {
+            None
         }
     }
 }
@@ -858,14 +867,40 @@ mod tests {
         let mut rig = Rig::new();
         let _ = rig.co.seek(|| seek_tick_ms(100_000, 98_500)); // 1.5 s back
         rig.clock.advance(1_500); // playback returns to 100 s
+                                  // First `from` to last `to` is only 1.5 s back, but the jumps sum to 3 s back.
         let _ = rig.co.seek(|| seek_tick_ms(100_000, 98_500)); // 1.5 s back again
-                                                               // First `from` to last `to` is only 1.5 s back, but the jumps sum to 3 s back.
         assert_eq!(rig.co.flush_all(), 1);
         let events = rig.events();
         let SignalPayload::SeekBack(p) = events[0].payload else {
             panic!("expected SeekBack, got {:?}", events[0].kind());
         };
         assert_eq!((p.from_ds.ms(), p.to_ds.ms()), (100_000, 98_500));
+    }
+
+    #[test]
+    fn back_nudges_that_playback_outran_at_1_5x_are_suppressed_and_counted() {
+        let mut rig = Rig::new();
+        let _ = rig.co.seek(|| seek_tick_ms(100_000, 98_900)); // 1.1 s back
+        rig.clock.advance(1_900); // 1.9 s at 1.5x carries the position to 101.75 s
+        let _ = rig.co.seek(|| seek_tick_ms(101_750, 100_650)); // 1.1 s back again
+                                                                // The jumps sum to 2.2 s back, but the net movement is 0.65 s forward.
+        assert_eq!(rig.co.flush_all(), 0);
+        assert!(rig.events().is_empty());
+        assert_eq!(rig.co.suppressed(), 1);
+    }
+
+    #[test]
+    fn three_short_back_nudges_that_playback_outran_are_suppressed_and_counted() {
+        let mut rig = Rig::new();
+        let _ = rig.co.seek(|| seek_tick_ms(100_000, 99_200)); // 0.8 s back
+        rig.clock.advance(1_900); // position 101.1 s
+        let _ = rig.co.seek(|| seek_tick_ms(101_100, 100_300));
+        rig.clock.advance(1_900); // position 102.2 s
+        let _ = rig.co.seek(|| seek_tick_ms(102_200, 101_400));
+        // The jumps sum to 2.4 s back, but the net movement is 1.4 s forward.
+        assert_eq!(rig.co.flush_all(), 0);
+        assert!(rig.events().is_empty());
+        assert_eq!(rig.co.suppressed(), 1);
     }
 
     #[test]

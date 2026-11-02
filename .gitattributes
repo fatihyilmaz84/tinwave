@@ -12,6 +12,10 @@
 *.html  text eol=lf
 *.svg   text eol=lf
 
+# Windows scripts: cmd.exe needs CRLF (LF-only labels can fail to resolve).
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
 # Binary files: never touched by line-ending conversion or textual diff/merge.
 *.png   binary
 *.jpg   binary
@@ -22,3 +26,13 @@
 *.wav   binary
 *.ogg   binary
 *.db    binary
+*.jpeg  binary
+*.gif   binary
+*.webp  binary
+*.ttf   binary
+*.otf   binary
+*.aac   binary
+*.opus  binary
+*.sqlite binary
+*.db-wal binary
+*.db-shm binary

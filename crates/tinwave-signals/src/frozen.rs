@@ -232,35 +232,32 @@ fn input_tag(source: InputSource) -> u8 {
     w.finish().unwrap().as_bytes()[0]
 }
 
+/// The frozen name and tag byte of every variant.
+///
+/// The match has no wildcard on purpose: a new variant does not compile until it is listed here
+/// with its frozen tag.
+fn frozen_input(source: InputSource) -> (&'static str, u8) {
+    match source {
+        InputSource::Mouse => ("Mouse", 0),
+        InputSource::Keyboard => ("Keyboard", 1),
+        InputSource::MediaKey => ("MediaKey", 2),
+        InputSource::Tray => ("Tray", 3),
+        InputSource::MiniPlayer => ("MiniPlayer", 4),
+        InputSource::Auto => ("Auto", 5),
+        InputSource::Remote(_) => ("Remote", 6),
+        InputSource::System => ("System", 7),
+    }
+}
+
 #[test]
 fn input_source_tags_are_frozen_by_name() {
-    // Every variant, listed explicitly; the length check ties the list to `NAMES`.
-    let all = [
-        InputSource::Mouse,
-        InputSource::Keyboard,
-        InputSource::MediaKey,
-        InputSource::Tray,
-        InputSource::MiniPlayer,
-        InputSource::Auto,
-        InputSource::Remote(0),
-        InputSource::System,
-    ];
-    assert_eq!(all.len(), InputSource::NAMES.len());
-    let live: Vec<(&str, u8)> = all.iter().map(|s| (s.name(), input_tag(*s))).collect();
-    assert_frozen(
-        "InputSource",
-        &live,
-        &[
-            ("Mouse", 0),
-            ("Keyboard", 1),
-            ("MediaKey", 2),
-            ("Tray", 3),
-            ("MiniPlayer", 4),
-            ("Auto", 5),
-            ("Remote", 6),
-            ("System", 7),
-        ],
-    );
+    assert_eq!(InputSource::ALL.len(), InputSource::NAMES.len());
+    let live: Vec<(&str, u8)> = InputSource::ALL
+        .iter()
+        .map(|s| (s.name(), input_tag(*s)))
+        .collect();
+    let frozen: Vec<(&str, u8)> = InputSource::ALL.iter().map(|s| frozen_input(*s)).collect();
+    assert_frozen("InputSource", &live, &frozen);
     // Remote is tag 6 plus the slot byte, whatever the slot.
     let mut w = Writer::new();
     InputSource::Remote(200).pack(&mut w).unwrap();
