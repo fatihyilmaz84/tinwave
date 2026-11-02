@@ -3,7 +3,7 @@ id: T-0034
 title: PlayStarted only when audio is heard; engine publishes the initial StreamInfo
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0024]
