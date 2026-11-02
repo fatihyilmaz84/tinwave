@@ -6,7 +6,7 @@ use crate::CoreError;
 /// tests can pin every random value. Ids need uniqueness, not secrecy.
 ///
 /// **Secrets** (e.g. `device_secret`) must not accept a plain `Rng`: a deterministic generator
-/// would compile and silently produce guessable keys. Take `impl CryptoRng` instead.
+/// would compile and silently produce guessable keys. Take `&mut impl CryptoRng` instead.
 pub trait Rng: Send {
     /// Fills `dest` with random bytes.
     ///
@@ -17,11 +17,29 @@ pub trait Rng: Send {
 
 /// Marks an [`Rng`] whose output is unpredictable, so it may generate secrets.
 ///
-/// Required for anything secret (e.g. `device_secret`): write such functions against
-/// `impl CryptoRng`. Only operating-system randomness ([`SystemRng`]) implements it.
-/// [`SeededRng`] deliberately does not, and the orphan rule keeps other crates from adding it.
-/// Do not implement this for a deterministic or replayable generator.
-pub trait CryptoRng: Rng {}
+/// Anything secret (e.g. `device_secret`) must take `&mut impl CryptoRng`, never a plain
+/// [`Rng`]. The trait is sealed: only operating-system randomness ([`SystemRng`]) implements it,
+/// and [`SeededRng`] or a type from another crate cannot.
+///
+/// ```compile_fail
+/// use tinwave_core::{CoreError, CryptoRng, Rng};
+///
+/// struct Constant;
+/// impl Rng for Constant {
+///     fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), CoreError> {
+///         dest.fill(4);
+///         Ok(())
+///     }
+/// }
+/// // Not allowed: `CryptoRng` is sealed.
+/// impl CryptoRng for Constant {}
+/// ```
+pub trait CryptoRng: Rng + sealed::Sealed {}
+
+mod sealed {
+    /// Implemented only inside this crate, which keeps [`CryptoRng`](super::CryptoRng) closed.
+    pub trait Sealed {}
+}
 
 /// Operating-system randomness. The only place in `tinwave-core` that touches the system RNG.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,6 +51,7 @@ impl Rng for SystemRng {
     }
 }
 
+impl sealed::Sealed for SystemRng {}
 impl CryptoRng for SystemRng {}
 
 /// A deterministic generator: the same seed always yields the same byte stream.
