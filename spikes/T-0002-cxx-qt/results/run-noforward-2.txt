@@ -1,0 +1,28 @@
+wall_ms=36283 exit=0
+T2 app_created since_main_ms=17.2
+T2 engine_load_returned since_main_ms=195.9
+T2 first_frame since_main_ms=347.8 process_age_ms=361.6 ws_mb=95.3 pws_mb=38.4 cpu_ms=359
+T2 dpr=1.5 style=FluentWinUI3
+T2 after idle: pages_resident=1 fetches=1 evictions=0 dropped_requests=0
+T2 counters after flick: viewport_events=0 hover_events=0 impression_batches=0 impressions=0 artwork_hovers=0 page_dwells=0 last_dwell_ms=0 | pages_resident=6 fetches=6 evictions=0 dropped_requests=0
+T2 after traverse: pages_resident=64 fetches=911 evictions=847 dropped_requests=0
+T2 task_post_latency_us=79
+T2 task_post_latency_us=74
+T2 task_post_latency_us=77
+T2 qml_to_rust_call_ns hover=260 viewport=255 | qml indexAt only=755 (n=200000)
+T2 debounce selftest start: viewport_events=200000 hover_events=200000 impression_batches=0 impressions=0 artwork_hovers=0 page_dwells=0 last_dwell_ms=0
+T2 debounce selftest end (expect artwork_hovers +1): viewport_events=200000 hover_events=200004 impression_batches=1 impressions=21 artwork_hovers=1 page_dwells=0 last_dwell_ms=0
+T2 final counters: viewport_events=200000 hover_events=200004 impression_batches=1 impressions=21 artwork_hovers=1 page_dwells=1 last_dwell_ms=35801 | pages_resident=64 fetches=911 evictions=847 dropped_requests=0
+T2 image requests=13102 cache_hits=9593 cached_entries=910 cached_mb=8.0 sizes=[48x48:13102]
+T2 final ws_mb=120.3 pws_mb=62.7 peak_ws_mb=121.1
+T2 phase startup_settle: wall_ms=2516 cpu_ms=47 cpu_pct=1.9 frames=28 dt_p50=6.9 dt_p95=7.3 dt_p99=7.4 dt_max=7.4 n>20ms=0 n>50ms=0 ws_start_mb=95.4 ws_end_mb=97.6 peak_ws_mb=97.6 peak_pws_mb=40.4
+T2 phase idle_steady: wall_ms=3007 cpu_ms=0 cpu_pct=0.0 frames=0 dt_p50=0.0 dt_p95=0.0 dt_p99=0.0 dt_max=0.0 n>20ms=0 n>50ms=0 ws_start_mb=97.6 ws_end_mb=97.6 peak_ws_mb=97.6 peak_pws_mb=40.4
+T2 phase flick_200rows_per_s_cold: wall_ms=5027 cpu_ms=1859 cpu_pct=37.0 frames=721 dt_p50=6.9 dt_p95=7.2 dt_p99=7.5 dt_max=20.7 n>20ms=1 n>50ms=0 ws_start_mb=97.6 ws_end_mb=101.2 peak_ws_mb=101.5 peak_pws_mb=44.3
+T2 phase settle_1s: wall_ms=1511 cpu_ms=16 cpu_pct=1.0 frames=0 dt_p50=0.0 dt_p95=0.0 dt_p99=0.0 dt_max=0.0 n>20ms=0 n>50ms=0 ws_start_mb=101.2 ws_end_mb=101.2 peak_ws_mb=101.2 peak_pws_mb=44.0
+T2 phase flick_200rows_per_s_warm: wall_ms=5024 cpu_ms=141 cpu_pct=2.8 frames=720 dt_p50=6.9 dt_p95=7.3 dt_p99=8.0 dt_max=14.3 n>20ms=0 n>50ms=0 ws_start_mb=101.2 ws_end_mb=103.0 peak_ws_mb=103.0 peak_pws_mb=45.8
+T2 phase traverse_down_3s_33k_rows_per_s: wall_ms=3004 cpu_ms=1016 cpu_pct=33.8 frames=432 dt_p50=7.0 dt_p95=7.6 dt_p99=8.3 dt_max=8.8 n>20ms=0 n>50ms=0 ws_start_mb=103.0 ws_end_mb=118.5 peak_ws_mb=119.1 peak_pws_mb=61.8
+T2 phase traverse_up_3s: wall_ms=3075 cpu_ms=1781 cpu_pct=57.9 frames=434 dt_p50=6.9 dt_p95=7.6 dt_p99=14.0 dt_max=20.7 n>20ms=1 n>50ms=0 ws_start_mb=118.5 ws_end_mb=120.0 peak_ws_mb=120.9 peak_pws_mb=63.6
+T2 phase settle_2s: wall_ms=2002 cpu_ms=0 cpu_pct=0.0 frames=2 dt_p50=6.4 dt_p95=6.4 dt_p99=6.4 dt_max=6.4 n>20ms=0 n>50ms=0 ws_start_mb=120.0 ws_end_mb=119.9 peak_ws_mb=120.0 peak_pws_mb=62.7
+T2 phase flick_with_async_task_x3: wall_ms=6049 cpu_ms=2906 cpu_pct=48.0 frames=865 dt_p50=6.9 dt_p95=7.2 dt_p99=7.4 dt_max=43.8 n>20ms=1 n>50ms=0 ws_start_mb=119.9 ws_end_mb=120.8 peak_ws_mb=120.8 peak_pws_mb=63.3
+T2 phase flick_with_blocking_task_control: wall_ms=2192 cpu_ms=219 cpu_pct=10.0 frames=289 dt_p50=6.9 dt_p95=7.2 dt_p99=7.4 dt_max=200.6 n>20ms=1 n>50ms=1 ws_start_mb=120.8 ws_end_mb=120.7 peak_ws_mb=120.9 peak_pws_mb=63.3
+T2 phase counter_call_cost: wall_ms=2395 cpu_ms=344 cpu_pct=14.4 frames=2 dt_p50=6.2 dt_p95=6.2 dt_p99=6.2 dt_max=6.2 n>20ms=0 n>50ms=0 ws_start_mb=120.7 ws_end_mb=120.3 peak_ws_mb=120.7 peak_pws_mb=63.1

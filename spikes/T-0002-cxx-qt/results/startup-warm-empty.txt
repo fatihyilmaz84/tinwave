@@ -1,0 +1,5 @@
+wall_ms=498 since_main_ms=378.4 process_age_ms=398.2 ws_mb=84.7 pws_mb=29.3 cpu_ms=406
+wall_ms=443 since_main_ms=368.4 process_age_ms=387.1 ws_mb=85.3 pws_mb=29.9 cpu_ms=453
+wall_ms=502 since_main_ms=404.4 process_age_ms=425.7 ws_mb=84.8 pws_mb=29.4 cpu_ms=359
+wall_ms=455 since_main_ms=364.7 process_age_ms=379.4 ws_mb=85.0 pws_mb=29.7 cpu_ms=438
+wall_ms=424 since_main_ms=346.1 process_age_ms=358.6 ws_mb=84.7 pws_mb=29.4 cpu_ms=344

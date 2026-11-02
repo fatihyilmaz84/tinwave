@@ -1,0 +1,8 @@
+wall_ms=625 since_main_ms=487.8 process_age_ms=507.9 ws_mb=97.7 pws_mb=39.2 cpu_ms=469
+wall_ms=468 since_main_ms=401.8 process_age_ms=418.3 ws_mb=96.7 pws_mb=38.3 cpu_ms=344
+wall_ms=473 since_main_ms=381.6 process_age_ms=394.0 ws_mb=97.0 pws_mb=38.5 cpu_ms=344
+wall_ms=491 since_main_ms=419.6 process_age_ms=432.6 ws_mb=97.3 pws_mb=38.8 cpu_ms=406
+wall_ms=539 since_main_ms=459.5 process_age_ms=476.2 ws_mb=96.8 pws_mb=38.3 cpu_ms=516
+wall_ms=468 since_main_ms=392.5 process_age_ms=406.3 ws_mb=96.7 pws_mb=38.4 cpu_ms=438
+wall_ms=479 since_main_ms=401.0 process_age_ms=414.2 ws_mb=97.0 pws_mb=38.5 cpu_ms=391
+wall_ms=508 since_main_ms=428.6 process_age_ms=447.6 ws_mb=97.8 pws_mb=39.4 cpu_ms=500

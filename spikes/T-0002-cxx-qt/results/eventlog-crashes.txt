@@ -1,0 +1,10 @@
+Windows Application Error events for t0002-cxx-qt.exe (deployed copy), 2026-11-02, from the Application event log.
+All: exception 0xc0000005, faulting module Qt6Core.dll 6.12.0.0, offset 0xe9f73
+(between exported QObject::qt_static_metacall 0xe8810 and the next export 0xea6f0, i.e. QObject/signal machinery).
+09:46:21
+09:46:38
+09:47:49
+10:19:10
+10:19:46
+No stack was captured (crash handler was added afterwards). 0 reproductions in later runs: 8 + 8 (4 parallel) + 3 + 12 empty
+on the first image-provider shim, 13 full + 1 empty on the final one.
