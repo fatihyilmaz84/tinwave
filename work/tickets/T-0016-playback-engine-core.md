@@ -3,7 +3,7 @@ id: T-0016
 title: tinwave-playback engine core from the T-0003 design (reader, ring, renderer, seek, position)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: []          # D-0003 decided; the engine emits PlaybackEvents, not signals
@@ -44,3 +44,7 @@ OS outputs (T-0017), resampling/dither (T-0019), gapless metadata extraction (T-
 
 ## Signals & storage
 Produces the inputs for PlayStarted/Paused/Resumed/Seek*/Skipped/VolumeChanged; emission is wired in a later ticket.
+
+## Merged
+2026-11-02, merge commit b150fe6 (branch head b41cf11), per PO decision D-0005 (merge with known issues).
+Reviews: review-1 and review-2 (CHANGES_REQUESTED). Known issues fixed in T-0028. Gates green on main (219 tests).
