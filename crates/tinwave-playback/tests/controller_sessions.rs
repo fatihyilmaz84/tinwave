@@ -45,6 +45,12 @@ fn the_first_play_starts_a_session_with_its_origin_and_the_timezone() {
     let a = rig.wav("a.wav", SECOND);
     let e = rig.entry(1, &a, SECOND);
     rig.select(vec![e], 0, PlayOrigin::Radio, InputSource::Mouse);
+    assert_eq!(
+        rig.ctl.status().session,
+        None,
+        "a session is the listener's time: it begins when audio is heard"
+    );
+    rig.hear();
 
     let signals = rig.signals();
     let started = only(&signals, SignalKind::SessionStarted);
@@ -76,6 +82,7 @@ fn a_second_play_inside_the_session_does_not_start_another() {
     rig.clock.advance(HALF_HOUR_MS - 1_000);
     rig.ctl.poll();
     rig.select(entries, 1, PlayOrigin::Search, InputSource::Mouse);
+    rig.hear();
 
     let signals = rig.signals();
     assert_eq!(
@@ -222,16 +229,15 @@ fn next_after_pause(tag: &str, silence_ms: i64) -> (Rig, Vec<tinwave_signals::Si
 
 #[test]
 fn next_after_exactly_30_minutes_of_pause_scores_the_skip_in_the_new_session() {
-    let (rig, fresh) = next_after_pause("ses-stale-skip", HALF_HOUR_MS);
+    let (mut rig, fresh) = next_after_pause("ses-stale-skip", HALF_HOUR_MS);
     assert_eq!(
         kinds(&fresh),
         [
             SignalKind::SessionEnded,
             SignalKind::SessionStarted,
-            SignalKind::Skipped,
-            SignalKind::PlayStarted
+            SignalKind::Skipped
         ],
-        "nothing is dropped"
+        "the old play's outcome is not dropped"
     );
     let SignalPayload::SessionStarted(started) = fresh[1].payload else {
         panic!("kind");
@@ -244,29 +250,42 @@ fn next_after_exactly_30_minutes_of_pause_scores_the_skip_in_the_new_session() {
     let new_session = fresh[1].session;
     assert_ne!(new_session, rig.first_session_id());
     assert_eq!(fresh[2].session, new_session);
-    assert_eq!(fresh[3].session, new_session);
     assert_eq!(
         fresh[2].recording,
         Some(recording(1)),
         "the old play's outcome"
     );
-    assert_eq!(fresh[3].recording, Some(recording(2)));
     let SignalPayload::Skipped(p) = fresh[2].payload else {
         panic!("kind");
     };
     assert_eq!(p.input, InputSource::MediaKey);
     assert_eq!(rig.ctl.status().session, Some(new_session));
+
+    // The new track was loaded paused; once it is heard it starts in the new session.
+    rig.ctl.resume(InputSource::MediaKey);
+    rig.hear();
+    let heard = rig.new_signals();
+    assert_eq!(
+        kinds(&heard),
+        [SignalKind::Resumed, SignalKind::PlayStarted]
+    );
+    assert_eq!(heard[1].session, new_session);
+    assert_eq!(heard[1].recording, Some(recording(2)));
 }
 
 #[test]
 fn next_after_29_59_of_pause_stays_in_the_same_session() {
-    let (rig, fresh) = next_after_pause("ses-stale-skip-early", HALF_HOUR_MS - 1_000);
-    assert_eq!(
-        kinds(&fresh),
-        [SignalKind::Skipped, SignalKind::PlayStarted]
-    );
+    let (mut rig, fresh) = next_after_pause("ses-stale-skip-early", HALF_HOUR_MS - 1_000);
+    assert_eq!(kinds(&fresh), [SignalKind::Skipped]);
     assert_eq!(fresh[0].session, rig.first_session_id());
-    assert_eq!(fresh[1].session, rig.first_session_id());
+    rig.ctl.resume(InputSource::MediaKey);
+    rig.hear();
+    let heard = rig.new_signals();
+    assert_eq!(
+        kinds(&heard),
+        [SignalKind::Resumed, SignalKind::PlayStarted]
+    );
+    assert_eq!(heard[1].session, rig.first_session_id());
 }
 
 #[test]
@@ -292,8 +311,7 @@ fn a_chosen_track_after_a_long_pause_opens_the_session_with_the_chosen_origin() 
         [
             SignalKind::SessionEnded,
             SignalKind::SessionStarted,
-            SignalKind::Skipped,
-            SignalKind::PlayStarted
+            SignalKind::Skipped
         ]
     );
     let SignalPayload::SessionStarted(started) = fresh[1].payload else {
@@ -339,6 +357,7 @@ fn counts_of_tracks_and_minutes_cover_the_whole_session() {
         entry(3, &c, SECOND / 4, QueueOrigin::Manual),
     ];
     rig.select(entries, 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
     rig.clock.advance(7 * MINUTE_MS + 30_000);
     rig.play_to_end();
     rig.clock.advance(HALF_HOUR_MS);

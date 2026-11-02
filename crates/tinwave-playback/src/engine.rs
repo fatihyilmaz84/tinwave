@@ -106,7 +106,8 @@ impl std::fmt::Debug for Engine {
 }
 
 impl Engine {
-    /// Start the decoder thread and open the output stream.
+    /// Start the decoder thread and open the output stream. The stream's [`StreamInfo`](crate::StreamInfo) is
+    /// reported at once as [`EventKind::OutputOpened`].
     ///
     /// # Errors
     /// [`PlaybackError::InvalidArgument`] for a zero sample rate; whatever the output reports when
@@ -154,7 +155,8 @@ impl Engine {
                 return Err(error);
             }
         };
-        Ok(Self {
+        let info = stream.info();
+        let engine = Self {
             sh,
             tx,
             thread: Some(thread),
@@ -173,7 +175,12 @@ impl Engine {
             last_grid: 0,
             reported_underruns: 0,
             output_lost_reported: false,
-        })
+        };
+        engine.emit(EventKind::OutputOpened {
+            device: engine.device.clone(),
+            info,
+        });
+        Ok(engine)
     }
 
     /// Replace the queue and start playing `items[index]` at `start_frame`. Skip, previous and

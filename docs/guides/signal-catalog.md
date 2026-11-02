@@ -66,7 +66,7 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 | `QueuedNext` / `QueuedLater` | T0 | Play next / add to queue | `from_view` (`Home|Library|Album|Artist|Playlist|Search|Queue|Radio|NowPlaying|Lyrics|MiniPlayer|Insights`) | Explicit intent +0.4 |
 | `RemovedFromQueue` | T0 | Removed before it played | `was_radio_pick` | Pre-listen rejection −0.4 (strong for radio picks) |
 | `QueueReordered` | T0 | Drag in queue | `distance` (signed) | Moved earlier ⇒ eager (+0.2) |
-| `PlayStarted` | T0 | Any play start | `origin` (`Search|Album|Artist|Playlist|Radio|Queue|Resume|Remote`), `input` | Manual plays weigh more than radio/shuffle plays. |
+| `PlayStarted` | T0 | A play the listener heard: the first position mark (100 ms of audio) of the track, not the moment it was requested | `origin` (`Search|Album|Artist|Playlist|Radio|Queue|Resume|Remote`), `input`; `pos_ds` = where the play began | Manual plays weigh more than radio/shuffle plays. A track that fails to open, or is left before any audio was heard, is not a play: no `PlayStarted`, and no `Skipped`/`Completed` either. |
 | `Favorited` / `Unfavorited` | T0 | Heart toggle | — | +2.0 / −1.0 |
 | `Rated` | T0 | Rating set | `stars` | Mapped −2…+2 |
 | `PlaylistAdded` / `PlaylistRemoved` | T0 | Edit playlist | `playlist_id`, `playlist_kind` (`Manual|Smart`) | +1.0 / −0.3; playlist names become user-defined "moods". |
@@ -128,7 +128,7 @@ Captured by [context providers](context-engine.md) into a `ContextSnapshot`, ded
 
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
-| `SessionStarted` / `SessionEnded` | T0 | First play after ≥ 30 min silence / 30 min silence | `start_origin`, `tracks`, `minutes` | Session-level modeling (first manual pick = session mood). |
+| `SessionStarted` / `SessionEnded` | T0 | First heard play after ≥ 30 min silence / 30 min silence | `start_origin`, `tracks`, `minutes` | Session-level modeling (first manual pick = session mood). |
 | `RadioFeedback` | T0 | "Not now", "Never in this context", "More like this", "Forget this play" | `kind` (`NotNow|NeverInContext|MoreLikeThis|ForgetThisPlay`), `context_scope` | Direct corrections, strongest weights. |
 | `ExplanationOpened` | T0 | User opens "Why this?" | `reason_kind` | Which explanations people care about. |
 | `SignalDropped` | meta | Channel overflow | `kind`, `count` | Health metric shown in Diagnostics (in memory only). |
@@ -138,7 +138,13 @@ Session boundaries (T-0024):
   30 min ends the session, and the Next/Resume that follows opens a new one. Pair a play's start with its outcome by
   device and play order, never by session id (T-0029).
 - A repeat or exclusive-mode change made while no session is open is reported right after the next `SessionStarted`
-  (with that event's time); a change reverted before any session is not reported.
+  (with that event's time, and the recording that is current then, which need not be the one the change was made on);
+  a change reverted before any session is not reported.
+- A session begins with the first play that is *heard* (see `PlayStarted`): a track that fails to open does not open
+  one, and `SessionEnded.tracks` counts heard plays. Within a play's first 100 ms (before its `PlayStarted`) a pause,
+  seek or volume change can be recorded ahead of it, when a session is already open.
+- A track that plays to its end before any position mark (shorter than 100 ms, or a seek to its very end) was heard:
+  its `PlayStarted` is emitted at the end, immediately before its `Completed`.
 
 ## 9. Volume estimates (reference heavy user: 8 h/day, ~120 tracks/day)
 

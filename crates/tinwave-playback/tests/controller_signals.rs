@@ -26,6 +26,11 @@ fn play_started_carries_origin_input_recording_source_and_start_position() {
     let a = rig.wav("a.wav", SECOND);
     let e = rig.entry(1, &a, SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Keyboard);
+    assert!(
+        rig.signals().is_empty(),
+        "nothing has been heard yet, so nothing has started"
+    );
+    rig.hear();
 
     let signals = rig.signals();
     assert_eq!(
@@ -126,8 +131,8 @@ fn skipped_has_position_fraction_input_and_queue_origin() {
     let fresh = rig.new_signals();
     assert_eq!(
         kinds(&fresh),
-        [SignalKind::Skipped, SignalKind::PlayStarted],
-        "the skip, then the next play, in that order"
+        [SignalKind::Skipped],
+        "the skip now; the next play starts when it is heard"
     );
     let skipped = only(&fresh, SignalKind::Skipped);
     let SignalPayload::Skipped(p) = skipped.payload else {
@@ -139,6 +144,8 @@ fn skipped_has_position_fraction_input_and_queue_origin() {
     assert_eq!(p.fraction, Fraction::from_raw(26), "1 s of 10 s");
     assert_eq!(skipped.pos_ds, Some(10));
     assert_eq!(skipped.recording, Some(recording(1)));
+    rig.hear();
+    let fresh = rig.new_signals();
     let SignalPayload::PlayStarted(started) = only(&fresh, SignalKind::PlayStarted).payload else {
         panic!("kind");
     };
@@ -164,11 +171,9 @@ fn leaving_a_track_in_its_last_three_percent_is_completed_not_skipped() {
     rig.new_signals();
     rig.load_with(entries, 1, LoadIntent::Next, InputSource::Keyboard)
         .expect("next");
-    let fresh = rig.new_signals();
-    assert_eq!(
-        kinds(&fresh),
-        [SignalKind::Completed, SignalKind::PlayStarted]
-    );
+    assert_eq!(kinds(&rig.new_signals()), [SignalKind::Completed]);
+    rig.hear();
+    assert_eq!(kinds(&rig.new_signals()), [SignalKind::PlayStarted]);
 }
 
 #[test]
@@ -189,11 +194,8 @@ fn previous_emits_previous_pressed_for_the_track_it_returns_to_and_skips_the_one
     let fresh = rig.new_signals();
     assert_eq!(
         kinds(&fresh),
-        [
-            SignalKind::Skipped,
-            SignalKind::PlayStarted,
-            SignalKind::PreviousPressed
-        ]
+        [SignalKind::Skipped, SignalKind::PreviousPressed],
+        "the press is the listener's act, whether or not the track then plays"
     );
     let skipped = only(&fresh, SignalKind::Skipped);
     assert_eq!(skipped.recording, Some(recording(2)));
@@ -204,6 +206,8 @@ fn previous_emits_previous_pressed_for_the_track_it_returns_to_and_skips_the_one
         "the track returned to"
     );
     assert_eq!(previous.pos_ds, Some(0));
+    rig.hear();
+    assert_eq!(kinds(&rig.new_signals()), [SignalKind::PlayStarted]);
 }
 
 #[test]
@@ -221,6 +225,16 @@ fn a_failed_track_is_neither_completed_nor_skipped() {
     rig.play_to_end();
 
     let signals = rig.signals();
+    let starts: Vec<_> = signals
+        .iter()
+        .filter(|e| e.kind() == SignalKind::PlayStarted)
+        .map(|e| e.recording)
+        .collect();
+    assert_eq!(
+        starts,
+        [Some(recording(1)), Some(recording(3))],
+        "the track that failed to open was never heard, so it never started"
+    );
     let outcomes: Vec<_> = signals
         .iter()
         .filter(|e| matches!(e.kind(), SignalKind::Completed | SignalKind::Skipped))
@@ -246,11 +260,10 @@ fn a_queue_of_only_a_failing_track_leaves_no_outcome_either() {
     rig.run_until("the failed track is closed", |r| {
         r.ctl.status().recording.is_none()
     });
-    let signals = rig.signals();
     assert_eq!(
-        kinds(&signals),
-        [SignalKind::SessionStarted, SignalKind::PlayStarted],
-        "the attempt is recorded, its failure has no outcome"
+        kinds(&rig.signals()),
+        [],
+        "a track that fails before any audio is not a play, and is not a session"
     );
 }
 
@@ -304,7 +317,7 @@ fn pausing_twice_or_with_nothing_loaded_emits_nothing() {
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.new_signals();
     rig.ctl.pause(InputSource::Mouse);
     rig.ctl.pause(InputSource::Mouse);
@@ -376,7 +389,7 @@ fn seeks_within_two_seconds_of_each_other_are_one_gesture() {
     let a = rig.wav("a.wav", 30 * SECOND);
     let e = rig.entry(1, &a, 30 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.new_signals();
 
     for target in [3_000, 6_000, 9_000] {
@@ -392,7 +405,7 @@ fn seeks_within_two_seconds_of_each_other_are_one_gesture() {
     };
     assert_eq!(
         (p.from_ds, p.to_ds),
-        (ds(0), ds(9_000)),
+        (ds(100), ds(9_000)),
         "first from, last to"
     );
 }
@@ -431,7 +444,7 @@ fn a_seek_gesture_never_merges_across_a_track_change() {
     let a = rig.wav("a.wav", 30 * SECOND);
     let e = rig.entry(1, &a, 30 * SECOND);
     rig.select(vec![e.clone()], 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.new_signals();
 
     rig.ctl.seek_ms(10_000, InputSource::Mouse).expect("seek");
@@ -439,7 +452,7 @@ fn a_seek_gesture_never_merges_across_a_track_change() {
     // The same track loaded again: same recording, within the 2 s window.
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
     rig.settle();
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.clock.advance(100);
     rig.ctl
         .seek_ms(10_000, InputSource::Mouse)
@@ -520,7 +533,7 @@ fn a_volume_gesture_ends_at_a_track_change() {
         entry(2, &b, 10 * SECOND, QueueOrigin::Manual),
     ];
     rig.select(entries.clone(), 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.new_signals();
     rig.ctl.set_volume(0.5, InputSource::Mouse).expect("volume");
     rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
@@ -529,11 +542,7 @@ fn a_volume_gesture_ends_at_a_track_change() {
     let fresh = rig.new_signals();
     assert_eq!(
         kinds(&fresh),
-        [
-            SignalKind::VolumeChanged,
-            SignalKind::Skipped,
-            SignalKind::PlayStarted
-        ]
+        [SignalKind::VolumeChanged, SignalKind::Skipped]
     );
     assert_eq!(fresh[0].recording, Some(recording(1)));
 }
@@ -554,6 +563,7 @@ fn repeat_mode_changed_is_emitted_once_per_change() {
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
     rig.new_signals();
     rig.ctl.set_repeat_mode(RepeatMode::One);
     rig.ctl.set_repeat_mode(RepeatMode::One);
@@ -583,7 +593,7 @@ fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
-    rig.render_exact(480, 480);
+    rig.hear();
     rig.new_signals();
 
     rig.ctl.switch_device(Some("dac".into())).expect("switch");
@@ -629,6 +639,7 @@ fn disabling_a_category_constructs_nothing_of_it() {
     rig.ctl.poll();
     rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
         .expect("next");
+    rig.hear();
     rig.ctl.set_repeat_mode(RepeatMode::All);
 
     let signals = rig.signals();
@@ -703,7 +714,7 @@ fn with_every_category_off_nothing_is_constructed_and_playback_goes_on() {
 }
 
 #[test]
-fn output_reopened_carries_how_the_new_stream_was_opened() {
+fn the_engine_reports_how_each_stream_was_opened_the_first_one_too() {
     use std::sync::Arc;
     use tinwave_core::{ManualClock, UtcMillis};
     use tinwave_playback::{Engine, EngineConfig, EventKind, FsOpener};
@@ -714,7 +725,11 @@ fn output_reopened_carries_how_the_new_stream_was_opened() {
     opened.period_frames = 480;
     opened.stream_latency_frames = 96;
     opened.fallback = Some("exclusive mode refused: format not supported".into());
-    let (output, _handle, _) = InfoOutput::new(vec![StreamInfo::unknown(), opened.clone()]);
+    let mut initial = StreamInfo::unknown();
+    initial.backend = "wasapi";
+    initial.mode = StreamMode::Exclusive;
+    initial.period_frames = 240;
+    let (output, _handle, _) = InfoOutput::new(vec![initial.clone(), opened.clone()]);
     let sink = Arc::new(common::CollectingSink::default());
     let mut engine = Engine::start(
         EngineConfig {
@@ -727,6 +742,14 @@ fn output_reopened_carries_how_the_new_stream_was_opened() {
         Box::new(output),
     )
     .expect("engine");
+    assert_eq!(
+        sink.take(),
+        vec![EventKind::OutputOpened {
+            device: None,
+            info: initial
+        }],
+        "the starting stream is observable without a device switch"
+    );
     engine.switch_device(Some("dac".into())).expect("switch");
     assert_eq!(
         sink.take(),
@@ -748,6 +771,8 @@ fn a_repeat_mode_set_with_nothing_loaded_is_reported_by_the_next_session() {
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    assert!(rig.signals().is_empty(), "nothing is heard yet");
+    rig.hear();
     let signals = rig.signals();
     assert_eq!(
         kinds(&signals),
@@ -772,6 +797,7 @@ fn a_repeat_mode_changed_back_before_any_session_is_not_reported() {
     let a = rig.wav("a.wav", SECOND);
     let e = rig.entry(1, &a, SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
     assert_eq!(
         kinds(&rig.signals()),
         [SignalKind::SessionStarted, SignalKind::PlayStarted]
@@ -792,6 +818,7 @@ fn a_repeat_mode_set_after_a_session_ended_is_reported_by_the_next_one() {
     rig.ctl.set_repeat_mode(RepeatMode::All);
     assert!(rig.new_signals().is_empty());
     rig.select(vec![e], 0, PlayOrigin::Search, InputSource::Mouse);
+    rig.hear();
     assert_eq!(
         kinds(&rig.new_signals()),
         [
@@ -814,6 +841,7 @@ fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() 
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
     let signals = rig.signals();
     assert_eq!(
         kinds(&signals),
@@ -827,4 +855,153 @@ fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() 
         panic!("kind");
     };
     assert!(p.on);
+}
+
+#[test]
+fn the_stream_the_engine_started_with_is_the_starting_mode_not_a_toggle() {
+    let mut exclusive = StreamInfo::unknown();
+    exclusive.mode = StreamMode::Exclusive;
+    let (output, handle, _) =
+        InfoOutput::new(vec![exclusive.clone(), exclusive, StreamInfo::unknown()]);
+    // No initial mode is passed to the controller: the engine's `OutputOpened` says it.
+    let mut rig = Rig::with_output("sig-exclusive-launch", Box::new(output), handle);
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    assert_eq!(
+        kinds(&rig.new_signals()),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted],
+        "starting in exclusive mode is not a change"
+    );
+
+    rig.ctl.switch_device(Some("dac".into())).expect("switch");
+    assert!(rig.new_signals().is_empty(), "still exclusive");
+    rig.ctl.switch_device(None).expect("switch");
+    let SignalPayload::ExclusiveModeToggled(p) =
+        only(&rig.new_signals(), SignalKind::ExclusiveModeToggled).payload
+    else {
+        panic!("kind");
+    };
+    assert!(!p.on, "compared with the stream the engine started with");
+}
+
+#[test]
+fn a_restored_repeat_mode_is_the_starting_state_not_a_change() {
+    let mut rig = Rig::with_repeat("sig-initial-repeat", RepeatMode::All);
+    assert_eq!(rig.ctl.status().repeat, RepeatMode::All);
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    assert_eq!(
+        kinds(&rig.new_signals()),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted],
+        "restoring the saved mode at launch emits no RepeatModeChanged"
+    );
+
+    rig.ctl.set_repeat_mode(RepeatMode::All);
+    assert!(rig.new_signals().is_empty(), "unchanged");
+    rig.ctl.set_repeat_mode(RepeatMode::One);
+    let fresh = rig.new_signals();
+    assert_eq!(kinds(&fresh), [SignalKind::RepeatModeChanged]);
+    let SignalPayload::RepeatModeChanged(p) = fresh[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.mode, RepeatMode::One);
+}
+
+#[test]
+fn a_track_replaced_before_its_first_audio_is_not_a_play() {
+    let mut rig = Rig::new("sig-never-heard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let b = rig.wav("b.wav", 10 * SECOND);
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Playlist),
+    ];
+    rig.select(entries.clone(), 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
+        .expect("next");
+    assert!(
+        rig.signals().is_empty(),
+        "no start, no skip and no session for a track nobody heard: {:?}",
+        kinds(&rig.signals())
+    );
+
+    rig.hear();
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+    );
+    assert_eq!(signals[1].recording, Some(recording(2)));
+    let SignalPayload::PlayStarted(p) = signals[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.origin, PlayOrigin::Playlist);
+}
+
+#[test]
+fn a_track_that_ends_before_its_first_position_mark_was_still_heard() {
+    let mut rig = Rig::new("sig-short");
+    let frames = SECOND / 20;
+    let a = rig.wav("a.wav", frames);
+    let e = rig.entry(1, &a, frames);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::PlayStarted,
+            SignalKind::Completed
+        ],
+        "50 ms is less than one mark, but it played to its end"
+    );
+}
+
+#[test]
+fn a_play_paused_before_it_is_heard_starts_when_it_is() {
+    let mut rig = Rig::new("sig-paused-unheard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.ctl.pause(InputSource::Mouse);
+    rig.clock.advance(5_000);
+    rig.ctl.resume(InputSource::Mouse);
+    assert!(rig.signals().is_empty(), "nothing was heard");
+    rig.hear();
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+    );
+    let SignalPayload::SessionStarted(p) = signals[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!(
+        p.start_origin,
+        PlayOrigin::Album,
+        "the session began with the choice, not with the resume"
+    );
+}
+
+#[test]
+fn play_started_reports_where_the_play_began() {
+    let mut rig = Rig::new("sig-resume-position");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.ctl
+        .load(tinwave_playback::LoadRequest {
+            entries: vec![e],
+            index: 0,
+            start_frame: 2 * SECOND as u64,
+            intent: LoadIntent::Select(PlayOrigin::Resume),
+            input: InputSource::Auto,
+        })
+        .expect("load");
+    rig.hear();
+    let started = only(&rig.signals(), SignalKind::PlayStarted);
+    assert_eq!(started.pos_ds, Some(20), "2 s in, not 2.1 s");
 }

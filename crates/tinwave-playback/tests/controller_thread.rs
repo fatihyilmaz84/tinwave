@@ -66,7 +66,7 @@ impl Threaded {
                 bus: bus.clone(),
                 ids: IdGenerator::new(clock.clone(), SeededRng::new(7)),
                 timezone: Arc::new(FixedTimezone(TzOffsetMin::UTC)),
-                initial_mode: tinwave_playback::StreamMode::Shared,
+                initial_repeat: tinwave_signals::RepeatMode::Off,
                 poll_interval: Duration::from_millis(2),
             },
             Box::new(output),
@@ -102,6 +102,24 @@ impl Threaded {
             }
         }
         panic!("never happened: {what}");
+    }
+
+    /// Plays the audio callback until 100 ms of the current track were rendered: its first
+    /// position mark, which is when `PlayStarted` is due.
+    fn hear(&self) {
+        let mut block = vec![0.0f32; 960];
+        let mut heard = 0;
+        for _ in 0..30_000 {
+            let real = self.out.render(&mut block, 0).unwrap_or(0);
+            heard += real;
+            if heard >= 4_800 {
+                return;
+            }
+            if real < 480 {
+                std::thread::sleep(Duration::from_micros(200));
+            }
+        }
+        panic!("the track was never heard");
     }
 
     fn signals(&mut self) -> Vec<SignalEvent> {
@@ -189,6 +207,7 @@ fn dropping_the_handle_ends_the_session() {
             input: InputSource::Mouse,
         })
         .expect("load");
+    t.hear();
     let Threaded {
         handle,
         mut drain,
@@ -265,7 +284,18 @@ fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
     t.play_until("the cadence settled", |t| {
         t.handle.status().state != PlayState::Idle
     });
-    let signals = t.signals();
+    // Whatever the workers left, the track now being played is heard for a moment.
+    t.handle.resume(InputSource::Mouse).expect("resume");
+    t.hear();
+    // The controller thread maps the mark on its own cadence.
+    let mut signals = Vec::new();
+    for _ in 0..30_000 {
+        signals.extend(t.signals());
+        if signals.iter().any(|e| e.kind() == SignalKind::PlayStarted) {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(200));
+    }
 
     assert_eq!(t.bus.dropped_total(), 0);
     assert_eq!(t.bus.reserved_overflows(), 0);
@@ -327,7 +357,7 @@ fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
 
     let Threaded {
         handle, mut drain, ..
-    } = std::mem::ManuallyDrop::into_inner(std::mem::ManuallyDrop::new(t));
+    } = t;
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let closer = std::thread::spawn(move || {
         drop(handle);
@@ -347,11 +377,7 @@ fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
     let kinds: Vec<_> = sink.0.iter().map(SignalEvent::kind).collect();
     assert_eq!(
         kinds,
-        [
-            SignalKind::SessionStarted,
-            SignalKind::PlayStarted,
-            SignalKind::SessionEnded
-        ],
-        "the session is still closed on the way out"
+        [],
+        "nothing was heard, so there was no play and no session to close"
     );
 }
