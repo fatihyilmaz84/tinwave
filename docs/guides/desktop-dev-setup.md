@@ -22,6 +22,12 @@ Rust–Qt bridge: CXX-Qt 0.10, Cargo-driven, Qt linked dynamically (ADR 0008). A
 - WASAPI and WinRT APIs come through the `windows` crate (features enabled per module only).
 - The desktop app builds with Cargo only (CXX-Qt, ADR 0008): set `QMAKE=C:\Qt\<version>\msvc2022_64\bin\qmake.exe`;
   no vcvars or CMake needed. Editing a bridge, QML or C++ file costs ~10 s per rebuild (plain Rust ~1 s).
+- The Qt `bin` folder must be on `PATH` for `cargo run` **and** `cargo test`/`nextest`: the app crate's test binaries
+  load Qt DLLs, and without them they fail with STATUS_DLL_NOT_FOUND (0xc0000135). PowerShell, per shell:
+  `$env:QMAKE='C:\Qt\6.12.0\msvc2022_64\bin\qmake.exe'; $env:PATH='C:\Qt\6.12.0\msvc2022_64\bin;'+$env:PATH`.
+  Machine-specific paths are not committed to `.cargo/config.toml` (P-0118).
+- The desktop crate's headless startup tests (offscreen platform, no display, no audio) run in the default test run.
+- To see Qt's log in a piped stderr (tests, scripts), set `QT_FORCE_STDERR_LOGGING=1` (Qt 6.12).
 
 ## macOS
 
@@ -45,6 +51,9 @@ Dev flags (env):
 - `TINWAVE_DATA_DIR` — use a throwaway data dir.
 - `TINWAVE_FAKE_CONTEXT=fixtures/context/rainy-friday.toml` — inject a fixed context to test radio.
 - `TINWAVE_SIGNAL_LOG=1` — mirror signals to stdout in human-readable form (debug builds only).
+- `TINWAVE_MAIN_QML=<url>` — load a different root QML file (debug builds only); `--color-scheme=light|dark|system`
+  forces the app's scheme without touching the OS; `QT_QUICK_CONTROLS_STYLE` is Qt's own switch and works in release
+  too. See apps/tinwave-desktop/README.md.
 
 ## Before every PR
 

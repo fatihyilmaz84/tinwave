@@ -133,6 +133,13 @@ Captured by [context providers](context-engine.md) into a `ContextSnapshot`, ded
 | `ExplanationOpened` | T0 | User opens "Why this?" | `reason_kind` | Which explanations people care about. |
 | `SignalDropped` | meta | Channel overflow | `kind`, `count` | Health metric shown in Diagnostics (in memory only). |
 
+Session boundaries (T-0024):
+- A play's outcome (`Skipped`/`Completed`) can land in a **later session** than its `PlayStarted`: a track paused past
+  30 min ends the session, and the Next/Resume that follows opens a new one. Pair a play's start with its outcome by
+  device and play order, never by session id (T-0029).
+- A repeat or exclusive-mode change made while no session is open is reported right after the next `SessionStarted`
+  (with that event's time); a change reverted before any session is not reported.
+
 ## 9. Volume estimates (reference heavy user: 8 h/day, ~120 tracks/day)
 
 | Group | Class | Events/day | Bytes/day on disk |

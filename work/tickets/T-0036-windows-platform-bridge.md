@@ -3,7 +3,7 @@ id: T-0036
 title: Windows platform bridge — reduced motion, high contrast, transparency, dark menu mode, Mica (WindowEffects)
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: M
 depends_on: [T-0040]

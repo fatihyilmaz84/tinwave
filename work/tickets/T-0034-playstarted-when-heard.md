@@ -12,7 +12,7 @@ scope:
 owner:
 branch:
 review_round: 0
-created_by: from P-0096, P-0097
+created_by: from P-0096, P-0097, P-0128
 ---
 
 ## Context
@@ -33,3 +33,10 @@ play the listener heard). The shell must pass the initial output mode by hand be
 
 ## Signals & storage
 No new kinds; PlayStarted timing changes.
+
+## Added from T-0024 review-2 (P-0128)
+- `ControllerConfig::initial_repeat`: seeds both `repeat` and `reported_repeat`, so restoring the saved repeat mode at
+  launch emits no RepeatModeChanged. Test: a configured `initial_repeat` + first play emits no RepeatModeChanged.
+- Document in the mapper that a deferred RepeatModeChanged carries the session-start time and whichever recording is
+  current then (catalog §8 "Session boundaries").
+- Nit: tests/controller_thread.rs `ManuallyDrop::into_inner(ManuallyDrop::new(t))` → plain destructure.

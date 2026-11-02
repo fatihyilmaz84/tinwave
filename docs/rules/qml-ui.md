@@ -12,6 +12,12 @@
   through a queued `done` signal; exactly one `finished()` per response (`cancel()` only sets a flag); a bounded pool with a
   closing flag; every provider is quiesced (closing + `waitForDone()`) before the QML engine is dropped, enforced by the
   app's RAII UI owner — never rely on destructors alone.
+- `#[allow(unsafe_code)]` for a bridge goes on its `mod name;` declaration, not on the `#[cxx_qt::bridge]` module
+  (CXX-Qt rejects other attributes there; ADR 0008).
+- Controls with a text mnemonic (`ItemDelegate`, `Button`, `MenuItem`…) treat `&` as a shortcut marker: write a literal
+  ampersand as `&&` ("Sources && devices").
+- Developer-only switches (e.g. `TINWAVE_MAIN_QML`) are read under `#[cfg(debug_assertions)]` only; a release build never
+  loads UI from a path or URL taken from the environment.
 
 ## Threading
 

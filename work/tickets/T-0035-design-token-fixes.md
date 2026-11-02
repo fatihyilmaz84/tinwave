@@ -3,7 +3,7 @@ id: T-0035
 title: Design-system §3 token fixes from T-0011 (accentFill, onAccent, contrast, selected, alpha hex)
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: S
 depends_on: [T-0040]

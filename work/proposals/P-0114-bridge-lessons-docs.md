@@ -4,5 +4,5 @@ title: ADR 0008 / qml-ui / dev-setup: bridge lessons (allow on mod item, Qt on P
 from: T-0040 build-1
 date: 2026-11-02
 size: S
-outcome: accepted → lead applies on T-0040 merge
+outcome: accepted → done by lead on T-0040 merge (2026-11-02)
 ---

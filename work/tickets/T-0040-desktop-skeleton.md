@@ -3,7 +3,7 @@ id: T-0040
 title: apps/tinwave-desktop skeleton — CXX-Qt crate, FluentWinUI3 window shell, Theme.qml, start-up error path
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: []
@@ -28,7 +28,7 @@ spikes/T-0011-native-styles/ (Theme.qml). architecture.md: thin view models, one
   QML module with `Main.qml` (window shell: sidebar with the §4 groups as native ItemDelegates, empty content area with
   `TwEmptyState`-style text, transport bar placeholder area drawn only with tokens) and `Theme/Theme.qml` ported from
   the T-0011 prototype (T-0035 token fixes land separately).
-- Style selection at start-up (FluentWinUI3 on Windows; Fusion elsewhere), light/dark following the OS.
+- Style selection at start-up (FluentWinUI3 on Windows, `macOS` on macOS per design-system §2 (lead decision, verified in T-0038), Fusion elsewhere), light/dark following the OS.
 - QML load failure exits with a non-zero code and a clear message (never hangs).
 - `cargo run -p tinwave-desktop` opens the window; workspace `members` gains `"apps/*"`.
 
@@ -46,3 +46,6 @@ spikes/T-0011-native-styles/ (Theme.qml). architecture.md: thin view models, one
 
 ## Signals & storage
 None yet (view models and signals arrive with the screen tickets).
+
+## Outcome
+2026-11-02: merged 511c121 after review-2 APPROVE; gates on main green (fmt, clippy, 402 passed / 6 skipped, deny). Lessons folded into ADR 0008, qml-ui.md, desktop-dev-setup.md (P-0114).

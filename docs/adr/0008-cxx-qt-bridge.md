@@ -259,9 +259,22 @@ Raw outputs are in `results/` (`summary-forward-on.txt`, `summary-forward-off.tx
    6.8/6.10, and Windows/macOS bundle Qt; revisit only with a concrete need.
 4. Lint: `apps/tinwave-desktop` uses crate-level `deny(unsafe_code)` with `allow` only on `#[cxx_qt::bridge]` modules
    and the documented FFI shims (same pattern as tinwave-context/-playback), plus `undocumented_unsafe_blocks = "deny"`.
+   CXX-Qt 0.10 rejects attributes other than `doc` and `cxx_qt::bridge` on the bridge module itself, so the
+   `#[allow(unsafe_code)]` goes on the `mod name;` declaration in the parent module (T-0040).
 5. Async image provider: use the T-0041 pattern below (queued hand-off + explicit quiesce before the engine is
    dropped). The original RVA 0xe9f73 crash was not reproduced; a teardown crash of the same class was, and is fixed.
 6. Memory is judged by private working set (D-0006): idle 41 MB PWS for the prototype.
+
+## Addendum: what the first app crate taught (T-0040, 2026-11-02)
+
+- `apps/tinwave-desktop` is a library plus a thin binary: a bin-only crate failed to link its integration tests
+  (LNK2019).
+- Every binary that links the crate — the app and every `cargo test` binary — needs the Qt `bin` folder on `PATH`;
+  without it Windows fails with STATUS_DLL_NOT_FOUND (0xc0000135).
+- The headless startup tests (offscreen platform, no display, no audio) run in the default `cargo test`; the workspace
+  needs Qt to build anyway.
+- Qt 6.12 writes log output to a piped stderr only with `QT_FORCE_STDERR_LOGGING=1`; tests that read Qt warnings set it.
+- Measured on the shell: window visible 312 ms median warm, idle private working set 39 MB (FluentWinUI3).
 
 ## Addendum: image provider lifetime (T-0041, 2026-11-02)
 
