@@ -6,7 +6,7 @@ epic: E-01
 status: backlog
 priority: P0
 size: M
-depends_on: [T-0016, T-0006]
+depends_on: [T-0006, T-0030]   # T-0016 done
 scope:
   - crates/tinwave-playback/src/controller/   # or a small crate named in grooming
 owner:
@@ -28,6 +28,8 @@ signals are built outside the engine.
 - Emission tests for every mapped signal kind (testing.md "Signals must be tested").
 - Implements `PlaybackContextSource` for tinwave-context's audio providers (P-0062) and loads/stores the
   `DeviceSecret` in the OS keychain (Windows Credential Manager first), generated via `&mut impl CryptoRng`.
+- `PlaybackContextSource::current()` returns `Some` for the whole live session, **including while paused** (lead
+  decision on the T-0014 review), so a headphone switch while paused still becomes `OutputDeviceChanged`.
 - Engine contract after T-0028: `seek` with no current track is rejected and emits nothing; exactly one
   `TrackLeft` per `TrackStarted`; a stalled first read is buffering, not an Underrun.
 

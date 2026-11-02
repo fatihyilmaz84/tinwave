@@ -192,7 +192,6 @@ impl Decoder {
                 .push_partial_slice(&st.pending[st.pending_off..st.pending_off + take]);
             st.pending_off += pushed.len();
             st.written += (pushed.len() / CHANNELS) as u64;
-            self.sh.primed.store(true, Release);
         }
     }
 
@@ -248,10 +247,16 @@ impl Decoder {
             } => {
                 self.producer = producer;
                 self.drop_reader(st);
-                // No item means nothing is loaded: adopt the ring and stay idle.
-                st.cur = item
-                    .and_then(|id| st.queue.iter().position(|t| t.id == id))
-                    .unwrap_or(st.queue.len());
+                // No item means no track is current (stopped, or the queue ended): keep `cur`, which
+                // is the end of the queue or the first appended track that has not been heard yet.
+                // A named item that is no longer queued ends the queue.
+                if let Some(id) = item {
+                    st.cur = st
+                        .queue
+                        .iter()
+                        .position(|t| t.id == id)
+                        .unwrap_or(st.queue.len());
+                }
                 // The old stream is gone, so nothing can race: align the handshake and restart.
                 let req = self.sh.flush_req.load(Acquire);
                 self.sh.flush_ack.store(req, Release);
@@ -269,7 +274,6 @@ impl Decoder {
         );
         st.pending.clear();
         st.pending_off = 0;
-        self.sh.primed.store(false, Release);
         let req = self.sh.flush_req.fetch_add(1, AcqRel) + 1;
         st.awaiting = Some(Awaiting { req, frame, gen });
     }
@@ -295,7 +299,6 @@ impl Decoder {
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
         self.sh.marks().clear();
-        self.sh.primed.store(false, Release);
         self.sh.eos.store(false, Release);
     }
 
@@ -303,7 +306,6 @@ impl Decoder {
         self.sh.eos_total.store(st.written, Release);
         self.sh.eos_failed.store(st.item_failed, Release);
         self.sh.eos.store(true, Release);
-        self.sh.primed.store(true, Release);
     }
 
     /// Open `st.cur` at `frame`, moving on to later queue entries when one fails.

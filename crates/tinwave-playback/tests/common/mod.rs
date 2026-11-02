@@ -5,9 +5,11 @@
 //! `ManualClock`, and waiting for the decoder thread is a bounded spin on buffered frames.
 #![allow(dead_code)]
 
+use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use symphonia::core::io::MediaSource;
 use tinwave_core::{ManualClock, UtcMillis};
 use tinwave_playback::{
     Engine, EngineConfig, EventKind, EventSink, FsOpener, ManualHandle, ManualOutput,
@@ -258,6 +260,29 @@ impl Harness {
         panic!("decoder never carried out the command");
     }
 
+    /// Plays (480-frame callbacks) and polls in a bounded loop until `done` holds. Unlike
+    /// `render_exact` it never waits for audio to arrive, so it cannot hang when the decoder has
+    /// finished and the ring is empty; use it whenever the end state is an event, not a frame count.
+    pub fn run_until(&mut self, what: &str, mut done: impl FnMut(&Harness) -> bool) {
+        let mut block = vec![0.0f32; 960];
+        for _ in 0..30_000 {
+            self.engine.poll();
+            if done(self) {
+                return;
+            }
+            let real = self.out.render(&mut block, self.latency).unwrap_or(0);
+            if real < 480 {
+                std::thread::sleep(std::time::Duration::from_micros(100));
+            }
+        }
+        panic!("never happened: {what}");
+    }
+
+    /// True once `pred` matches an event emitted so far.
+    pub fn saw(&self, pred: impl Fn(&EventKind) -> bool) -> bool {
+        self.sink.kinds().iter().any(pred)
+    }
+
     /// After the last real frame: callbacks return no audio and `QueueEnded` arrives.
     pub fn finish(&mut self) {
         for _ in 0..30_000 {
@@ -349,4 +374,60 @@ pub fn assert_paired(kinds: &[EventKind], allow_open: bool) {
         allow_open || open.is_none(),
         "{open:?} was never closed: {kinds:?}"
     );
+}
+
+/// A WAV that reads fine up to `fail_after` bytes and then returns an IO error.
+pub struct BrokenSource {
+    inner: Cursor<Vec<u8>>,
+    delivered: usize,
+    fail_after: usize,
+}
+
+impl Read for BrokenSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.delivered >= self.fail_after {
+            return Err(std::io::Error::other("disk went away"));
+        }
+        let n = self.inner.read(buf)?;
+        self.delivered += n;
+        Ok(n)
+    }
+}
+
+impl Seek for BrokenSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+impl MediaSource for BrokenSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.inner.get_ref().len() as u64)
+    }
+}
+
+/// Opens the named file normally, except `broken` which fails mid-stream.
+#[derive(Debug)]
+pub struct BreakingOpener {
+    pub broken: std::path::PathBuf,
+    pub fail_after: usize,
+}
+
+impl SourceOpener for BreakingOpener {
+    fn open(&self, track: &Track) -> std::io::Result<Box<dyn MediaSource>> {
+        let bytes = std::fs::read(&track.path)?;
+        let fail_after = if track.path == self.broken {
+            self.fail_after
+        } else {
+            usize::MAX
+        };
+        Ok(Box::new(BrokenSource {
+            inner: Cursor::new(bytes),
+            delivered: 0,
+            fail_after,
+        }))
+    }
 }
