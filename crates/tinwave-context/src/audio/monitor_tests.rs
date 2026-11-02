@@ -241,3 +241,122 @@ fn the_event_context_guid_is_a_fixed_v4_uuid() {
     assert_eq!((EVENT_CONTEXT_GUID >> 76) & 0xf, 4);
     assert_eq!((EVENT_CONTEXT_GUID >> 62) & 0x3, 2);
 }
+
+/// A fake OS whose first `bind` returns, then waits for the test: while the provider thread is
+/// held there, the test can overflow the event queue deterministically.
+struct GatedBackend {
+    inner: FakeBackend,
+    gate: Option<crossbeam_channel::Receiver<()>>,
+}
+
+impl backend::Backend for GatedBackend {
+    fn bind(
+        &mut self,
+        target: backend::BindTarget<'_>,
+        generation: u64,
+    ) -> Result<backend::BoundEndpoint, backend::BindError> {
+        let bound = self.inner.bind(target, generation);
+        if let Some(gate) = self.gate.take() {
+            gate.recv().unwrap();
+        }
+        bound
+    }
+
+    fn unbind(&mut self) {
+        self.inner.unbind();
+    }
+
+    fn gain_db(&mut self) -> Option<f32> {
+        self.inner.gain_db()
+    }
+}
+
+/// Holds the thread after its first bind, sends `events` into a queue of capacity 1, runs
+/// `change_os` while it is held, then releases it. Returns the monitor and the bus drain.
+fn overflow_one_slot_queue(
+    events: Vec<RawEvent>,
+    change_os: impl FnOnce(&FakeHandle),
+) -> (AudioMonitor, FakeHandle, runtime::EventSender) {
+    let os = FakeHandle::default();
+    os.add("spk", speakers());
+    os.add("bt", bluetooth_headset());
+    os.os().default_id = Some("spk".into());
+    let (bus, _drain) = real_clock_bus();
+    let cache = Arc::new(ArcSwap::from_pointee(ContextFields::default()));
+    let stats = Arc::new(StatsCells::default());
+    let (gate_tx, gate_rx) = crossbeam_channel::bounded(1);
+    let (sender_tx, sender_rx) = crossbeam_channel::bounded(1);
+    let factory_os = os.clone();
+    let thread = runtime::spawn_with_queue(
+        config(bus, FakePlayback::playing()),
+        cache.clone(),
+        stats.clone(),
+        1,
+        move |ctx| {
+            sender_tx.send(ctx.events).unwrap();
+            Ok(GatedBackend {
+                inner: factory_os.backend(),
+                gate: Some(gate_rx),
+            })
+        },
+    )
+    .unwrap();
+    let sender = sender_rx.recv().unwrap();
+    // The thread is now inside its first bind (or about to be): wait until it has bound.
+    wait_until("the first bind", || os.os().bound_id.is_some());
+    for event in events {
+        sender.send(event);
+    }
+    change_os(&os);
+    gate_tx.send(()).unwrap();
+    let monitor = AudioMonitor {
+        cache,
+        stats,
+        thread: Some(thread),
+    };
+    // The caller keeps the sender alive, as the real backend does for its callbacks.
+    (monitor, os, sender)
+}
+
+fn default_change(role: backend::Role, id: &str) -> RawEvent {
+    RawEvent::DefaultChanged {
+        at: tinwave_core::UtcMillis::new(0),
+        flow: backend::Flow::Render,
+        role,
+        id: Some(id.to_owned()),
+    }
+}
+
+#[test]
+fn a_lost_default_change_makes_the_thread_re_query_the_os() {
+    // Slot 1 holds a harmless repeat; the multimedia change that matters is dropped.
+    let (monitor, _os, _sender) = overflow_one_slot_queue(
+        vec![
+            default_change(backend::Role::Console, "bt"),
+            default_change(backend::Role::Multimedia, "bt"),
+        ],
+        |os| os.os().default_id = Some("bt".into()),
+    );
+    wait_until("the resync to bind the new default", || {
+        output_fields(&monitor).is_some_and(|f| f.class == OutputClass::Bluetooth)
+    });
+    let stats = monitor.stats();
+    assert_eq!((stats.callback_dropped, stats.resyncs), (1, 1));
+}
+
+#[test]
+fn a_lost_volume_step_does_not_trigger_a_resync() {
+    let volume = |scalar| RawEvent::Volume {
+        at: tinwave_core::UtcMillis::new(0),
+        generation: 0,
+        context: 0,
+        scalar,
+        muted: false,
+    };
+    let (monitor, _os, _sender) = overflow_one_slot_queue(vec![volume(0.4), volume(0.5)], |_| {});
+    wait_until("the queued event to be handled", || {
+        monitor.stats().stale_events >= 1
+    });
+    let stats = monitor.stats();
+    assert_eq!((stats.callback_dropped, stats.resyncs), (1, 0));
+}

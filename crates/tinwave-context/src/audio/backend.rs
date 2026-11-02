@@ -1,7 +1,7 @@
 //! The seam between the OS and the provider logic.
 //!
 //! [`RawEvent`] is what the OS callbacks copy and send; [`Backend`] is what the provider thread
-//! asks of the OS. The Windows implementation is `windows::WindowsBackend`; tests use a fake.
+//! asks of the OS. The Windows implementation is `win::com::WindowsBackend`; tests use a fake.
 //! Everything above this seam is plain Rust and is tested without any OS.
 
 use tinwave_core::UtcMillis;

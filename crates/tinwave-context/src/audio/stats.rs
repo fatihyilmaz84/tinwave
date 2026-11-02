@@ -26,6 +26,8 @@ pub struct AudioStats {
     pub rebinds: u64,
     /// Times binding to an endpoint failed.
     pub bind_failures: u64,
+    /// Times the binding was re-queried because device events were lost to a full queue.
+    pub resyncs: u64,
     /// Changes that were tracked but not emitted because nothing was playing.
     pub suppressed_not_playing: u64,
     /// The largest delay between a callback and the provider thread handling it.
@@ -44,6 +46,7 @@ pub(crate) struct StatsCells {
     pub(crate) default_repeats: AtomicU64,
     pub(crate) rebinds: AtomicU64,
     pub(crate) bind_failures: AtomicU64,
+    pub(crate) resyncs: AtomicU64,
     pub(crate) suppressed_not_playing: AtomicU64,
     pub(crate) max_lag_ms: AtomicU64,
 }
@@ -65,6 +68,7 @@ impl StatsCells {
             default_repeats: get(&self.default_repeats),
             rebinds: get(&self.rebinds),
             bind_failures: get(&self.bind_failures),
+            resyncs: get(&self.resyncs),
             suppressed_not_playing: get(&self.suppressed_not_playing),
             max_lag_ms: get(&self.max_lag_ms),
         }

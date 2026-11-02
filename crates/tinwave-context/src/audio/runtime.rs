@@ -25,16 +25,26 @@ const COMMAND_QUEUE: usize = 8;
 #[derive(Debug, Clone)]
 pub(crate) struct EventSender {
     tx: Sender<RawEvent>,
+    /// "A device event was lost: re-query the OS." Capacity 1: a pending request is enough.
+    resync: Sender<()>,
     stats: Arc<StatsCells>,
 }
 
 impl EventSender {
-    /// Never blocks. A full queue drops the event and counts it.
+    /// Never blocks. A full queue drops the event and counts it. Losing a *device* event
+    /// (default change, state change, removal) would leave the binding stale until the next
+    /// one, so it also asks the thread to re-query the OS once the backlog is drained; losing
+    /// a volume step is harmless (the next one carries the absolute value).
     pub(crate) fn send(&self, event: RawEvent) {
+        let is_device_event = !matches!(event, RawEvent::Volume { .. });
         match self.tx.try_send(event) {
             Ok(()) => {}
             Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => {
                 StatsCells::bump(&self.stats.callback_dropped);
+                if is_device_event {
+                    // `Full` means a request is already pending: nothing to add.
+                    let _ = self.resync.try_send(());
+                }
             }
         }
     }
@@ -102,10 +112,27 @@ where
     B: Backend,
     F: FnOnce(BackendContext) -> Result<B, String> + Send + 'static,
 {
-    let (event_tx, event_rx) = crossbeam_channel::bounded(EVENT_QUEUE);
+    spawn_with_queue(config, cache, stats, EVENT_QUEUE, factory)
+}
+
+/// [`spawn`] with an explicit OS-event queue capacity (tests shrink it to force a drop).
+pub(crate) fn spawn_with_queue<B, F>(
+    config: AudioMonitorConfig,
+    cache: Arc<ArcSwap<ContextFields>>,
+    stats: Arc<StatsCells>,
+    event_capacity: usize,
+    factory: F,
+) -> Result<ProviderThread, ContextError>
+where
+    B: Backend,
+    F: FnOnce(BackendContext) -> Result<B, String> + Send + 'static,
+{
+    let (event_tx, event_rx) = crossbeam_channel::bounded(event_capacity);
+    let (resync_tx, resync_rx) = crossbeam_channel::bounded(1);
     let (command_tx, command_rx) = crossbeam_channel::bounded(COMMAND_QUEUE);
     let events = EventSender {
         tx: event_tx,
+        resync: resync_tx,
         stats: stats.clone(),
     };
     let join = std::thread::Builder::new()
@@ -136,7 +163,7 @@ where
                 cache,
                 stats,
             );
-            run(&mut engine, &event_rx, &command_rx);
+            run(&mut engine, &event_rx, &resync_rx, &command_rx);
             engine.shutdown();
             // `engine` (and with it the backend and its COM guard) drops here, on this thread.
         })
@@ -153,12 +180,14 @@ where
 fn run<B: Backend>(
     engine: &mut Engine<B>,
     events: &Receiver<RawEvent>,
+    resync: &Receiver<()>,
     commands: &Receiver<Command>,
 ) {
     engine.start();
     loop {
         let mut select = Select::new();
         let event_op = select.recv(events);
+        let resync_op = select.recv(resync);
         let command_op = select.recv(commands);
         let ready = match engine.wait_hint() {
             Some(timeout) => select.select_timeout(timeout).ok(),
@@ -181,6 +210,17 @@ fn run<B: Backend>(
                         return;
                     }
                 }
+            }
+            Some(op) if op.index() == resync_op => {
+                if op.recv(resync).is_err() {
+                    warn!("the OS event channel closed; stopping the audio provider");
+                    return;
+                }
+                // Handle what is queued first: it may already say what was lost.
+                while let Ok(event) = events.try_recv() {
+                    engine.handle(event);
+                }
+                engine.resync();
             }
             Some(op) if op.index() == command_op => match op.recv(commands) {
                 Ok(Command::SetTarget(target)) => engine.set_target(target),

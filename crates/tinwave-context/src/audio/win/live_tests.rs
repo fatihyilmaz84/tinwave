@@ -37,10 +37,10 @@ struct Restore<'a> {
 impl Drop for Restore<'_> {
     fn drop(&mut self) {
         // Own context: the restore itself is not a signal.
-        let _ = self.endpoint.set_mute(self.muted, EVENT_CONTEXT_GUID);
-        let _ = self.endpoint.set_scalar(self.scalar, EVENT_CONTEXT_GUID);
+        let mute = self.endpoint.set_mute(self.muted, EVENT_CONTEXT_GUID);
+        let scalar = self.endpoint.set_scalar(self.scalar, EVENT_CONTEXT_GUID);
         eprintln!(
-            "live test: after the restore volume {:.2} (original {:.2}), muted {} (original {})",
+            "live test: restore (mute {mute:?}, volume {scalar:?}): volume now {:?} (original {:.2}),              muted now {:?} (original {})",
             self.endpoint.scalar(),
             self.scalar,
             self.endpoint.muted(),
@@ -85,15 +85,17 @@ fn collect(sink: &mut VecSink, drain: &mut SignalDrain) -> (usize, usize) {
 #[ignore = "changes the real system volume and mute (restores them); run with --ignored --test-threads=1"]
 fn live_own_changes_are_dropped_and_external_changes_are_signals() {
     let endpoint = LiveEndpoint::default_render().expect("a default render device is required");
-    eprintln!(
-        "live test: volume {:.2}, muted {} before the test",
-        endpoint.scalar(),
-        endpoint.muted()
-    );
+    // Read both values before changing anything: if either read fails the test fails here, and
+    // there is nothing to restore (and never a made-up value to restore to).
+    let original_scalar = endpoint.scalar().expect("cannot read the current volume");
+    let original_muted = endpoint
+        .muted()
+        .expect("cannot read the current mute state");
+    eprintln!("live test: volume {original_scalar:.2}, muted {original_muted} before the test");
     let _restore = Restore {
         endpoint: &endpoint,
-        scalar: endpoint.scalar(),
-        muted: endpoint.muted(),
+        scalar: original_scalar,
+        muted: original_muted,
     };
 
     let (bus, mut drain) = SignalBus::channel(
@@ -117,7 +119,7 @@ fn live_own_changes_are_dropped_and_external_changes_are_signals() {
     });
 
     // A few percent away from where the user left it.
-    let start = endpoint.scalar();
+    let start = original_scalar;
     let step = if start > 0.5 { -0.04 } else { 0.04 };
 
     // 1. Our own context (unmuted first, so the mute step below is a clean toggle).
@@ -136,12 +138,12 @@ fn live_own_changes_are_dropped_and_external_changes_are_signals() {
     );
 
     // 2. A foreign context and the null context, two quick steps: one gesture, one event.
-    let before = percent(endpoint.scalar());
+    let before = percent(endpoint.scalar().unwrap());
     endpoint
         .set_scalar(start + 2.0 * step, FOREIGN_CONTEXT)
         .unwrap();
     endpoint.set_scalar(start + 3.0 * step, 0).unwrap();
-    let after = percent(endpoint.scalar());
+    let after = percent(endpoint.scalar().unwrap());
     assert_ne!(before, after, "the endpoint must have moved");
     wait_until("the SystemVolumeChanged", || {
         collect(&mut sink, &mut drain).0 >= 1

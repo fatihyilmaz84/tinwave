@@ -33,7 +33,7 @@ use tinwave_signals::{
     OutputDevicePayload, OutputTransport, SignalBus, SignalEvent, SignalKind, SignalPayload,
     SystemVolumePayload, Volume,
 };
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use super::backend::{
     Backend, BindError, BindTarget, BoundEndpoint, DeviceState, Flow, RawEvent, Role,
@@ -91,7 +91,7 @@ fn volume_of_percent(percent: u8) -> Option<Volume> {
     match Volume::from_linear(f32::from(percent) / 100.0) {
         Ok(v) => Some(v),
         Err(error) => {
-            warn!(%error, percent, "volume out of range");
+            trace!(%error, "volume out of range");
             None
         }
     }
@@ -202,6 +202,15 @@ impl<B: Backend> Engine<B> {
             return;
         }
         self.target = target;
+        let next = self.rebind_to_target();
+        self.transition(next);
+    }
+
+    /// Re-queries the OS after device events were lost (the runtime's queue overflowed): binds
+    /// to what the target asks for now. Emits `OutputDeviceChanged` only if the endpoint
+    /// differs from the bound one.
+    pub(crate) fn resync(&mut self) {
+        StatsCells::bump(&self.stats.resyncs);
         let next = self.rebind_to_target();
         self.transition(next);
     }
@@ -344,6 +353,16 @@ impl<B: Backend> Engine<B> {
         self.transition(next);
     }
 
+    /// A device became active, or stopped being. Losing the bound endpoint re-queries the
+    /// default straight away.
+    ///
+    /// The order of Windows' notifications is not guaranteed. If the default has already moved
+    /// when the state change arrives (`A` unplugged, default now `B`), this is one
+    /// `OutputDeviceChanged` for `A -> B` and the later default-change callback is a repeat.
+    /// If the state change arrives **first** (the default still names `A`, which is no longer
+    /// active), nothing can be bound: `A -> Unknown` is emitted, then the default-change
+    /// callback binds `B` and `Unknown -> B` is emitted. Two events is legal (ADR 0004
+    /// section 5); the order seen on real hardware is PO-RUNBOOK R6/R7.
     fn on_state_changed(&mut self, id: &str, state: DeviceState) {
         let is_bound = self.bound.as_ref().is_some_and(|b| b.id == id);
         if is_bound && state != DeviceState::Active {

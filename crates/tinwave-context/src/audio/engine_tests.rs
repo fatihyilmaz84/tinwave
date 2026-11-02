@@ -572,6 +572,50 @@ fn unplugging_the_bound_device_falls_back_to_the_new_default_in_one_event() {
 }
 
 #[test]
+fn unplug_before_the_default_moves_is_two_events_unknown_then_the_new_device() {
+    let mut r = Rig::with(OutputTarget::SystemDefault, Some("bt"));
+    // The state change arrives first: Windows has not moved the default off `bt` yet.
+    r.os.os().devices.get_mut("bt").unwrap().state = DeviceState::Unplugged;
+    r.state_changed("bt", DeviceState::Unplugged);
+    let events = r.events();
+    assert_eq!(devices(&events).len(), 1, "{events:?}");
+    assert_eq!(devices(&events)[0].class, OutputClass::Unknown);
+    assert_eq!(r.fields(), ContextFields::default());
+
+    // Then the default moves, and the multimedia callback binds the new device.
+    r.os.os().default_id = Some("spk".into());
+    r.default_changed(Flow::Render, Role::Multimedia, Some("spk"));
+    r.default_changed(Flow::Render, Role::Console, Some("spk"));
+    let events = r.settled_events();
+    assert_eq!(devices(&events).len(), 1, "{events:?}");
+    assert_eq!(devices(&events)[0].class, OutputClass::Speakers);
+    assert_eq!(
+        r.fields().output_device.map(|f| f.class),
+        Some(OutputClass::Speakers)
+    );
+}
+
+#[test]
+fn resync_after_lost_device_events_rebinds_to_the_current_default_once() {
+    let mut r = Rig::new();
+    // The default moved but every notification about it was dropped by a full queue.
+    r.os.os().default_id = Some("bt".into());
+    r.engine.resync();
+    let events = r.settled_events();
+    assert_eq!(devices(&events).len(), 1, "{events:?}");
+    assert_eq!(devices(&events)[0].class, OutputClass::Bluetooth);
+    assert_eq!(r.stats.snapshot().resyncs, 1);
+
+    // Nothing changed since: a resync re-registers but emits nothing.
+    r.engine.resync();
+    assert_eq!(r.settled_events(), []);
+    assert_eq!(
+        r.fields().output_device.map(|f| f.class),
+        Some(OutputClass::Bluetooth)
+    );
+}
+
+#[test]
 fn removing_the_only_device_goes_unknown_and_its_return_binds_again() {
     let mut r = Rig::new();
     r.os.os().devices.get_mut("spk").unwrap().state = DeviceState::NotPresent;

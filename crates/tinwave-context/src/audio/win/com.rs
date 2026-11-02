@@ -60,8 +60,10 @@ struct ComGuard;
 
 impl ComGuard {
     fn init() -> Result<Self, String> {
-        // SAFETY: called once at the start of the provider thread, which has not initialised
-        // COM before; the matching `CoUninitialize` is in `Drop`, on the same thread.
+        // SAFETY: initialises COM on the calling thread. Every success, `S_FALSE` (already
+        // initialised in the same mode) included, is paired with exactly one `CoUninitialize`
+        // in `Drop`, on the same thread, because the guard is only returned on success and
+        // is never sent to another thread.
         unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
             .ok()
             .map_err(|e| format!("CoInitializeEx failed: {e}"))?;
@@ -279,6 +281,7 @@ fn take_pwstr(p: PWSTR) -> Option<String> {
     // SAFETY: `p` was allocated by COM for us (`GetId`, `GetDeviceIdConnectedTo`), is
     // NUL-terminated, and is freed exactly once, here.
     let s = unsafe { p.to_string() }.ok();
+    // SAFETY: the same COM-allocated pointer, freed once; `p` is not used afterwards.
     unsafe { CoTaskMemFree(Some(p.0.cast::<c_void>().cast_const())) };
     s
 }
@@ -373,17 +376,18 @@ impl Backend for WindowsBackend {
     ) -> Result<BoundEndpoint, BindError> {
         let os = |e: windows::core::Error| BindError::Os(e.to_string());
         let device = self.open(target)?;
-        // SAFETY (this whole block): COM calls on interfaces this thread owns; `take_pwstr`
-        // frees the id string.
+        // SAFETY: a COM call on the `IMMDevice` this thread just obtained and owns.
         let state = unsafe { device.GetState() }.map_err(os)?;
         if state != DEVICE_STATE_ACTIVE {
             return Err(BindError::NotActive);
         }
+        // SAFETY: a COM call on the owned device; the returned string is freed by `take_pwstr`.
         let id = unsafe { device.GetId() }
             .ok()
             .and_then(take_pwstr)
             .ok_or_else(|| BindError::Os("endpoint id unreadable".to_owned()))?;
         let description = describe(&device);
+        // SAFETY: a COM call on the owned device; no activation parameters are passed.
         let volume: IAudioEndpointVolume =
             unsafe { device.Activate(CLSCTX_ALL, None) }.map_err(os)?;
         let callback: IAudioEndpointVolumeCallback = VolumeCallback {
@@ -392,13 +396,18 @@ impl Backend for WindowsBackend {
             generation,
         }
         .into();
+        // SAFETY: both interfaces are live and owned by this thread; the callback only copies
+        // and `try_send`s (module docs), so registering cannot deadlock.
         unsafe { volume.RegisterControlChangeNotify(&callback) }.map_err(os)?;
         // Read after registering: a change in between arrives as an event, none is lost.
+        // SAFETY: two COM calls on the endpoint-volume interface this thread owns.
         let read = unsafe { (volume.GetMasterVolumeLevelScalar(), volume.GetMute()) };
         let (volume_scalar, muted) = match read {
             (Ok(scalar), Ok(muted)) => (scalar, muted.as_bool()),
             (Err(e), _) | (_, Err(e)) => {
                 // Do not leave a registration behind for an endpoint we cannot read.
+                // SAFETY: undoes the registration made above with the same interface and
+                // callback. A failure leaves nothing more to undo, so it is ignored.
                 let _ = unsafe { volume.UnregisterControlChangeNotify(&callback) };
                 return Err(os(e));
             }
@@ -475,14 +484,18 @@ impl LiveEndpoint {
         Ok(Self { volume, _com: com })
     }
 
-    pub(super) fn scalar(&self) -> f32 {
+    /// The slider scalar. A failed read is an error: a caller that restores a value must never
+    /// restore a made-up one.
+    pub(super) fn scalar(&self) -> Result<f32, String> {
         // SAFETY: COM call on an owned interface.
-        unsafe { self.volume.GetMasterVolumeLevelScalar() }.unwrap_or(0.0)
+        unsafe { self.volume.GetMasterVolumeLevelScalar() }.map_err(|e| e.to_string())
     }
 
-    pub(super) fn muted(&self) -> bool {
+    pub(super) fn muted(&self) -> Result<bool, String> {
         // SAFETY: COM call on an owned interface.
-        unsafe { self.volume.GetMute() }.is_ok_and(|m| m.as_bool())
+        unsafe { self.volume.GetMute() }
+            .map(|m| m.as_bool())
+            .map_err(|e| e.to_string())
     }
 
     /// Sets the scalar with `context` as the event context (`0` is `GUID_NULL`).

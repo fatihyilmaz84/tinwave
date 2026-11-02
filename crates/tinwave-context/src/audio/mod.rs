@@ -57,13 +57,24 @@ use stats::StatsCells;
 const UNSUPPORTED_REASON: &str = "audio output and system volume are only implemented for Windows";
 
 /// Which endpoint the volume notification follows.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+///
+/// `Debug` hides the endpoint id: it identifies a piece of hardware and must not reach logs.
+#[derive(Clone, PartialEq, Eq, Default)]
 pub enum OutputTarget {
     /// The default render device for the multimedia role; re-binds when the default changes.
     #[default]
     SystemDefault,
     /// A device the listener chose in Tinwave: the OS endpoint id (held in memory only).
     Device(String),
+}
+
+impl fmt::Debug for OutputTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SystemDefault => f.write_str("SystemDefault"),
+            Self::Device(_) => f.write_str("Device(<redacted>)"),
+        }
+    }
 }
 
 /// What is playing right now: the columns every emitted event needs.
