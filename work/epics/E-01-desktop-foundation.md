@@ -35,7 +35,7 @@ playlists — and open the Signal Center to watch every interaction being record
   empty glob)
 - OS media integration: SMTC first (D-0001), then MPNowPlaying and MPRIS
 - UI counters (dwell/hover/impressions) through `SignalEmitter`
-- Signal Center screen with storage panel, export, wipe — list and JSONL export driven by `SignalKind::payload_fields()` (P-0012)
+- Signal Center screen with storage panel, export, wipe — list and JSONL export driven by `SignalKind::payload_fields()` (P-0012); diagnostics list includes audio provider `callback_dropped`/`resyncs` (P-0077)
 - Compaction job (hot → warm → cold) + incremental vacuum
 
 ## Design

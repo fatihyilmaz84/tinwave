@@ -3,7 +3,7 @@ id: T-0030
 title: Engine follow-ups — append-after-end buffering, third-fix regression test, append+switch window, event docs
 type: bug
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: S
 depends_on: []
@@ -11,7 +11,7 @@ scope:
   - crates/tinwave-playback/
 owner: tw-builder (round 1, same builder as T-0016/T-0028)
 branch: t/T-0030-engine-append-and-docs
-review_round: 0
+review_round: 1
 created_by: lead, from T-0028 review-1 non-blocking findings
 ---
 
