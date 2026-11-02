@@ -21,7 +21,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-builder r1 | `t/T-0040-desktop-skeleton` · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
+| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-reviewer r1 — in review (2fb85c2) | `t/T-0040-desktop-skeleton` · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
 | [T-0041](tickets/T-0041-image-provider-crash.md) Image-provider Qt6Core crash investigation (P0) | tw-spike | `t/T-0041-image-provider-crash` · `D:\dev\Tinwave-worktrees\T-0041-image-provider-crash` |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r2 — CHANGES_REQUESTED: non-joining teardown, repeat/exclusive changes outside a session | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
@@ -56,6 +56,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo (E-01) | T-0024 |
+| [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon | T-0040 |
 | [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | T-0040 |
 | [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes (accentFill, contrast) | — (ready to groom) |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | T-0040 |
@@ -107,5 +108,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0113 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0119 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04).

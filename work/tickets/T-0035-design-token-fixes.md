@@ -6,10 +6,12 @@ epic: E-01
 status: backlog
 priority: P1
 size: S
-depends_on: []
+depends_on: [T-0040]
 scope:
   - docs/design/design-system.md
-  - spikes/T-0011-native-styles/qml/Theme/Theme.qml   # keep the prototype's self-test in sync (reference only)
+  - apps/tinwave-desktop/qml/Theme/Theme.qml   # the production Theme (ported from T-0011 in T-0040)
+  - apps/tinwave-desktop/qml/Main.qml
+  - apps/tinwave-desktop/qml/Sidebar.qml
 owner:
 branch:
 review_round: 0
@@ -34,3 +36,9 @@ or dark accents need an `accentFill` token; `onAccent` should be computed.
 
 ## Signals & storage
 None.
+
+## Added from P-0116 (T-0040 handoff)
+Also add the tokens the shell had to work around: hairline width, default first-start window size, content-surface
+corner radius (canvas rounded top-left) and the canvas sidebar row height (34) vs native ItemDelegate (40) — decide in
+design-system §3/§4 and expose in Theme.qml; then replace the workarounds in apps/tinwave-desktop/qml/Main.qml
+(scope extends to Main.qml/Sidebar.qml for those substitutions only).
