@@ -1,0 +1,20 @@
+T-0011 native popup probes, Qt 6.12.0 MSVC, Windows 11 build 26200 (dark OS mode, Dutch UI language), 150 % scaling.
+Method: host opens the popup, enumerates the visible top-level windows of its OWN process (EnumWindows by PID),
+records Win32 class/title/size, crops a screenshot of just that window, then dismisses it (EndMenu / WM_CLOSE).
+Probe command: t0011-host.exe --style <S> --probe menu|file|folder|message [--dark-menus N] --probe-shots <dir>
+
+menu     (Menu { popupType: Popup.Native })   style FluentWinUI3 and Fusion identical
+         popupType before popup(): 2 (Native) ; after: 2 (no fallback)
+         window: class '#32768' (Win32 HMENU popup), 248x192 px at 150 %
+         popup() is BLOCKING: it returned only after EndMenu() was called from a timer
+         rendering: LIGHT menu in a dark OS + dark app (screenshots/menu-native-win32-default-light-in-dark-app.png)
+         with undocumented uxtheme SetPreferredAppMode(AllowDark=1 or ForceDark=2) called before showing:
+         DARK menu (screenshots/menu-native-win32-with-SetPreferredAppMode-dark.png)
+         content check: MenuItem text, MenuSeparator, checkable item (check mark), disabled item, submenu arrow all native.
+file     FileDialog (QtQuick.Dialogs)     window: class '#32770' (Win32 common item dialog, IFileDialog), localized, follows OS dark mode
+folder   FolderDialog                     window: class '#32770', same
+         (screenshot of the file dialog kept only with the navigation pane cropped: it shows account/folder names)
+message  MessageDialog                    window: class 'Qt6120QWindow' = a Qt Quick window (NOT a Win32 task dialog / MessageBox)
+         drawn with the active Controls style (FluentWinUI3: dark, rounded, localized Yes/No -> "Ja"/"Nee"), system title bar
+         Fusion style: same structure, Fusion look (484x239 vs 484x337 px)
+         matches Qt docs: native MessageDialog only on Android, iOS and macOS.

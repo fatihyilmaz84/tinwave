@@ -1,0 +1,60 @@
+﻿RUN style=FluentWinUI3 page=selftest scheme=system accent=- mica=0 qt=6.12.0
+METRIC main_entered t_ms=20 ws_mb=24.2 private_ws_mb=2.9 commit_mb=4.5 cpu_ms=31
+FIXED light on window : text=15.49 textMuted=5.88 textFaint=4.56 srcServer=5.81 srcDownload=4.58 warning=4.90 danger=5.93
+FIXED light on sidebar: text=14.56 textMuted=5.53 textFaint=4.28! srcServer=5.46 srcDownload=4.30! warning=4.60 danger=5.58
+FIXED light on content: text=17.17 textMuted=6.52 textFaint=5.05 srcServer=6.44 srcDownload=5.07 warning=5.43 danger=6.57
+FIXED light on raised : text=17.17 textMuted=6.52 textFaint=5.05 srcServer=6.44 srcDownload=5.07 warning=5.43 danger=6.57
+FIXED light text on selected(#E7F1F2)=14.93
+FIXED light textMuted on selected(#E7F1F2)=5.67
+FIXED light textFaint on selected(#E7F1F2)=4.39!
+FIXED light onAccent(default) on TinTeal=5.97
+FIXED dark  on window : text=16.16 textMuted=7.48 textFaint=5.42 srcServer=7.99 srcDownload=8.65 warning=8.27 danger=7.35
+FIXED dark  on sidebar: text=15.04 textMuted=6.96 textFaint=5.04 srcServer=7.44 srcDownload=8.05 warning=7.69 danger=6.84
+FIXED dark  on content: text=16.16 textMuted=7.48 textFaint=5.42 srcServer=7.99 srcDownload=8.65 warning=8.27 danger=7.35
+FIXED dark  on raised : text=14.53 textMuted=6.73 textFaint=4.88 srcServer=7.19 srcDownload=7.78 warning=7.43 danger=6.61
+FIXED dark  text on selected(#152124)=14.73
+FIXED dark  textMuted on selected(#152124)=6.82
+FIXED dark  textFaint on selected(#152124)=4.94
+FIXED dark  onAccent(default) on TinTeal=5.97
+SELECTED light computed #E7F1F2 spec #E6F1F2
+SELECTED dark computed #1E2B2E spec #1B2B2D
+ACCENT light #0067C0 raw(min over surfaces)=4.81 -> accentText #0067C0 min=4.81 | onAccent #FFFFFF on accent=5.67 | native fill: raw 5.67 -> accentFill #0067C0 5.67 ok
+ACCENT light #0B6E78 raw(min over surfaces)=5.07 -> accentText #0B6E78 min=5.07 | onAccent #FFFFFF on accent=5.97 | native fill: raw 5.97 -> accentFill #0B6E78 5.97 ok
+ACCENT light #FFB900 raw(min over surfaces)=1.46 -> accentText #8B6400 min=4.54 | onAccent #0F2F33 on accent=8.27 | native fill: raw 1.72 -> accentFill #9A6F00 4.52 ok
+ACCENT light #E3008C raw(min over surfaces)=3.82 -> accentText #CE007F min=4.52 | onAccent #FFFFFF on accent=4.52 | native fill: raw 4.52 -> accentFill #E3008C 4.52 ok
+ACCENT light #10893E raw(min over surfaces)=3.81 -> accentText #0E7B38 min=4.56 | onAccent #000000 on accent=4.67 | native fill: raw 4.50 -> accentFill #10883E 4.55 ok
+ACCENT light #D13438 raw(min over surfaces)=4.18 -> accentText #C73235 min=4.53 | onAccent #FFFFFF on accent=4.93 | native fill: raw 4.93 -> accentFill #D13438 4.93 ok
+ACCENT light #FF8C00 raw(min over surfaces)=1.98 -> accentText #A15900 min=4.52 | onAccent #0F2F33 on accent=6.11 | native fill: raw 2.33 -> accentFill #B36200 4.50 ok
+ACCENT light #767676 raw(min over surfaces)=3.85 -> accentText #6B6B6B min=4.52 | onAccent #FFFFFF on accent=4.54 | native fill: raw 4.54 -> accentFill #767676 4.54 ok
+ACCENT light #00B7C3 raw(min over surfaces)=2.08 -> accentText #00777F min=4.51 | onAccent #0F2F33 on accent=5.81 | native fill: raw 2.45 -> accentFill #00838C 4.54 ok
+ACCENT light #FFFFFF raw(min over surfaces)=1.00 -> accentText #6B6B6B min=4.52 | onAccent #0F2F33 on accent=14.24 | native fill: raw 1.00 -> accentFill #767676 4.54 ok
+ACCENT light #000000 raw(min over surfaces)=16.83 -> accentText #000000 min=16.83 | onAccent #FFFFFF on accent=21.00 | native fill: raw 21.00 -> accentFill #000000 21.00 ok
+ACCENT light #F0E68C raw(min over surfaces)=1.09 -> accentText #716C42 min=4.54 | onAccent #0F2F33 on accent=11.12 | native fill: raw 1.28 -> accentFill #7D7849 4.51 ok
+ACCENT light #7A7574 raw(min over surfaces)=3.85 -> accentText #6F6A6A min=4.51 | onAccent #FFFFFF on accent=4.54 | native fill: raw 4.54 -> accentFill #7A7574 4.54 ok
+ACCENT light #5CC6CF raw(min over surfaces)=1.71 -> accentText #36747A min=4.53 | onAccent #0F2F33 on accent=7.08 | native fill: raw 2.01 -> accentFill #3C8086 4.54 ok
+ACCENT light #99FF99 raw(min over surfaces)=1.04 -> accentText #477647 min=4.51 | onAccent #0F2F33 on accent=11.61 | native fill: raw 1.23 -> accentFill #4E824E 4.54 ok
+ACCENT dark  #0067C0 raw(min over surfaces)=2.86 -> accentText #3D8CCF min=4.53 | onAccent #FFFFFF on accent=5.67 | native fill: raw 3.70 -> accentFill #1A77C7 4.51 ok
+ACCENT dark  #0B6E78 raw(min over surfaces)=2.72 -> accentText #479299 min=4.52 | onAccent #FFFFFF on accent=5.97 | native fill: raw 3.52 -> accentFill #288088 4.53 ok
+ACCENT dark  #FFB900 raw(min over surfaces)=8.25 -> accentText #FFB900 min=8.25 | onAccent #0F2F33 on accent=8.27 | native fill: raw 12.19 -> accentFill #FFB900 12.19 ok
+ACCENT dark  #E3008C raw(min over surfaces)=3.59 -> accentText #EA41A9 min=4.51 | onAccent #FFFFFF on accent=4.52 | native fill: raw 4.64 -> accentFill #E3008C 4.64 ok
+ACCENT dark  #10893E raw(min over surfaces)=3.59 -> accentText #319A59 min=4.53 | onAccent #000000 on accent=4.67 | native fill: raw 4.67 -> accentFill #10893E 4.67 ok
+ACCENT dark  #D13438 raw(min over surfaces)=3.30 -> accentText #DB5F62 min=4.51 | onAccent #FFFFFF on accent=4.93 | native fill: raw 4.26 -> accentFill #D33D40 4.51 ok
+ACCENT dark  #FF8C00 raw(min over surfaces)=6.44 -> accentText #FF8C00 min=6.44 | onAccent #0F2F33 on accent=6.11 | native fill: raw 9.00 -> accentFill #FF8C00 9.00 ok
+ACCENT dark  #767676 raw(min over surfaces)=3.50 -> accentText #898989 min=4.54 | onAccent #FFFFFF on accent=4.54 | native fill: raw 4.62 -> accentFill #767676 4.62 ok
+ACCENT dark  #00B7C3 raw(min over surfaces)=6.19 -> accentText #00B7C3 min=6.19 | onAccent #0F2F33 on accent=5.81 | native fill: raw 8.56 -> accentFill #00B7C3 8.56 ok
+ACCENT dark  #FFFFFF raw(min over surfaces)=12.79 -> accentText #FFFFFF min=12.79 | onAccent #0F2F33 on accent=14.24 | native fill: raw 21.00 -> accentFill #FFFFFF 21.00 ok
+ACCENT dark  #000000 raw(min over surfaces)=1.13 -> accentText #878787 min=4.52 | onAccent #FFFFFF on accent=21.00 | native fill: raw 1.00 -> accentFill #757575 4.56 ok
+ACCENT dark  #F0E68C raw(min over surfaces)=10.51 -> accentText #F0E68C min=10.51 | onAccent #0F2F33 on accent=11.12 | native fill: raw 16.40 -> accentFill #F0E68C 16.40 ok
+ACCENT dark  #7A7574 raw(min over surfaces)=3.53 -> accentText #8B8786 min=4.51 | onAccent #FFFFFF on accent=4.54 | native fill: raw 4.62 -> accentFill #7A7574 4.62 ok
+ACCENT dark  #5CC6CF raw(min over surfaces)=7.24 -> accentText #5CC6CF min=7.24 | onAccent #0F2F33 on accent=7.08 | native fill: raw 10.43 -> accentFill #5CC6CF 10.43 ok
+ACCENT dark  #99FF99 raw(min over surfaces)=10.92 -> accentText #99FF99 min=10.92 | onAccent #0F2F33 on accent=11.61 | native fill: raw 17.12 -> accentFill #99FF99 17.12 ok
+OSACCENT light palette.accent=#DB9EE5 accentText=#835E89 c(accentText,content)=5.35
+OSACCENT dark  palette.accent=#DB9EE5 accentText=#DB9EE5 c(accentText,content)=8.63
+FONT overline pixelSize=11 capitalization=1 letterSpacing=0.65625 family=Segoe UI
+FONT title weight=600 family=Segoe UI
+FONT base=14 appFont.pixelSize=12 appFont.pointSize=9
+HCKEYS parity=true
+API Application.styleHints.colorScheme=2 | Qt.styleHints.colorScheme=2 | styleHints.accentColor=undefined (no such property) | styleHints.accessibility.contrastPreference=0 | SystemPalette.accent=#DB9EE5 | Qt.application.font.pixelSize=12
+SELFTEST fails=3
+METRIC engine_loaded t_ms=117 ws_mb=51.8 private_ws_mb=19.9 commit_mb=36.5 cpu_ms=109
+EXIT rc=0 t_ms=118
