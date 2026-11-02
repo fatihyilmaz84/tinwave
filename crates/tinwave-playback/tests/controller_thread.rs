@@ -66,7 +66,7 @@ impl Threaded {
                 bus: bus.clone(),
                 ids: IdGenerator::new(clock.clone(), SeededRng::new(7)),
                 timezone: Arc::new(FixedTimezone(TzOffsetMin::UTC)),
-                initial_mode: tinwave_playback::StreamMode::Shared,
+                initial_repeat: tinwave_signals::RepeatMode::Off,
                 poll_interval: Duration::from_millis(2),
             },
             Box::new(output),
@@ -102,6 +102,35 @@ impl Threaded {
             }
         }
         panic!("never happened: {what}");
+    }
+
+    /// Plays the audio callback, and collects what the controller thread signals meanwhile,
+    /// until a `PlayStarted` has been seen. Rendering must go on until then: the first position
+    /// mark follows 100 ms of audio *of the stream the last command started*, and frames still
+    /// taken from the previous stream (before the decoder has carried that command out) count
+    /// for nothing. Panics, saying where playback stands, if it never arrives.
+    fn play_until_started(&mut self, collected: &mut Vec<SignalEvent>) {
+        let mut block = vec![0.0f32; 960];
+        for _ in 0..30_000 {
+            let real = self.out.render(&mut block, 0).unwrap_or(0);
+            collected.extend(self.signals());
+            if collected
+                .iter()
+                .any(|e| e.kind() == SignalKind::PlayStarted)
+            {
+                return;
+            }
+            if real < 480 {
+                std::thread::sleep(Duration::from_micros(200));
+            }
+        }
+        panic!(
+            "no PlayStarted although the track was played: status {:?}, diagnostics {:?},              buffered {:?}, signals {:?}",
+            self.handle.status(),
+            self.handle.diagnostics(),
+            self.out.buffered_frames(),
+            collected.iter().map(SignalEvent::kind).collect::<Vec<_>>(),
+        );
     }
 
     fn signals(&mut self) -> Vec<SignalEvent> {
@@ -178,7 +207,7 @@ fn commands_answer_with_the_engines_result() {
 
 #[test]
 fn dropping_the_handle_ends_the_session() {
-    let t = Threaded::new("thr-drop");
+    let mut t = Threaded::new("thr-drop");
     let a = t.wav("a.wav", 10 * SECOND);
     t.handle
         .load(LoadRequest {
@@ -189,6 +218,8 @@ fn dropping_the_handle_ends_the_session() {
             input: InputSource::Mouse,
         })
         .expect("load");
+    let mut signals = Vec::new();
+    t.play_until_started(&mut signals);
     let Threaded {
         handle,
         mut drain,
@@ -196,7 +227,7 @@ fn dropping_the_handle_ends_the_session() {
         ..
     } = t;
     drop(handle);
-    let mut sink = Collector::default();
+    let mut sink = Collector(signals);
     while drain.pump(&mut sink).expect("pump").more {}
     let kinds: Vec<_> = sink.0.iter().map(SignalEvent::kind).collect();
     assert_eq!(
@@ -265,7 +296,10 @@ fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
     t.play_until("the cadence settled", |t| {
         t.handle.status().state != PlayState::Idle
     });
-    let signals = t.signals();
+    // Whatever the workers left, the track now being played is heard for a moment.
+    t.handle.resume(InputSource::Mouse).expect("resume");
+    let mut signals = Vec::new();
+    t.play_until_started(&mut signals);
 
     assert_eq!(t.bus.dropped_total(), 0);
     assert_eq!(t.bus.reserved_overflows(), 0);
@@ -327,7 +361,7 @@ fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
 
     let Threaded {
         handle, mut drain, ..
-    } = std::mem::ManuallyDrop::into_inner(std::mem::ManuallyDrop::new(t));
+    } = t;
     let (done_tx, done_rx) = std::sync::mpsc::channel();
     let closer = std::thread::spawn(move || {
         drop(handle);
@@ -347,11 +381,7 @@ fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
     let kinds: Vec<_> = sink.0.iter().map(SignalEvent::kind).collect();
     assert_eq!(
         kinds,
-        [
-            SignalKind::SessionStarted,
-            SignalKind::PlayStarted,
-            SignalKind::SessionEnded
-        ],
-        "the session is still closed on the way out"
+        [],
+        "nothing was heard, so there was no play and no session to close"
     );
 }

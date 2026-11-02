@@ -15,11 +15,15 @@ fn at(n: i64) -> UtcMillis {
 }
 
 fn mark(n: u64) -> PlaybackEvent {
+    mark_of(1, n)
+}
+
+fn mark_of(item: u64, n: u64) -> PlaybackEvent {
     PlaybackEvent {
         at: at(n as i64),
         kind: EventKind::PositionMark {
             position: Position {
-                item: QueueItemId(1),
+                item: QueueItemId(item),
                 frame: n,
                 position_ms: n,
             },
@@ -114,6 +118,29 @@ fn marks_are_coalesced_to_the_newest_and_keep_their_place_in_the_order() {
     // Marks 1..=10 leave 8, 9, 10; mark 11 then replaces the oldest (8), so the survivors are
     // 9 and 10 (before the leave) and 11 (after it): the order of emission is kept.
     assert_eq!(shape, ["start", "mark9", "mark10", "leave", "mark11"]);
+}
+
+#[test]
+fn the_first_mark_of_a_track_is_never_coalesced_away_by_marks_of_another_track() {
+    let sink = BoundedSink::with_capacity(16, 2);
+    sink.emit(started(1));
+    sink.emit(mark_of(1, 1));
+    sink.emit(started(2));
+    for n in 2..=50 {
+        sink.emit(mark_of(2, n));
+    }
+    let frames: Vec<(u64, u64)> = drained(&sink)
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EventKind::PositionMark { position } => Some((position.item.0, position.frame)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        frames,
+        [(1, 1), (2, 50)],
+        "track 1 keeps its only mark; track 2 keeps its newest"
+    );
 }
 
 #[test]

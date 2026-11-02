@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use tinwave_signals::{InputSource, RepeatMode};
 
-use super::types::{ControllerConfig, LoadRequest, PlaybackStatus, QueueEntry};
+use super::types::{
+    ControllerConfig, ControllerDiagnostics, LoadRequest, PlaybackStatus, QueueEntry,
+};
 use super::Controller;
 use crate::{AudioOutput, PlaybackError};
 
@@ -52,6 +54,7 @@ enum Message {
 pub struct ControllerHandle {
     tx: SyncSender<Message>,
     status: Arc<Mutex<PlaybackStatus>>,
+    diagnostics: Arc<Mutex<ControllerDiagnostics>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -76,7 +79,11 @@ impl ControllerHandle {
         let mut controller = Controller::start(config, output)?;
         let status = Arc::new(Mutex::new(controller.status()));
         let (tx, rx) = sync_channel(COMMAND_QUEUE);
-        let shared = Arc::clone(&status);
+        let diagnostics = Arc::new(Mutex::new(controller.diagnostics()));
+        let shared = Shared {
+            status: Arc::clone(&status),
+            diagnostics: Arc::clone(&diagnostics),
+        };
         let thread = std::thread::Builder::new()
             .name("tinwave-controller".into())
             .spawn(move || {
@@ -88,6 +95,7 @@ impl ControllerHandle {
         Ok(Self {
             tx,
             status,
+            diagnostics,
             thread: Some(thread),
         })
     }
@@ -170,6 +178,15 @@ impl ControllerHandle {
         *self.status.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Position, pending command and sink losses as of the controller thread's last step.
+    #[must_use]
+    pub fn diagnostics(&self) -> ControllerDiagnostics {
+        *self
+            .diagnostics
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
     /// Stops playback, ends the session and joins the controller thread (not the decoder).
     pub fn shutdown(mut self) {
         self.stop_thread();
@@ -205,12 +222,13 @@ impl Drop for ControllerHandle {
     }
 }
 
-fn run(
-    controller: &mut Controller,
-    rx: &Receiver<Message>,
-    interval: Duration,
-    status: &Mutex<PlaybackStatus>,
-) {
+/// What the controller thread publishes after every step.
+struct Shared {
+    status: Arc<Mutex<PlaybackStatus>>,
+    diagnostics: Arc<Mutex<ControllerDiagnostics>>,
+}
+
+fn run(controller: &mut Controller, rx: &Receiver<Message>, interval: Duration, shared: &Shared) {
     loop {
         let reply = match rx.recv_timeout(interval) {
             Ok(Message::Run(command, reply)) => Some((execute(controller, command), reply)),
@@ -218,7 +236,11 @@ fn run(
             Err(RecvTimeoutError::Timeout) => None,
         };
         controller.poll();
-        *status.lock().unwrap_or_else(PoisonError::into_inner) = controller.status();
+        *shared.status.lock().unwrap_or_else(PoisonError::into_inner) = controller.status();
+        *shared
+            .diagnostics
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = controller.diagnostics();
         if let Some((result, reply)) = reply {
             // The caller may have given up waiting; the command has been carried out anyway.
             let _ = reply.send(result);

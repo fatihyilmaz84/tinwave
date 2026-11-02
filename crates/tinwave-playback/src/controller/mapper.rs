@@ -68,6 +68,15 @@ impl From<&QueueEntry> for Meta {
     }
 }
 
+/// What `PlayStarted` will say, kept until the first audio of the track is heard.
+#[derive(Debug, Clone, Copy)]
+struct PendingStart {
+    origin: PlayOrigin,
+    input: InputSource,
+    /// Where the play began, in milliseconds (nonzero for "resume where I left off").
+    start_ms: u64,
+}
+
 /// The track that is current. Self-contained: it outlives the queue table, which is replaced when
 /// a new queue is loaded, before the old track's `TrackLeft` is handled.
 #[derive(Debug, Clone, Copy)]
@@ -75,6 +84,12 @@ struct Play {
     item: QueueItemId,
     meta: Meta,
     started_at: UtcMillis,
+    /// The frame the current stream of this track began at: the frame it started at, or the target
+    /// of the latest seek. A track that is left at a later frame has played some audio.
+    from_frame: u64,
+    /// `Some` until the track has been heard and `PlayStarted` emitted (see
+    /// [`Mapper::heard`]); a track that fails first never emits it.
+    unheard: Option<PendingStart>,
     /// Since when the current pause has lasted.
     paused_since: Option<UtcMillis>,
     /// Pauses that already ended.
@@ -134,7 +149,7 @@ impl Mapper {
         ids: IdGenerator,
         timezone: Arc<dyn TimezoneSource>,
         sample_rate: u32,
-        mode: StreamMode,
+        initial_repeat: RepeatMode,
     ) -> Self {
         Self {
             coalescer: GestureCoalescer::new(bus.clone()),
@@ -146,10 +161,11 @@ impl Mapper {
             session: None,
             play: None,
             paused: false,
-            mode,
-            repeat: RepeatMode::Off,
-            reported_repeat: RepeatMode::Off,
-            reported_mode: mode,
+            // Until the engine's `OutputOpened` (the first event it produces) says otherwise.
+            mode: StreamMode::Shared,
+            repeat: initial_repeat,
+            reported_repeat: initial_repeat,
+            reported_mode: StreamMode::Shared,
         }
     }
 
@@ -228,13 +244,14 @@ impl Mapper {
                 item,
                 from_frame,
                 to_frame,
-            } => self.seeked(item, from_frame, to_frame, cx),
+            } => self.seeked(at, item, from_frame, to_frame, cx),
             EventKind::VolumeChanged { from, to, position } => {
-                self.volume_changed(from, to, position.map(|p| (p.item, p.position_ms)), cx);
+                self.volume_changed(at, from, to, position.map(|p| (p.item, p.position_ms)), cx);
             }
-            // Heartbeat only: nothing in the catalog is derived from it. (Listening time comes
-            // from the event times, positions from the events that carry one.)
-            EventKind::PositionMark { .. } => {}
+            // Audio is being heard: that is when the track's `PlayStarted` is due. Nothing else
+            // in the catalog is derived from it. (Listening time comes from the event times,
+            // positions from the events that carry one.)
+            EventKind::PositionMark { position } => self.heard(at, position.item),
             EventKind::QueueEnded => {
                 if let Some(session) = &mut self.session {
                     session.set_audible(at, false);
@@ -255,6 +272,7 @@ impl Mapper {
             EventKind::OutputLost => {
                 tracing::warn!("audio output lost");
             }
+            EventKind::OutputOpened { info, .. } => self.output_opened(&info),
             EventKind::OutputReopened { info, .. } => self.output_reopened(at, &info),
         }
     }
@@ -299,7 +317,11 @@ impl Mapper {
                 return;
             }
         };
-        let session = Session::new(id);
+        let mut session = Session::new(id);
+        // A session opened while paused (the listener sought or changed the volume of a track
+        // restored paused, or pressed "previous" while paused) starts in silence: otherwise it
+        // would never end by silence, and a play hours later would join it.
+        session.set_audible(at, !self.paused);
         let tz = self.timezone.local_offset();
         self.bus.set_tz_offset(tz);
         self.timezone.session_started(tz);
@@ -329,6 +351,13 @@ impl Mapper {
         }
     }
 
+    /// Emits `RepeatModeChanged` for the current mode. When the change was made outside a session
+    /// (see [`report_preferences`](Self::report_preferences)) the event is deferred, and then it
+    /// carries the time the session started (not the time of the change) and whichever recording
+    /// is current at that moment, which need not be the track the listener was on when they
+    /// changed it: the track that is being heard (or that "previous" returned to) when that opens
+    /// the session, the paused track when a resume does, none when a stale play is being left
+    /// (it has been taken already). Catalog section 8, "Session boundaries".
     fn report_repeat(&mut self, at: UtcMillis) {
         let mode = self.repeat;
         self.reported_repeat = mode;
@@ -384,28 +413,65 @@ impl Mapper {
             ),
             StartCause::Advance => (play_origin(meta.origin), InputSource::Auto),
         };
-        self.ensure_session(at, origin);
-        if let Some(session) = &mut self.session {
-            session.tracks = session.tracks.saturating_add(1);
-        }
+        let start_ms = self.frame_ms(frame);
         self.play = Some(Play {
             item,
             meta,
             started_at: at,
+            from_frame: frame,
+            unheard: Some(PendingStart {
+                origin,
+                input,
+                start_ms,
+            }),
             paused_since: self.paused.then_some(at),
             paused_ms: 0,
         });
         self.set_audible(at, !self.paused);
 
-        let scope = self.scope_of(Some(meta), Some(self.frame_ms(frame)));
-        self.send(SignalKind::PlayStarted, at, scope, || {
-            SignalPayload::PlayStarted(PlayStartedPayload { origin, input })
-        });
+        // `PlayStarted` (and the session it opens, if none is open) waits for the first audio.
+        // Pressing "previous" is the listener's act whether or not the track then plays.
         if cause == StartCause::Requested && cx.previous {
+            self.ensure_session(at, origin);
+            let scope = self.scope_of(Some(meta), Some(start_ms));
             self.send(SignalKind::PreviousPressed, at, scope, || {
                 SignalPayload::PreviousPressed
             });
         }
+    }
+
+    /// Audio of `item` is being heard (a position mark names it): emits its `PlayStarted`, the
+    /// first time only. The engine makes a mark per 100 ms of heard audio, never while paused and
+    /// never before the output has played the stream's first frames (the first mark of a gaplessly
+    /// advanced track can come sooner than 100 ms in: its mark grid is not restarted), so a track
+    /// that fails to open, or is left before any mark names it, is not a play.
+    fn heard(&mut self, at: UtcMillis, item: QueueItemId) {
+        let Some(play) = self.play.as_mut().filter(|p| p.item == item) else {
+            return;
+        };
+        let Some(start) = play.unheard.take() else {
+            return;
+        };
+        let meta = play.meta;
+        self.play_started(at, meta, start);
+    }
+
+    /// Emits `PlayStarted`. The session, if none is open, opens here: it begins with the first
+    /// play that is heard.
+    fn play_started(&mut self, at: UtcMillis, meta: Meta, start: PendingStart) {
+        let PendingStart {
+            origin,
+            input,
+            start_ms,
+        } = start;
+        self.ensure_session(at, origin);
+        if let Some(session) = &mut self.session {
+            session.tracks = session.tracks.saturating_add(1);
+        }
+        let scope = self.scope_of(Some(meta), Some(start_ms));
+        self.send(SignalKind::PlayStarted, at, scope, || {
+            SignalPayload::PlayStarted(PlayStartedPayload { origin, input })
+        });
     }
 
     fn track_left(
@@ -422,6 +488,18 @@ impl Mapper {
             return;
         };
         self.set_audible(at, false);
+        if let Some(start) = play.unheard {
+            if cause != LeaveCause::Finished || frame <= play.from_frame {
+                // Never heard: it failed to open or decode, was left before its first audio, or
+                // "finished" without a single frame past where its stream began (an empty or
+                // truncated file, every packet undecodable, a seek to the very end). Not a play,
+                // so neither completed nor skipped.
+                return;
+            }
+            // Played to its end, so it was heard (a track shorter than one position mark): the
+            // play starts and ends now.
+            self.play_started(at, play.meta, start);
+        }
         let position_ms = self.frame_ms(frame);
         let near_end = position_ms.saturating_mul(100)
             >= play.meta.duration_ms.saturating_mul(COMPLETED_FROM_PERCENT);
@@ -467,8 +545,24 @@ impl Mapper {
 
     // --- pause, seek, volume ----------------------------------------------------------------
 
+    /// The listener paused, resumed, sought or changed the volume of a play whose audio has not
+    /// been heard yet, and no session is open (a track restored paused at launch is the common
+    /// case): that act is the first thing the listener did, so the session begins with it, with
+    /// the play's origin. Without it the act would go unrecorded. Not for the controller's own
+    /// (`Auto`) commands, which are not the listener's, nor for an act whose signal (`kind`) is
+    /// turned off: a session would then open for something that is not recorded.
+    fn open_session_for_unheard(&mut self, at: UtcMillis, cx: Cx, kind: SignalKind) {
+        if self.session.is_some() || cx.input == InputSource::Auto || !self.bus.enabled(kind) {
+            return;
+        }
+        if let Some(start) = self.play.and_then(|p| p.unheard) {
+            self.ensure_session(at, start.origin);
+        }
+    }
+
     fn paused_event(&mut self, at: UtcMillis, position_ms: Option<u64>, cx: Cx) {
         self.paused = true;
+        self.open_session_for_unheard(at, cx, SignalKind::Paused);
         self.set_audible(at, false);
         let Some(play) = &mut self.play else {
             return;
@@ -492,8 +586,14 @@ impl Mapper {
             .map_or(0, |since| at.as_i64().saturating_sub(since.as_i64()).max(0));
         play.paused_ms = play.paused_ms.saturating_add(pause_ms);
         let meta = play.meta;
-        // Resuming after 30 minutes of silence is the first play of a new session.
-        self.ensure_session(at, PlayOrigin::Resume);
+        // Resuming after 30 minutes of silence is the first play of a new session. (A play that
+        // was never heard has no session of its own to resume: the listener's act opens one with
+        // the play's origin, as `PlayStarted` would.)
+        if play.unheard.is_none() {
+            self.ensure_session(at, PlayOrigin::Resume);
+        } else {
+            self.open_session_for_unheard(at, cx, SignalKind::Resumed);
+        }
         self.set_audible(at, true);
         let scope = self.scope_of(Some(meta), position_ms);
         self.send(SignalKind::Resumed, at, scope, || {
@@ -504,7 +604,16 @@ impl Mapper {
         });
     }
 
-    fn seeked(&mut self, item: QueueItemId, from_frame: u64, to_frame: u64, cx: Cx) {
+    fn seeked(&mut self, at: UtcMillis, item: QueueItemId, from_frame: u64, to_frame: u64, cx: Cx) {
+        if let Some(play) = self.play.as_mut().filter(|p| p.item == item) {
+            play.from_frame = to_frame;
+        }
+        let kind = if to_frame >= from_frame {
+            SignalKind::SeekForward
+        } else {
+            SignalKind::SeekBack
+        };
+        self.open_session_for_unheard(at, cx, kind);
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -530,10 +639,18 @@ impl Mapper {
         });
     }
 
-    fn volume_changed(&mut self, from: f32, to: f32, position: Option<(QueueItemId, u64)>, cx: Cx) {
+    fn volume_changed(
+        &mut self,
+        at: UtcMillis,
+        from: f32,
+        to: f32,
+        position: Option<(QueueItemId, u64)>,
+        cx: Cx,
+    ) {
         if !self.bus.enabled(SignalKind::VolumeChanged) {
             return;
         }
+        self.open_session_for_unheard(at, cx, SignalKind::VolumeChanged);
         let Some(session) = self.session.as_ref() else {
             // No session means nothing has played for 30 minutes (or ever): not listening.
             return;
@@ -563,6 +680,16 @@ impl Mapper {
                 since_section_start: ElapsedDs::from_ds(0),
             },
         });
+    }
+
+    /// The stream the engine started with: the starting state, not a change, so it seeds both the
+    /// current and the reported mode and emits nothing.
+    fn output_opened(&mut self, info: &crate::StreamInfo) {
+        if let Some(reason) = &info.fallback {
+            tracing::warn!(%reason, "the output stream is not what was asked for");
+        }
+        self.mode = info.mode;
+        self.reported_mode = info.mode;
     }
 
     fn output_reopened(&mut self, at: UtcMillis, info: &crate::StreamInfo) {

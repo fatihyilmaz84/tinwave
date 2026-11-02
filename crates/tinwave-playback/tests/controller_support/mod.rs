@@ -15,11 +15,11 @@ use tinwave_core::{
 use tinwave_playback::{
     AudioOutput, Controller, ControllerConfig, FsOpener, LoadIntent, LoadRequest, ManualHandle,
     ManualOutput, OpenRequest, OutputStream, PlaybackError, QueueEntry, QueueItemId, Renderer,
-    StreamInfo, StreamMode, TimezoneSource, DEFAULT_POLL_INTERVAL,
+    StreamInfo, TimezoneSource, DEFAULT_POLL_INTERVAL,
 };
 use tinwave_signals::{
-    BusConfig, CounterRow, InputSource, PlayOrigin, QueueOrigin, SignalBus, SignalDrain,
-    SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
+    BusConfig, CounterRow, InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus,
+    SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
 };
 
 use crate::common::{sweep, write_wav, TempDir, RATE};
@@ -78,6 +78,21 @@ impl Rig {
     }
 
     pub fn with_output(tag: &str, output: Box<dyn AudioOutput>, out: ManualHandle) -> Self {
+        Self::build(tag, output, out, RepeatMode::Off)
+    }
+
+    /// A rig whose controller was started with `initial_repeat` (the mode restored at launch).
+    pub fn with_repeat(tag: &str, repeat: RepeatMode) -> Self {
+        let (output, out) = ManualOutput::new();
+        Self::build(tag, Box::new(output), out, repeat)
+    }
+
+    fn build(
+        tag: &str,
+        output: Box<dyn AudioOutput>,
+        out: ManualHandle,
+        initial_repeat: RepeatMode,
+    ) -> Self {
         let clock = ManualClock::new(UtcMillis::new(T0));
         let settings = Arc::new(SignalSettings::new());
         let device = DeviceId::from_parts(UtcMillis::new(T0), [9; 10]).expect("device id");
@@ -96,7 +111,7 @@ impl Rig {
                 bus: bus.clone(),
                 ids: IdGenerator::new(clock.clone(), SeededRng::new(SEED)),
                 timezone: tz.clone(),
-                initial_mode: StreamMode::Shared,
+                initial_repeat,
                 poll_interval: DEFAULT_POLL_INTERVAL,
             },
             output,
@@ -214,6 +229,12 @@ impl Rig {
             done += want;
             self.ctl.poll();
         }
+    }
+
+    /// Play the first 100 ms of the current track: its first position mark, which is when the
+    /// controller considers the track heard (`PlayStarted`).
+    pub fn hear(&mut self) {
+        self.render_exact(4_800, 480);
     }
 
     /// Play and poll until `done` holds, in a bounded loop.

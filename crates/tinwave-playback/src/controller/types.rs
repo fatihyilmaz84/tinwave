@@ -6,7 +6,8 @@ use std::time::Duration;
 use tinwave_core::{Clock, IdGenerator, RecordingId, SessionId, SourceId, TzOffsetMin};
 use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus};
 
-use crate::{SourceOpener, StreamMode, Track};
+use super::sink::SinkStats;
+use crate::{Position, SourceOpener, Track};
 
 /// A queue entry as the controller needs to know it: the file to play plus the identity and
 /// facts every signal about it carries.
@@ -96,6 +97,19 @@ impl PlaybackStatus {
     }
 }
 
+/// What the engine side looks like right now: for the Diagnostics screen and for failure
+/// messages that must say why nothing happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ControllerDiagnostics {
+    /// Where playback is (see [`Engine::position`](crate::Engine::position)).
+    pub position: Option<Position>,
+    /// The decoder thread has yet to carry out the last `load`, `seek`, `stop` or
+    /// `switch_device` (see [`Engine::command_pending`](crate::Engine::command_pending)).
+    pub command_pending: bool,
+    /// Events the engine's sink had to coalesce or lose.
+    pub sink: SinkStats,
+}
+
 /// The local timezone, which the controller needs once per listening session.
 ///
 /// The offset is recorded on the bus (counter days) and, through
@@ -142,9 +156,9 @@ pub struct ControllerConfig {
     pub ids: IdGenerator,
     /// The local timezone.
     pub timezone: Arc<dyn TimezoneSource>,
-    /// The mode the output stream was opened in (read it from the output's `last_info()` after
-    /// `Engine` start); `ExclusiveModeToggled` is emitted when a later stream differs.
-    pub initial_mode: StreamMode,
+    /// The repeat mode restored at launch. It seeds the controller's current and reported modes,
+    /// so restoring it emits no `RepeatModeChanged`; only a later change does.
+    pub initial_repeat: RepeatMode,
     /// How often the controller thread polls the engine; about 100 ms (see
     /// [`Engine::poll`](crate::Engine::poll)). Only used by
     /// [`ControllerHandle`](crate::ControllerHandle).
@@ -159,7 +173,7 @@ impl std::fmt::Debug for ControllerConfig {
         f.debug_struct("ControllerConfig")
             .field("sample_rate", &self.sample_rate)
             .field("device", &self.device)
-            .field("initial_mode", &self.initial_mode)
+            .field("initial_repeat", &self.initial_repeat)
             .field("poll_interval", &self.poll_interval)
             .finish_non_exhaustive()
     }

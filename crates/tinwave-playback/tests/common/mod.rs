@@ -199,6 +199,12 @@ impl Harness {
             Box::new(output),
         )
         .expect("engine starts");
+        // The first event of every engine is the stream it opened; tests of what follows start
+        // from a clean sink (the event itself is covered in tests/engine.rs).
+        assert!(
+            matches!(sink.take().as_slice(), [EventKind::OutputOpened { .. }]),
+            "an engine starts by reporting its output"
+        );
         Self {
             engine,
             out,

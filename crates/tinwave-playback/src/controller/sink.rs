@@ -10,10 +10,14 @@
 //! Events keep the order they were emitted in (the mapping to signals depends on it), so there is
 //! one queue, with two budgets:
 //!
-//! - **Position marks** (10 Hz while playing) are the only high-frequency event and only the
-//!   newest one is ever useful. They may hold at most `mark_capacity` slots; when that is full the
-//!   *oldest mark* is removed to make room (counted in [`SinkStats::coalesced_marks`]). They can
-//!   never take a slot from the other class.
+//! - **Position marks** (10 Hz while playing) are the only high-frequency event, and within one
+//!   track only the newest is useful for the position. But the *first* mark that names a track is
+//!   what tells the controller that the track was heard (`PlayStarted`), so a mark is only
+//!   coalesced away when the next mark names the same track. Marks may hold at most
+//!   `mark_capacity` slots; when that is full the oldest mark that is followed by a mark of the
+//!   same track is removed to make room (counted in [`SinkStats::coalesced_marks`]); only if every
+//!   mark names a different track is the plain oldest removed. They can never take a slot from
+//!   the other class.
 //! - **Everything else** (`TrackStarted`, `TrackLeft`, `Paused`, `Seeked`, ...) has
 //!   `critical_capacity` slots of its own and is never removed. If the controller stalls for so
 //!   long that those fill up, the *newest* event is lost and counted in
@@ -25,6 +29,7 @@ use std::collections::VecDeque;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use crate::event::{EventKind, EventSink, PlaybackEvent};
+use crate::QueueItemId;
 
 /// Slots for events that are never dropped.
 pub const CRITICAL_CAPACITY: usize = 1_024;
@@ -108,17 +113,41 @@ impl Default for BoundedSink {
     }
 }
 
+/// The mark to remove to make room for `incoming`: the oldest one that the next mark (or
+/// `incoming`) names the same track as, so no track's first mark is lost; else the oldest mark.
+fn coalescible_mark(queue: &VecDeque<PlaybackEvent>, incoming: &PlaybackEvent) -> Option<usize> {
+    let item_of = |e: &PlaybackEvent| match &e.kind {
+        EventKind::PositionMark { position } => Some(position.item),
+        _ => None,
+    };
+    let mut oldest = None;
+    let mut previous: Option<(usize, QueueItemId)> = None;
+    for (index, item) in queue
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| item_of(e).map(|item| (i, item)))
+    {
+        oldest.get_or_insert(index);
+        if let Some((before, before_item)) = previous {
+            if before_item == item {
+                return Some(before);
+            }
+        }
+        previous = Some((index, item));
+    }
+    match (previous, item_of(incoming)) {
+        (Some((before, before_item)), Some(item)) if before_item == item => Some(before),
+        _ => oldest,
+    }
+}
+
 impl EventSink for BoundedSink {
     fn emit(&self, event: PlaybackEvent) {
         let is_mark = matches!(event.kind, EventKind::PositionMark { .. });
         let mut state = self.lock();
         if is_mark {
             if state.marks >= self.mark_capacity {
-                let oldest = state
-                    .queue
-                    .iter()
-                    .position(|e| matches!(e.kind, EventKind::PositionMark { .. }));
-                if let Some(index) = oldest {
+                if let Some(index) = coalescible_mark(&state.queue, &event) {
                     state.queue.remove(index);
                     state.marks -= 1;
                     state.stats.coalesced_marks += 1;

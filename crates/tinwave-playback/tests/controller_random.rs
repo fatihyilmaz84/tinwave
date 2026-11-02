@@ -132,6 +132,32 @@ fn run(seed: u64, files: &Files, rig: &mut Rig, steps: u32) -> Vec<String> {
     trace
 }
 
+/// Whatever the walk left behind, a track played from a clean start is heard once its first 100 ms
+/// have been rendered, and starts exactly once however long it then plays.
+fn epilogue(seed: u64, files: &Files, rig: &mut Rig) {
+    rig.ctl.resume(InputSource::Mouse);
+    rig.ctl.stop().expect("stop");
+    let (path, frames) = &files.good[2];
+    let e = entry(1_000, path, *frames, QueueOrigin::Album);
+    let before = rig.of_kind(SignalKind::PlayStarted).len();
+    rig.select(vec![e], 0, PlayOrigin::Search, InputSource::Mouse);
+    rig.settle();
+    rig.hear();
+    let started = rig.of_kind(SignalKind::PlayStarted);
+    assert_eq!(
+        started.len(),
+        before + 1,
+        "seed {seed}: a heard play starts exactly once"
+    );
+    assert_eq!(started[before].recording, Some(recording(1_000)));
+    rig.render_exact(SECOND, 480);
+    assert_eq!(
+        rig.of_kind(SignalKind::PlayStarted).len(),
+        before + 1,
+        "seed {seed}: playing on does not start it again"
+    );
+}
+
 fn check(seed: u64, signals: &[SignalEvent], trace: &[String]) {
     let context = || format!("seed {seed}, trace {trace:?}, kinds {:?}", kinds(signals));
     let mut open_session = None;
@@ -201,12 +227,19 @@ fn random_command_sequences_keep_the_signal_invariants() {
         missing: probe.dir.path("missing.wav"),
         good,
     };
+    let mut plays = 0;
     for seed in 0..seeds {
         let mut rig = Rig::new(&format!("rnd-{seed}"));
         let trace = run(seed, &files, &mut rig, 70);
+        epilogue(seed, &files, &mut rig);
         let bus = rig.bus.clone();
         let signals = rig.shutdown();
         check(seed, &signals, &trace);
+        plays += signals
+            .iter()
+            .filter(|e| e.kind() == SignalKind::PlayStarted)
+            .count();
         assert_eq!(bus.dropped_total(), 0, "seed {seed}");
     }
+    assert!(plays > 0, "the walks never produced a PlayStarted");
 }

@@ -138,6 +138,17 @@ pub enum EventKind {
     /// The output stream reported itself lost (device removed or invalidated). The caller decides
     /// whether to `switch_device`.
     OutputLost,
+    /// The output stream the engine started with, reported once from [`Engine::start`] so the
+    /// initial [`StreamInfo`] (backend, shared or exclusive mode, latency, why exclusive mode was
+    /// not used) is known without a device switch. Always the first event of an engine.
+    ///
+    /// [`Engine::start`]: crate::Engine::start
+    OutputOpened {
+        /// Device id as given to the engine; `None` is the system default.
+        device: Option<String>,
+        /// How the stream was opened.
+        info: StreamInfo,
+    },
     /// A new output stream was opened (device switch).
     OutputReopened {
         /// Device id as given to `switch_device`; `None` is the system default.

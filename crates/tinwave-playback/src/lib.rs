@@ -36,9 +36,9 @@ mod shared;
 mod types;
 
 pub use controller::{
-    BoundedSink, Controller, ControllerConfig, ControllerHandle, FixedTimezone, LoadIntent,
-    LoadRequest, PlayState, PlaybackStatus, QueueEntry, SinkStats, TimezoneSource,
-    CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
+    BoundedSink, Controller, ControllerConfig, ControllerDiagnostics, ControllerHandle,
+    FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEntry, SinkStats,
+    TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
 };
 pub use engine::{Engine, EngineConfig};
 pub use error::PlaybackError;
