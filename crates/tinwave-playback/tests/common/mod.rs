@@ -7,6 +7,8 @@
 
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Condvar;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use symphonia::core::io::MediaSource;
@@ -428,6 +430,84 @@ impl SourceOpener for BreakingOpener {
             inner: Cursor::new(bytes),
             delivered: 0,
             fail_after,
+        }))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Gate {
+    open: Mutex<bool>,
+    changed: Condvar,
+    /// Set once the decoder thread is blocked in `read`.
+    pub blocked: AtomicBool,
+}
+
+impl Gate {
+    pub fn open(&self) {
+        *self.open.lock().expect("gate") = true;
+        self.changed.notify_all();
+    }
+
+    pub fn wait(&self) {
+        let mut open = self.open.lock().expect("gate");
+        self.blocked.store(true, Ordering::Release);
+        while !*open {
+            open = self.changed.wait(open).expect("gate");
+        }
+    }
+}
+
+/// An in-memory file that blocks every read once `allow` bytes were delivered, until the gate opens.
+pub struct GatedSource {
+    inner: Cursor<Vec<u8>>,
+    gate: Arc<Gate>,
+    /// Bytes handed out so far (seeks do not count) and the budget before reads block.
+    delivered: u64,
+    allow: u64,
+}
+
+impl Read for GatedSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.delivered >= self.allow {
+            self.gate.wait();
+        }
+        let n = self.inner.read(buf)?;
+        self.delivered += n as u64;
+        Ok(n)
+    }
+}
+
+impl Seek for GatedSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.seek(pos)
+    }
+}
+
+impl MediaSource for GatedSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+    fn byte_len(&self) -> Option<u64> {
+        Some(self.inner.get_ref().len() as u64)
+    }
+}
+
+#[derive(Debug)]
+pub struct GatedOpener {
+    pub gate: Arc<Gate>,
+    pub allow: u64,
+    /// Gate only this path; every other track reads freely.
+    pub only: Option<std::path::PathBuf>,
+}
+
+impl SourceOpener for GatedOpener {
+    fn open(&self, track: &Track) -> std::io::Result<Box<dyn MediaSource>> {
+        let gated = self.only.as_ref().is_none_or(|p| *p == track.path);
+        Ok(Box::new(GatedSource {
+            inner: Cursor::new(std::fs::read(&track.path)?),
+            gate: Arc::clone(&self.gate),
+            delivered: 0,
+            allow: if gated { self.allow } else { u64::MAX },
         }))
     }
 }
