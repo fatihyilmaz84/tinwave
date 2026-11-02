@@ -24,6 +24,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 |---|---|---|
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-builder **r2** ([review-1](reports/T-0016/review-1.md): flaky harness under load, CorruptPackets on seek/skip, leave causes) | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder r1 | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
+| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: uuid v7, getrandom, CryptoRng, .bat/.cmd, InputSource, seek rule | tw-builder r1 | `t/T-0015-workspace-deps-tidy` · `D:\dev\Tinwave-worktrees\T-0015-workspace-deps-tidy` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -34,7 +35,6 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: uuid v7, getrandom, CryptoRng, .bat/.cmd, InputSource, seek rule | chore | S | core, signals (enums/frozen/coalesce/bus docs), Cargo, .gitattributes | next free slot |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | feature | M | crates/tinwave-context | after T-0015 (uses the coalescer) |
 | [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt | spike | M | spikes/T-0002 | needs Qt MSVC kit |
 | [T-0011](tickets/T-0011-spike-native-qt-styles.md) Spike: native Qt styles & Theme | spike | M | spikes/T-0011 | needs Qt MSVC kit |
