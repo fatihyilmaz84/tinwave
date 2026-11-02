@@ -27,7 +27,8 @@ and system-volume signals live in tinwave-context, T-0014). D-0001 Windows first
   disappears. It emits no signals: signals come from tinwave-context, so turning off T1 device context never breaks
   device following (lead decision on T-0003).
 - `output/cpal.rs`: generic output for macOS/Linux and as Windows fallback.
-- In-app volume stays in the renderer (software gain), never endpoint volume (ADR 0004 decision 5).
+- In-app volume stays in the renderer (software gain), never endpoint volume (ADR 0004 decision 5); any code that
+  ever touches endpoint volume/mute passes tinwave-context's `EVENT_CONTEXT_GUID` (P-0064).
 
 ## Notes from the T-0016 review
 - Real outputs must honour the `OutputStream` drop contract: the callback has finished when drop returns.

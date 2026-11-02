@@ -34,28 +34,29 @@ CREATE TABLE dict_source    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
 CREATE TABLE dict_entity    (id INTEGER PRIMARY KEY, kind INTEGER NOT NULL, uuid BLOB NOT NULL UNIQUE);
 
 CREATE TABLE session (
-  id            INTEGER PRIMARY KEY,
+  id            INTEGER PRIMARY KEY,           -- assigned in start order, so ~time ordered
+  uuid          BLOB NOT NULL UNIQUE,          -- SessionId (UUIDv7); needed for export and sync
   device        INTEGER NOT NULL REFERENCES dict_device(id),
   started_ts    INTEGER NOT NULL,           -- UTC ms
   tz_offset_min INTEGER NOT NULL
 );
 
--- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index.
+-- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (measured 54 B, T-0006).
+-- WITHOUT ROWID keyed on the sync dedupe key: no rowid and no separate UNIQUE index (saves ~19 B/event).
 CREATE TABLE signal_event (
-  id        INTEGER PRIMARY KEY,            -- rowid, ~time ordered
   device    INTEGER NOT NULL,               -- with seq = global dedupe key for sync
-  seq       INTEGER NOT NULL,               -- device-local monotonic sequence
-  ts        INTEGER NOT NULL,               -- UTC ms
+  seq       INTEGER NOT NULL,               -- device-local sequence; has gaps, not a cursor
   session   INTEGER NOT NULL,
+  ts_off    INTEGER NOT NULL,               -- ms since session.started_ts (absolute = started_ts + ts_off)
   kind      INTEGER NOT NULL,               -- SignalKind discriminant (stable, never reused); tier derived from kind
   recording INTEGER,
   source    INTEGER,
   pos_ds    INTEGER,                        -- playback position in deciseconds
   payload   BLOB,                           -- tiny packed struct, versioned per kind; NULL when empty
   ctx       INTEGER,                        -- context_snapshot id
-  UNIQUE (device, seq)
-);
-CREATE INDEX signal_event_rec_ts ON signal_event(recording, ts);
+  PRIMARY KEY (device, seq)
+) WITHOUT ROWID;
+CREATE INDEX signal_event_rec_ts ON signal_event(recording, session, ts_off);  -- session ids are time ordered
 
 CREATE TABLE context_snapshot (
   id     INTEGER PRIMARY KEY,
@@ -119,6 +120,11 @@ always current and the taste engine can read plays without scanning raw events.
 - Crash safety: the in-memory batch is at most 2 s of data; acceptable loss. Play-end events and their
   play record are flushed immediately.
 - Never `UPDATE` or `DELETE` a `signal_event` except for user wipe or compaction.
+- Writer connection (T-0006, measured on Windows): `wal_autocheckpoint=0`; the writer runs
+  `wal_checkpoint(TRUNCATE)` between batches — at 8 MiB when idle, at 64 MiB regardless, and every 60 s while the WAL
+  is non-empty — never inside a commit and never waiting for a reader. SQLite's automatic checkpoint fsyncs for
+  100–800 ms inside a commit on Windows. Writer page cache 256 KiB and a 2 048-entry dictionary LRU keep the writer
+  under its 2 MB RSS budget (larger caches trade RSS for batch time).
 
 ## Retention & compaction
 

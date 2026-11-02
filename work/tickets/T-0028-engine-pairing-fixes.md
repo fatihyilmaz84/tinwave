@@ -3,7 +3,7 @@ id: T-0028
 title: Fix engine leave-pairing edge cases and the load-dependent test hang; add a pairing property test
 type: bug
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: S
 depends_on: []
@@ -11,7 +11,7 @@ scope:
   - crates/tinwave-playback/
 owner: tw-builder (round 1, same builder as T-0016)
 branch: t/T-0028-engine-pairing-fixes
-review_round: 0
+review_round: 1
 created_by: lead (PO decision D-0005), P-0059
 ---
 
