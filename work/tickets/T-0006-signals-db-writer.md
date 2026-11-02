@@ -3,7 +3,7 @@ id: T-0006
 title: signals.db migrations and batched SignalWriter
 type: feature
 epic: E-00
-status: in_review
+status: in_progress
 priority: P0
 size: M
 depends_on: [T-0005, T-0022]
@@ -11,9 +11,9 @@ scope:
   - crates/tinwave-db/
   - Cargo.toml            # [workspace.dependencies] only — members glob "crates/*" already covers the crate
   - Cargo.lock
-owner: tw-builder (round 1)
+owner: tw-builder (round 2)
 branch: t/T-0006-signals-db-writer
-review_round: 1
+review_round: 2
 created_by: lead
 ---
 
