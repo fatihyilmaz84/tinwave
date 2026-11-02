@@ -192,6 +192,11 @@ impl Decoder {
                 .push_partial_slice(&st.pending[st.pending_off..st.pending_off + take]);
             st.pending_off += pushed.len();
             st.written += (pushed.len() / CHANNELS) as u64;
+            // Audio is in the ring now: from here an empty ring is a real underrun again. (Cleared
+            // after the push, so the renderer never sees "not buffering" with nothing to play.)
+            if self.sh.buffering.load(Relaxed) {
+                self.sh.buffering.store(false, Release);
+            }
         }
     }
 
@@ -236,6 +241,9 @@ impl Decoder {
                     && self.sh.eos.load(Relaxed)
                     && st.cur < st.queue.len()
                 {
+                    // Buffering is announced first, so a renderer that sees the revived stream
+                    // (`eos` false) also sees that its empty ring is not yet an underrun.
+                    self.sh.buffering.store(true, Release);
                     self.sh.eos.store(false, Release);
                 }
             }
@@ -299,12 +307,14 @@ impl Decoder {
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
         self.sh.marks().clear();
+        self.sh.buffering.store(false, Release);
         self.sh.eos.store(false, Release);
     }
 
     fn finish_queue(&mut self, st: &mut State) {
         self.sh.eos_total.store(st.written, Release);
         self.sh.eos_failed.store(st.item_failed, Release);
+        self.sh.buffering.store(false, Release);
         self.sh.eos.store(true, Release);
     }
 

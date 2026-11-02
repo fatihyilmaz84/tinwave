@@ -50,6 +50,11 @@ pub(crate) struct Shared {
     pub eos_total: AtomicU64,
     /// The last item before the end of stream failed mid-decode.
     pub eos_failed: AtomicBool,
+    /// The queue was revived by `Append` and the decoder has not pushed the first frame of the new
+    /// track yet (it is still opening the file). The renderer's ring is empty and its `seen_data`
+    /// is still true from the previous track, but waiting is buffering, not an underrun.
+    /// Set by the decoder before it clears `eos`, cleared after its next push (or `finish_queue`).
+    pub buffering: AtomicBool,
     pub underruns: AtomicU64,
     /// Highest control-command generation whose effect (first mark or end of stream) is published.
     pub applied_gen: AtomicU64,
@@ -69,6 +74,7 @@ impl Shared {
             eos: AtomicBool::new(true),
             eos_total: AtomicU64::new(0),
             eos_failed: AtomicBool::new(false),
+            buffering: AtomicBool::new(false),
             underruns: AtomicU64::new(0),
             applied_gen: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),

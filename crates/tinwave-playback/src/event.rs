@@ -73,7 +73,9 @@ pub enum EventKind {
         /// Where, when something is loaded.
         position: Option<Position>,
     },
-    /// A seek was requested. Input for `SeekForward` / `SeekBack`.
+    /// A seek was requested. Input for `SeekForward` / `SeekBack`. Only emitted while a track is
+    /// current (it has a `TrackStarted` that is not yet closed); `Engine::seek` is rejected with
+    /// `NothingLoaded`, and emits nothing, after the queue ended, after `stop`, or before a `load`.
     Seeked {
         /// Which track.
         item: QueueItemId,
@@ -121,7 +123,11 @@ pub enum EventKind {
         /// How many packets were skipped.
         packets: u64,
     },
-    /// The renderer ran out of decoded audio while playing.
+    /// The renderer ran out of decoded audio while playing. Only reported **after audio has
+    /// flowed** since the stream was opened or last flushed: waiting for the first audio of a
+    /// `load`, a `seek`, a `switch_device` or a track appended to an ended queue (the decoder is
+    /// still opening the file, however long that takes) is buffering, not an underrun, and
+    /// produces no event. A stall after audio has been heard is.
     Underrun {
         /// Callbacks that starved since the last report.
         callbacks: u64,
