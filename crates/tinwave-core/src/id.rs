@@ -75,7 +75,7 @@ fn pack_v7(ms: u64, rand: Rand74) -> Uuid {
 ///
 /// Ids from one generator are strictly increasing, even within one millisecond or if the clock
 /// steps backwards: when the clock has not moved past the last id's time, the previous random
-/// bits are incremented (RFC 9562 method 1) and the last timestamp is reused.
+/// bits are incremented (RFC 9562 §6.2 Method 2, monotonic random) and the last timestamp is reused.
 ///
 /// Use [`IdGenerator::system`] in production; tests inject
 /// [`ManualClock`](crate::ManualClock) and [`SeededRng`](crate::SeededRng).

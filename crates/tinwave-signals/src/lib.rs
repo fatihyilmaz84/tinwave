@@ -39,7 +39,7 @@ mod test_support;
 pub use bus::{BusConfig, EmitOutcome, EventStamp, PumpReport, SignalBus, SignalDrain, SignalSink};
 pub use coalesce::{
     coalesce_window_ms, EventContext, GestureCoalescer, GestureTick, TickOutcome, RATE_WINDOW_MS,
-    SEEK_MIN_NET_DS, SEEK_WINDOW_MS, SYSTEM_VOLUME_WINDOW_MS, VOLUME_WINDOW_MS,
+    SEEK_MIN_TOTAL_DS, SEEK_WINDOW_MS, SYSTEM_VOLUME_WINDOW_MS, VOLUME_WINDOW_MS,
 };
 pub use counters::{CountOutcome, CounterEntity, CounterRow, LocalDay, UiCounters};
 pub use priority::Priority;

@@ -570,6 +570,11 @@ impl SignalDrain {
     /// at full speed for as long as the database keeps failing. Pass the writer's flush interval
     /// (seconds), not a few milliseconds.
     ///
+    /// **Shutdown.** That wait sleeps through producers disconnecting: while a failed batch is
+    /// retained, quitting the app can be delayed by up to one flush interval. This only happens
+    /// while the database keeps failing; with a healthy sink the wait returns as soon as the
+    /// bus has work.
+    ///
     /// Counter rows do not wake the drain: they are collected on every pump, so call `pump` at
     /// least every few seconds (the writer's flush interval) even when this returns `false`.
     #[must_use]
