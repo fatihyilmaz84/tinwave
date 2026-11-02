@@ -1,0 +1,7 @@
+INFO opts={"idle":300,"schemeCycle":true,"style":"FluentWinUI3"}
+CYCLE after 'light': colorScheme=1 Theme.dark=false Theme.window=#f3f3f5 osAccent=#8e3aa7 accentText=#8e3aa7 | native palette: window=#f3f3f3 button=#b3ffffff accent=#8e3aa7 text=#e4000000
+CYCLE after 'dark': colorScheme=2 Theme.dark=true Theme.window=#161618 osAccent=#db9ee5 accentText=#db9ee5 | native palette: window=#202020 button=#0fffffff accent=#db9ee5 text=#ffffff
+CYCLE after 'system': colorScheme=2 Theme.dark=true Theme.window=#161618 osAccent=#db9ee5 accentText=#db9ee5 | native palette: window=#202020 button=#0fffffff accent=#db9ee5 text=#ffffff
+CYCLE after 'dark': colorScheme=2 Theme.dark=true Theme.window=#161618 osAccent=#db9ee5 accentText=#db9ee5 | native palette: window=#202020 button=#0fffffff accent=#db9ee5 text=#ffffff
+CYCLE after 'system': colorScheme=2 Theme.dark=true Theme.window=#161618 osAccent=#db9ee5 accentText=#db9ee5 | native palette: window=#202020 button=#0fffffff accent=#db9ee5 text=#ffffff
+EXIT rc=0 t_ms=14026

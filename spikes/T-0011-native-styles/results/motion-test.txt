@@ -1,0 +1,13 @@
+INFO opts={"idle":300,"motionTest":true,"style":"FluentWinUI3"}
+INFO qt.hints colorScheme=2 contrastPreference=0 motionPreference=0 reducedMotion=false highContrast=false()
+MOTIONTEST before: changeCount=0
+EVENT msg=0x001a wParam=0x1043 reducedMotion 0->0 highContrast 0->0
+MOTIONTEST Theme saw reducedMotion=false highContrast=false durationFast=120 changeCount=1
+SIMULATE motion hwnd=00000000059413C0 result=0
+EVENT msg=0x001a wParam=0x43 reducedMotion 0->0 highContrast 0->0
+MOTIONTEST Theme saw reducedMotion=false highContrast=false durationFast=120 changeCount=2
+SIMULATE contrast hwnd=00000000059413C0 result=0
+EVENT msg=0x001a wParam=0x0 reducedMotion 0->0 highContrast 0->0
+MOTIONTEST Theme saw reducedMotion=false highContrast=false durationFast=120 changeCount=3
+SIMULATE theme hwnd=00000000059413C0 result=0
+EXIT rc=0 t_ms=7903

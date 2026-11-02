@@ -1,0 +1,11 @@
+﻿Windows 11 26200, Ryzen 7 7800X3D, RTX 4070 (+Radeon iGPU), 31 GB, 2560x1440 @150%, Qt 6.12.0 MSVC Release, D3D11 RHI, compiled QML (qmlcachegen). 9 runs/config after 1 warm-up, round-robin. Medians; ff = process start -> first frameSwapped (ms); ws = working set (the 'RSS' incl. Qt DLLs + GPU driver) 1.5 s after first frame; privWS = private working set; commit = private commit; idleCPU = CPU ms burnt during those 1.5 s.
+config               page      ff_min ff_med ff_max | ws_idle  privWS  commit idleCPU
+Basic                minimal      336    351    417 |    72,6    18,7    84,5       0
+Fusion               minimal      346    359    388 |    73,3    19,2    84,8       0
+Windows              minimal      348    354    449 |    73,5    19,1    84,7       0
+FluentWinUI3         minimal      359    378    418 |    84,3    29,2    96,2       0
+Basic                controls     400    424    500 |    92,4    33,4   120,9       0
+Fusion               controls     405    425    534 |      94    34,9   121,6      16
+Windows              controls     420    434    539 |    96,4    36,3   123,2       0
+FluentWinUI3         controls     446    468    499 |   111,1    49,7   137,4      15
+FluentWinUI3+Mica    controls     437    483    531 |   111,8    50,3   137,6      16
