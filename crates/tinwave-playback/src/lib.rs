@@ -13,7 +13,8 @@
 //!   exclusive), [`CpalOutput`] (macOS, Linux, Windows fallback), and [`ManualOutput`], the
 //!   deterministic in-memory one used by tests and headless callers.
 //! - The engine reports [`PlaybackEvent`]s to an [`EventSink`]. It constructs no signals and does
-//!   not depend on the signal bus; the layer above maps events to T0 signals.
+//!   not depend on the signal bus; the [`Controller`] above it owns the poll cadence and maps
+//!   those events to T0 signals (and listening sessions) on the `tinwave-signals` bus.
 //!
 //! Out of scope here: OS outputs (T-0017), resampling and dither (T-0019), gapless metadata
 //! extraction (T-0018), time-stretch (T-0009). Tracks must have the stream sample rate; anything
@@ -23,6 +24,7 @@
 // allows `unsafe` (each block carries a SAFETY comment; see Cargo.toml).
 #![deny(unsafe_code)]
 
+mod controller;
 mod decoder;
 mod engine;
 mod error;
@@ -33,6 +35,11 @@ mod renderer;
 mod shared;
 mod types;
 
+pub use controller::{
+    BoundedSink, Controller, ControllerConfig, ControllerHandle, FixedTimezone, LoadIntent,
+    LoadRequest, PlayState, PlaybackStatus, QueueEntry, SinkStats, TimezoneSource,
+    CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
+};
 pub use engine::{Engine, EngineConfig};
 pub use error::PlaybackError;
 pub use event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};

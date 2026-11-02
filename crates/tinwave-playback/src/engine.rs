@@ -452,10 +452,11 @@ impl Engine {
             .open(&request, Renderer::new(consumer, Arc::clone(&self.sh)))
         {
             Ok(stream) => {
+                let info = stream.info();
                 self.stream = Some(stream);
                 self.device = device.clone();
                 self.output_lost_reported = false;
-                self.emit(EventKind::OutputReopened { device });
+                self.emit(EventKind::OutputReopened { device, info });
                 Ok(())
             }
             Err(error) => {
