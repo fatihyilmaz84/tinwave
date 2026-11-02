@@ -10,6 +10,7 @@ depends_on: [T-0040]
 scope:
   - apps/tinwave-desktop/qml/Tw/TwIcon.qml
   - apps/tinwave-desktop/icons/
+  - apps/tinwave-desktop/tools/
   - apps/tinwave-desktop/build.rs        # add the icon resources only
   - apps/tinwave-desktop/qml/Sidebar.qml # use icons on the menu button and nav items
   - docs/design/design-system.md        # §3.4 / §5 if the component contract needs wording
@@ -44,3 +45,6 @@ tinted with `text`/`textMuted`; filled glyphs only for "on" states; no emoji or 
 
 ## Signals & storage
 None.
+
+## Added from P-0120 (T-0040 review)
+Add a small screenshot capture helper (apps/tinwave-desktop/tools/) that crops to DWMWA_EXTENDED_FRAME_BOUNDS so captures have no black resize-border strips; use it for this ticket's screenshots.

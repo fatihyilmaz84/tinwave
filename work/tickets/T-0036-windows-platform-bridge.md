@@ -27,3 +27,6 @@ spikes/T-0011-native-styles/host/.
 
 ## Signals & storage
 None (theme/accent changes feed no signal without a catalog entry).
+
+## Added from P-0121 (T-0040 review)
+Set the app Menu (apps/tinwave-desktop/qml/Sidebar.qml) to `Popup.Native` with the SetPreferredAppMode dark opt-in, falling back to `Popup.Window` (ADR 0007 decision 1); scope extends to that one property.

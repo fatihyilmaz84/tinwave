@@ -3,7 +3,7 @@ id: T-0040
 title: apps/tinwave-desktop skeleton — CXX-Qt crate, FluentWinUI3 window shell, Theme.qml, start-up error path
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P0
 size: M
 depends_on: []
@@ -11,9 +11,9 @@ scope:
   - apps/tinwave-desktop/
   - Cargo.toml            # add "apps/*" to members (T-0001 note) + [workspace.dependencies]
   - Cargo.lock
-owner: tw-builder (round 1)
+owner: tw-builder (round 2)
 branch: t/T-0040-desktop-skeleton
-review_round: 1
+review_round: 2
 created_by: from T-0002 (ADR 0008), T-0011 (ADR 0007)
 ---
 
