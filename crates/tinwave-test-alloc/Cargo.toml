@@ -1,0 +1,19 @@
+[package]
+name = "tinwave-test-alloc"
+description = "Dev-only: counting global allocator for real-time-safety tests. Never a runtime dependency."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Not `workspace = true`: implementing `GlobalAlloc` needs `unsafe`, which the workspace forbids.
+# This crate is the single place that opts in, so the crates under test keep the workspace lints
+# (including `forbid(unsafe_code)`). It must only ever appear under `[dev-dependencies]`.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
