@@ -89,15 +89,18 @@ Alpha colours are written here in **QML order, `#AARRGGBB`** (not CSS `#RRGGBBAA
 
 - **Contrast rule.** Every text token (`text`, `textMuted`, `textFaint`, `srcServer`, `srcDownload`, `warning`,
   `danger`) and `accentText` is ≥ 4.5:1 on every surface text can sit on: `window`, `sidebar`, `content`, `raised`,
-  `selected`, and a hovered Tw row (the `hover` overlay composited over each of the four fixed surfaces). UI glyphs and
+  `selected`, and a hovered Tw row (the `hover` overlay composited over each of the four fixed surfaces). `hover` is never
+  composited over `selected`: a selected Tw row shows `selected` only, hovered or not (native `ItemDelegate` keeps its own
+  states), so there is no hover-on-selected surface. UI glyphs and
   focus rings need ≥ 3:1; they use `text`, `textMuted` or `accentText`, which already clear 4.5:1. The 3:1 bar for
   non-text elements therefore holds without a separate token. A token change needs this check.
-- **The check** is `Theme.selfCheck(accents)` (`Theme.qml`): for 15 accents (Windows default blue, Tin Teal, the Windows
-  palette picks yellow/pink/green/red/orange/grey, and the pale/dark extremes `#FFFFFF`, `#000000`, `#F0E68C`,
-  `#99FF99`, `#5CC6CF`, `#00B7C3`, `#7A7574`) × 2 schemes it checks the text tokens on all surfaces, `accentText`
-  on all surfaces, `onAccent` on both fills and the fixed label colour on `accentFill`; it returns `{failures, rows}`
-  and must report `failures = 0`. Run it with `qml` on a three-line harness that imports `Theme` (copy `Theme.qml`
-  next to a `qmldir` containing `singleton Theme 1.0 Theme.qml`) and logs `Theme.selfCheck([...]).rows`.
+- **The check** is `Theme.selfCheck(accents)` (`Theme.qml`). `accents` defaults to `Theme.checkAccents`, these 15:
+  `#0067C0` (Windows blue), `#0B6E78` (Tin Teal), `#FFB900`, `#E3008C`, `#10893E`, `#D13438`, `#FF8C00`, `#767676`
+  (Windows palette picks), `#00B7C3`, `#FFFFFF`, `#000000`, `#F0E68C`, `#7A7574`, `#5CC6CF`, `#99FF99`. For each of them
+  × 2 schemes it checks the text tokens on all surfaces, `accentText` on all surfaces, `onAccent` on both fills and the
+  fixed label colour on `accentFill`; it returns `{failures, rows}` and must report `failures = 0`. Run it with `qml` on a
+  three-line harness that imports `Theme` (copy `Theme.qml` next to a `qmldir` containing `singleton Theme 1.0 Theme.qml`)
+  and logs `Theme.selfCheck().rows`.
 - Fixed-token worst cases (Tin Teal accent; worst surface in brackets): light — `text` 13.40 (hover/sidebar),
   `textMuted` 5.09 (hover/sidebar), `textFaint` 4.57 (hover/sidebar), `srcServer` 5.03, `srcDownload` 4.58, `warning` 4.57,
   `danger` 5.13; dark — `text` 12.28 (hover/raised), `textMuted` 5.68, `textFaint` 4.56, `srcServer` 6.07,
@@ -130,7 +133,8 @@ Durations, counts and sizes use tabular figures (`font.features: { "tnum": 1 }`)
 - **Sizes:** sidebar 232 (rail 56) · transport bar 80 · side panel 320 · row 40 comfortable / 32 compact ·
   sidebar nav row 34 (`sidebarRowHeight`; the canvas nav item — a native `ItemDelegate` is 40 by default, so its height is
   set from this token) · album tile min 168 · window min 880 × 560, first-start default 1200 × 800
-  (`windowDefaultWidth/Height`; the last size is remembered later) · hairline 1 (`hairline`, logical px: separators and
+  (`windowDefaultWidth/Height`, clamped to the available screen minus `windowChromeAllowance` 48 for the title bar, never below
+  the minimum; the last size is remembered later) · hairline 1 (`hairline`, logical px: separators and
   outlines) · hit target ≥ 32 px (mouse), ≥ 44 px for touch-capable layouts.
 - **Radius:** `control` Win 4 / mac 6 / Linux 4 · `surface` 8 / 10 / 8 · `content` = `surface` (`radiusContent`: the
   content surface's rounded top-left corner where it meets the sidebar, outlined by a `hairline` in `separator` on its top
@@ -197,7 +201,8 @@ TabBar, ScrollBar, Menu, ToolTip, dialogs) are used as-is from the OS style. `Tw
 
 States every `Tw*` component must render: default, hover, pressed, keyboard focus (2 px ring, offset 2),
 selected, disabled, and its loading/unavailable state where relevant — in light and dark. The ring is drawn in
-`accentText` so it stays ≥ 3:1 on every surface with any accent.
+`accentText` so it stays ≥ 3:1 on every surface with any accent. A selected row shows `selected` only: `hover` is never
+composited over it (§3.1).
 
 ## 6. Writing (UI copy)
 

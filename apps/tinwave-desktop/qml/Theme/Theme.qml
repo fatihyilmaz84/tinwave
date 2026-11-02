@@ -89,6 +89,8 @@ QtObject {
     }
     // Every surface text can sit on: the four fixed ones, `selected`, and a hovered Tw row over each fixed one
     // (the translucent `hover` overlay composited, 8-bit quantised). Keys are the surface names.
+    // `hover` is NEVER composited over `selected`: a selected Tw row shows `selected` only, whether hovered or not
+    // (native ItemDelegate keeps its own states), so there is no hover/selected surface to check.
     function surfacesOf(t) {
         const out = {}
         const hv = Qt.color(t.hover)
@@ -168,11 +170,18 @@ QtObject {
     readonly property real selectedAlphaLight: 0.10
     readonly property real selectedAlphaDark: 0.12
 
+    // The 15 accents the self-check runs by default (T-0011 SelfTest list): Windows default blue, Tin Teal, the Windows
+    // palette picks (yellow, pink, green, red, orange, grey) and pale/dark/neutral extremes.
+    readonly property var checkAccents: ["#0067C0", "#0B6E78", "#FFB900", "#E3008C", "#10893E", "#D13438", "#FF8C00", "#767676",
+                                         "#00B7C3", "#FFFFFF", "#000000", "#F0E68C", "#7A7574", "#5CC6CF", "#99FF99"]
+
     // Contrast self-check, the documented gate for every token change (design-system.md 3.1). Resolves every given accent
     // in both schemes and checks: all text tokens >= 4.5:1 on every surface (incl. hovered and selected rows); accentText
     // >= 4.5:1 (it carries accent-coloured text, glyphs and focus rings, so it also clears the 3:1 glyph bar);
     // onAccent >= 4.5:1 on both fills; the style's fixed label >= 4.5:1 on accentFill. Returns { failures, rows }.
+    // `accents` defaults to `checkAccents`, the reproducible input of the gate.
     function selfCheck(accents) {
+        if (accents === undefined) accents = checkAccents
         const rows = []
         let failures = 0
         const f2 = x => x.toFixed(2)
@@ -281,6 +290,12 @@ QtObject {
     readonly property int windowMinHeight: 560
     readonly property int windowDefaultWidth: 1200     // first-start size; the last size is remembered later
     readonly property int windowDefaultHeight: 800
+    readonly property int windowChromeAllowance: 48    // title bar + frame, subtracted from the available screen height
+    // First-start window size: the default, clamped to the available screen (never below the window minimum).
+    function firstStartWidth(availableWidth) { return Math.max(windowMinWidth, Math.min(windowDefaultWidth, availableWidth)) }
+    function firstStartHeight(availableHeight) {
+        return Math.max(windowMinHeight, Math.min(windowDefaultHeight, availableHeight - windowChromeAllowance))
+    }
     readonly property int sidebarRowHeight: 34         // canvas nav item; the native ItemDelegate default is 40
     readonly property int hairline: 1                  // separator / outline width (logical px)
     readonly property int hitTarget: 32
@@ -305,7 +320,7 @@ QtObject {
     readonly property int iconSizeDense: 16
     readonly property real iconStroke: 1.75
 
-    // Focus ring (7): 2 px accent ring, offset 2.
+    // Focus ring (7): 2 px ring in `accentText` (>= 3:1 with any accent), offset 2.
     readonly property int focusRingWidth: 2
     readonly property int focusRingOffset: 2
 }

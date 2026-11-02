@@ -11,9 +11,9 @@ ApplicationWindow {
 
     visible: true
     title: "Tinwave"
-    // First-start size; the last size is remembered later.
-    width: Theme.windowDefaultWidth
-    height: Theme.windowDefaultHeight
+    // First-start size, clamped to the available screen; the last size is remembered later.
+    width: Theme.firstStartWidth(Screen.desktopAvailableWidth)
+    height: Theme.firstStartHeight(Screen.desktopAvailableHeight)
     minimumWidth: Theme.windowMinWidth
     minimumHeight: Theme.windowMinHeight
     color: Theme.windowFill
