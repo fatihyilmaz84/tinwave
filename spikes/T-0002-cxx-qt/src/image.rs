@@ -12,6 +12,9 @@ pub mod qobject {
         include!("image_provider.h");
         /// Creates the C++ provider (ownership goes to the QML engine).
         fn tw_make_image_provider() -> *mut QQmlImageProviderBase;
+        /// GUI thread, after the event loop ended and before the QML engine is dropped: stops the worker pool
+        /// (T-0041: tasks still running while the engine is destroyed crashed ~QThread in 1-3 percent of runs).
+        fn tw_image_provider_shutdown();
     }
 }
 
@@ -20,7 +23,7 @@ use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-pub use qobject::tw_make_image_provider;
+pub use qobject::{tw_image_provider_shutdown, tw_make_image_provider};
 
 const CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
 

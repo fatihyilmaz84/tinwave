@@ -1,0 +1,1 @@
+REAL-APP platform=offscreen runs=400 ok=400 failed=0 elapsed_s=475 exe=t0002-fixed.exe

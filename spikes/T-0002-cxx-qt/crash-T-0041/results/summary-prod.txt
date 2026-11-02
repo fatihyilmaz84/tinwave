@@ -1,0 +1,7 @@
+RESULT build=build-dbg provider=prod mode=mix drain=0 threads=1 parallel=4 platform=offscreen runs=300 ok=300 failed=0 elapsed_s=90
+RESULT build=build-dbg provider=prod mode=toggle drain=0 threads=2 parallel=4 platform=offscreen runs=150 ok=150 failed=0 elapsed_s=81
+RESULT build=build-asan provider=prod mode=mix drain=0 threads=1 parallel=4 platform=offscreen runs=150 ok=150 failed=0 elapsed_s=58
+RESULT build=build-rel provider=prod mode=mix drain=0 threads=2 parallel=4 platform=offscreen runs=300 ok=300 failed=0 elapsed_s=301
+RESULT build=build-rel provider=prod mode=scroll drain=0 threads=1 parallel=8 platform=offscreen runs=200 ok=200 failed=0 elapsed_s=26
+RESULT build=build-rel provider=prod mode=mix drain=0 threads=2 parallel=1 platform=windows runs=40 ok=40 failed=0 elapsed_s=130
+MATRIX-DONE
