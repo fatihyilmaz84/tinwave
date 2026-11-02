@@ -23,13 +23,14 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r1 | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
-| [T-0033](tickets/T-0033-device-secret-keychain.md) DeviceSecret in Windows Credential Manager | tw-builder r1 | `t/T-0033-device-secret-keychain` · `D:\dev\Tinwave-worktrees\T-0033-device-secret-keychain` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Build report |
+|---|---|---|
+| [T-0033](tickets/T-0033-device-secret-keychain.md) DeviceSecret in Windows Credential Manager | tw-reviewer r1 | [build-1](reports/T-0033/build-1.md) · 6f75257 |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -96,5 +97,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0089 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0092 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test).

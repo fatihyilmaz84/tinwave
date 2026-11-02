@@ -30,6 +30,8 @@ playlists — and open the Signal Center to watch every interaction being record
   small design tickets before the screens that use them
 - Install a `tracing` subscriber in the app composition root (the signals writer logs failed commits at warn/error;
   P-0072). Cap the `log` level for the `wasapi` crate (its render-path `log::trace!` must never be enabled; T-0017 review).
+- App start-up loads the DeviceSecret via `OsSecretStore::device_secret().load_or_create(&mut SystemRng)` (T-0033);
+  a `Corrupt` error is shown to the user and the audio provider does not start with a throwaway secret (P-0090).
 - Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views. The ticket that
   creates `apps/tinwave-desktop` must add `"apps/*"` to workspace `members` (T-0001 left it out: Cargo rejects an
   empty glob)

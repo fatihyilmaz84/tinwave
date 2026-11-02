@@ -3,7 +3,7 @@ id: T-0033
 title: Store the DeviceSecret in the OS keychain (Windows Credential Manager first)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: []
@@ -15,7 +15,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1)
 branch: t/T-0033-device-secret-keychain
-review_round: 0
+review_round: 1
 created_by: from P-0062 (split from T-0024)
 ---
 
