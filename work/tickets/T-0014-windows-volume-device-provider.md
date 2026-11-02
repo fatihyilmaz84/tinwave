@@ -3,7 +3,7 @@ id: T-0014
 title: Windows output-device and system-volume providers in tinwave-context
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: []          # T-0005, T-0013, T-0015 done
@@ -13,7 +13,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1)
 branch: t/T-0014-windows-volume-device-provider
-review_round: 0
+review_round: 1
 created_by: from P-0007
 ---
 
