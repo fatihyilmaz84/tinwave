@@ -97,6 +97,7 @@ Rectangle {
                 required property string label
 
                 width: ListView.view.width
+                height: Theme.sidebarRowHeight
                 // `&` marks a mnemonic in button text; show it literally.
                 text: label.replace(/&/g, "&&")
                 // One tab stop for the whole list (the current item); Up/Down move the selection.
