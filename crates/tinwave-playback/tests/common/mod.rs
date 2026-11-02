@@ -511,3 +511,207 @@ impl SourceOpener for GatedOpener {
         }))
     }
 }
+
+// ---- a fake event-driven device: the WASAPI callback logic without WASAPI -------------------
+
+use tinwave_playback::{
+    AudioOutput, DeviceEvent, DeviceFollower, DeviceLost, FollowTarget, OpenRequest, OutputStream,
+    PlaybackError, Pump, PumpStep, RenderDevice, Renderer, SampleFormat,
+};
+
+/// Records what the pump writes. Always has room for a full buffer, like a device that has just
+/// played everything.
+pub struct FakeDevice {
+    buffer_frames: usize,
+    pub recorded: Vec<u8>,
+}
+
+impl RenderDevice for FakeDevice {
+    fn wait(&mut self, _timeout_ms: u32) -> Result<bool, DeviceLost> {
+        Ok(true)
+    }
+    fn available_frames(&mut self) -> Result<usize, DeviceLost> {
+        Ok(self.buffer_frames)
+    }
+    fn write(&mut self, _frames: usize, bytes: &[u8]) -> Result<(), DeviceLost> {
+        self.recorded.extend_from_slice(bytes);
+        Ok(())
+    }
+    fn is_alive(&mut self) -> bool {
+        true
+    }
+}
+
+struct Rig {
+    pump: Pump,
+    device: FakeDevice,
+}
+
+struct FakeShared {
+    rig: Mutex<Option<Rig>>,
+    lost: AtomicBool,
+    follower: Mutex<Option<DeviceFollower>>,
+    opens: Mutex<Vec<Option<String>>>,
+}
+
+fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// An `AudioOutput` whose "audio callback" is the real `Pump` (render, convert, write) driven by
+/// the test thread against a [`FakeDevice`].
+pub struct FakeDeviceOutput {
+    shared: Arc<FakeShared>,
+    format: SampleFormat,
+    buffer_frames: usize,
+}
+
+#[derive(Clone)]
+pub struct FakeDeviceHandle {
+    shared: Arc<FakeShared>,
+}
+
+struct FakeStream {
+    shared: Arc<FakeShared>,
+}
+
+impl OutputStream for FakeStream {
+    fn is_lost(&self) -> bool {
+        self.shared.lost.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for FakeStream {
+    fn drop(&mut self) {
+        // As a real output: the callback is gone, the renderer is dropped by the caller's thread.
+        let rig = locked(&self.shared.rig).take();
+        drop(rig.map(|r| r.pump.into_renderer()));
+    }
+}
+
+impl FakeDeviceOutput {
+    pub fn new(format: SampleFormat, buffer_frames: usize) -> (Self, FakeDeviceHandle) {
+        let shared = Arc::new(FakeShared {
+            rig: Mutex::new(None),
+            lost: AtomicBool::new(false),
+            follower: Mutex::new(None),
+            opens: Mutex::new(Vec::new()),
+        });
+        (
+            Self {
+                shared: Arc::clone(&shared),
+                format,
+                buffer_frames,
+            },
+            FakeDeviceHandle { shared },
+        )
+    }
+}
+
+impl AudioOutput for FakeDeviceOutput {
+    fn open(
+        &mut self,
+        request: &OpenRequest<'_>,
+        renderer: Renderer,
+    ) -> Result<Box<dyn OutputStream>, PlaybackError> {
+        let pump = Pump::new(renderer, self.format, self.buffer_frames, 0);
+        let device = FakeDevice {
+            buffer_frames: self.buffer_frames,
+            recorded: Vec::with_capacity(1 << 20),
+        };
+        *locked(&self.shared.rig) = Some(Rig { pump, device });
+        self.shared.lost.store(false, Ordering::Release);
+        let (target, id) = match request.device {
+            None => (FollowTarget::Default, "speakers".to_string()),
+            Some(id) => (FollowTarget::Device(id.to_string()), id.to_string()),
+        };
+        *locked(&self.shared.follower) = Some(DeviceFollower::new(target, id));
+        locked(&self.shared.opens).push(request.device.map(str::to_owned));
+        Ok(Box::new(FakeStream {
+            shared: Arc::clone(&self.shared),
+        }))
+    }
+}
+
+impl FakeDeviceHandle {
+    /// One device wake-up.
+    pub fn step(&self) -> Option<PumpStep> {
+        let mut guard = locked(&self.shared.rig);
+        let rig = guard.as_mut()?;
+        let before = rig.device.recorded.len();
+        let step = rig.pump.step(&mut rig.device, 0);
+        // Keep only blocks that carry audio: flush acknowledgements and silence are not music.
+        if !matches!(step, PumpStep::Fed { real, .. } if real > 0) {
+            rig.device.recorded.truncate(before);
+        }
+        Some(step)
+    }
+
+    /// One wake-up whose bytes are discarded at once, so the recording never grows.
+    pub fn step_discarding(&self) -> Option<PumpStep> {
+        let mut guard = locked(&self.shared.rig);
+        let rig = guard.as_mut()?;
+        rig.device.recorded.clear();
+        Some(rig.pump.step(&mut rig.device, 0))
+    }
+
+    /// Acknowledge a pending flush without consuming audio.
+    pub fn service_flush(&self) {
+        if let Some(rig) = locked(&self.shared.rig).as_mut() {
+            rig.pump.renderer().render(&mut [], 0);
+        }
+    }
+
+    pub fn buffered_frames(&self) -> usize {
+        locked(&self.shared.rig)
+            .as_mut()
+            .map_or(0, |r| r.pump.renderer().buffered_frames())
+    }
+
+    /// Everything recorded so far, taken.
+    pub fn take_recorded(&self) -> Vec<u8> {
+        locked(&self.shared.rig)
+            .as_mut()
+            .map(|r| std::mem::take(&mut r.device.recorded))
+            .unwrap_or_default()
+    }
+
+    /// A fake `IMMNotificationClient` callback.
+    pub fn notify(&self, event: &DeviceEvent) {
+        let reopen = locked(&self.shared.follower)
+            .as_ref()
+            .is_some_and(|f| f.needs_reopen(event));
+        if reopen {
+            self.shared.lost.store(true, Ordering::Release);
+        }
+    }
+
+    pub fn opens(&self) -> Vec<Option<String>> {
+        locked(&self.shared.opens).clone()
+    }
+}
+
+/// Bytes the device received, read back as the f32 the renderer produced (for bit-exactness
+/// checks): integers are scaled by their full-scale power of two.
+pub fn decode_device_bytes(format: SampleFormat, bytes: &[u8]) -> Vec<f32> {
+    match format {
+        SampleFormat::F32 => bytes
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect(),
+        SampleFormat::I16 => bytes
+            .chunks_exact(2)
+            .map(|c| f32::from(i16::from_le_bytes([c[0], c[1]])) / 32_768.0)
+            .collect(),
+        SampleFormat::I24In32 => bytes
+            .chunks_exact(4)
+            .map(|c| (i32::from_le_bytes([c[0], c[1], c[2], c[3]]) >> 8) as f32 / 8_388_608.0)
+            .collect(),
+        SampleFormat::I32 => bytes
+            .chunks_exact(4)
+            .map(|c| {
+                (f64::from(i32::from_le_bytes([c[0], c[1], c[2], c[3]])) / 2_147_483_648.0) as f32
+            })
+            .collect(),
+    }
+}

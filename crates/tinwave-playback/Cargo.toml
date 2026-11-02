@@ -1,6 +1,6 @@
 [package]
 name = "tinwave-playback"
-description = "Tinwave playback engine core: Symphonia decoder thread, lock-free ring, real-time renderer. No OS output."
+description = "Tinwave playback engine: Symphonia decoder thread, lock-free ring, real-time renderer, and the audio outputs (direct WASAPI on Windows, cpal elsewhere)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,12 +9,28 @@ publish.workspace = true
 
 [dependencies]
 tinwave-core = { workspace = true }
+cpal = { workspace = true }
 rtrb = { workspace = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+wasapi = { workspace = true }
+# Only what src/output/windows/os.rs uses: MMCSS thread characteristics and IAudioClient::GetStreamLatency.
+windows = { workspace = true, features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Threading"] }
 
 [dev-dependencies]
 tinwave-test-alloc = { workspace = true }
 
-[lints]
-workspace = true
+# Not `workspace = true`: the Windows COM calls need `unsafe`, which the workspace forbids. As in
+# tinwave-context, `deny` keeps every other module free of `unsafe`; only
+# `src/output/windows/os.rs` carries `#![allow(unsafe_code)]`, with a SAFETY comment per block.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+undocumented_unsafe_blocks = "deny"

@@ -21,6 +21,8 @@ arc-swap = "1"
 # Pure-Rust build: no C compiler step for a hash that runs once per device change.
 blake3 = { version = "1", default-features = false, features = ["pure"] }
 crossbeam-channel = "0.5"
+# Generic audio output (macOS/Linux, Windows fallback). Apache-2.0.
+cpal = "0.18"
 getrandom = "0.4"
 # Dev-only (benchmarks). No plotting, rayon or HTML report: smaller dependency tree.
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
@@ -33,6 +35,8 @@ symphonia = { version = "0.6", features = ["aac", "alac", "isomp4", "mp3", "aiff
 thiserror = "2"
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 uuid = { version = "1", features = ["serde"] }
+# Direct WASAPI output on Windows (shared + exclusive, event driven). MIT; safe wrapper over `windows`.
+wasapi = "0.26"
 # Windows-only (cfg(windows) in the crates that use it); each crate lists the Win32 features it needs.
 windows = "0.62"
 # The `#[implement]` macro expands to paths in this crate, so it must be a direct dependency.
