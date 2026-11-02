@@ -3,7 +3,7 @@ id: T-0007
 title: Storage growth test v1 — 5 simulated years of a heavy listener
 type: feature
 epic: E-00
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: []          # T-0006 done
@@ -15,7 +15,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1, same builder as T-0006)
 branch: t/T-0007-storage-growth-test
-review_round: 0
+review_round: 1
 created_by: lead
 ---
 

@@ -23,13 +23,14 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback (P0) | tw-builder **r2** ([review-1](reports/T-0017/review-1.md): open-timeout race, silent device tests) | `t/T-0017-windows-wasapi-output` · `D:\dev\Tinwave-worktrees\T-0017-windows-wasapi-output` |
-| [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 (E-00) | tw-builder r1 | `t/T-0007-storage-growth-test` · `D:\dev\Tinwave-worktrees\T-0007-storage-growth-test` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Build report |
+|---|---|---|
+| [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 (E-00) | tw-reviewer r1 | [build-1](reports/T-0007/build-1.md) (partial → catalog corrected → amended) · 6275672 |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
