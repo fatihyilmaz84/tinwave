@@ -3,7 +3,7 @@ id: T-0021
 title: Persist Signal Center toggles (SignalSettings) across restarts
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: []          # T-0006, T-0007 done
@@ -48,3 +48,6 @@ toggles are checked at the source and must survive restarts; defaults T0, T1 on,
 
 ## Signals & storage
 None (toggle changes write settings, not signals — design-system.md `TwSignalRow`).
+
+## Merged
+2026-11-02, merge commit 6c24c4e (branch head 81e0369). Review: review-1 (APPROVE). Gates green on main (384 tests). Follow-ups T-0032.

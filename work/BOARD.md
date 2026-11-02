@@ -27,9 +27,7 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
-| [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (fail closed, migration 0002) | tw-reviewer r1 | [build-1](reports/T-0021/build-1.md) · 81e0369 |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -55,6 +53,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | ready (playback crate free) |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
+| [T-0032](tickets/T-0032-settings-followups.md) Signal settings follow-ups (P2) | — |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
 ## Design gaps to close before E-01 screen tickets
@@ -87,6 +86,7 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (fail closed) | 6c24c4e | build-1, review-1 (approve) |
 | [T-0031](tickets/T-0031-engine-boundary-followups.md) Engine boundary follow-ups | 0bf81c2 | build-1, review-1 (approve) |
 | [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 | fb8548e | build-1/2, review-1 (changes), review-2 (approve); 4.38 MB / 90 days |
 | [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback | 8e16368 | build-1/2, review-1 (changes), review-2 (approve); incl. engine position fix |
@@ -95,5 +95,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0088 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0089 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test).

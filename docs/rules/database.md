@@ -3,7 +3,8 @@
 ## General
 
 - SQLite in WAL mode, `foreign_keys=ON`, `synchronous=NORMAL`, `auto_vacuum=INCREMENTAL`,
-  `journal_size_limit=16777216`. One writer connection per DB, pooled readers.
+  `journal_size_limit=16777216`. One writer connection per DB, pooled readers. Exception: signals.db's
+  `signal_settings` row is upserted by `PersistentSettings` on its own short-lived transactions (single row, rare).
 - Migrations are numbered SQL files in `crates/tinwave-db/migrations/`, applied in a transaction, never edited after release.
 - Stable ids: UUIDv7 (time-ordered) for library entities created by Tinwave. Store external provider ids separately with provenance.
   **Exception:** inside `signals.db` use integer surrogate keys (see below) — size matters there.
