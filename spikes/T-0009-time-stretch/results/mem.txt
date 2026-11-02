@@ -1,0 +1,7 @@
+# memory per stretcher instance (44.1 kHz stereo): private-bytes delta over 8 instances, each run for 6 s of audio at 1.25x
+signalsmith-default    | 0.88 MB per instance | 288 C++ allocs during construct+warm-up for 8 instances
+signalsmith-cheaper    | 0.75 MB per instance | 296 C++ allocs during construct+warm-up for 8 instances
+signalsmith-b2048      | 0.33 MB per instance | 232 C++ allocs during construct+warm-up for 8 instances
+rubberband-R3-finer    | 6.79 MB per instance | 24480 C++ allocs during construct+warm-up for 8 instances
+rubberband-R2-faster   | 8.13 MB per instance | 816 C++ allocs during construct+warm-up for 8 instances
+wsola-hop15ms          | 1.03 MB per instance | 0 C++ allocs during construct+warm-up for 8 instances
