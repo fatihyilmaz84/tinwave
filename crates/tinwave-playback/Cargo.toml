@@ -13,13 +13,8 @@ rtrb = { workspace = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
 
-# Not `workspace = true`: the workspace forbids unsafe code, but the allocation-counting test
-# (tests/rt_alloc.rs) must implement `GlobalAlloc`. The library itself keeps
-# `#![forbid(unsafe_code)]` in src/lib.rs; only that one test binary opts in.
-[lints.rust]
-unsafe_code = "deny"
-missing_debug_implementations = "warn"
+[dev-dependencies]
+tinwave-test-alloc = { workspace = true }
 
-[lints.clippy]
-unwrap_used = "warn"
-expect_used = "warn"
+[lints]
+workspace = true

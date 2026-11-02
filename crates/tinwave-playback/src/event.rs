@@ -35,12 +35,16 @@ pub enum LeaveCause {
     Replaced,
     /// `stop`.
     Stopped,
+    /// It could not be played to its end: it failed to open or decode (a `TrackFailed` event
+    /// names the error), or a seek inside it could not be carried out. Never counts as completed.
+    Failed,
 }
 
 /// The event payloads.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EventKind {
-    /// A track became the current one. Input for `PlayStarted`.
+    /// A track became the current one. Input for `PlayStarted`. Every `TrackStarted` is followed by
+    /// exactly one `TrackLeft` for the same item before the next `TrackStarted`.
     TrackStarted {
         /// Which track.
         item: QueueItemId,

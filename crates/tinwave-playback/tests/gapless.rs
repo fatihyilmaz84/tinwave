@@ -48,7 +48,10 @@ fn check_pair(
         "misaligned at the boundary: {lag_at_boundary} frames"
     );
     match bits {
-        Some(_) => assert!(err <= 1.5e-5, "lossless format deviates by {err}"),
+        Some(_) => assert_eq!(
+            err, 0.0,
+            "lossless format must be bit-exact, deviates by {err}"
+        ),
         None => assert!(err <= lossy_tolerance, "lossy format deviates by {err}"),
     }
 

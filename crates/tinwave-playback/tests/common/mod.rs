@@ -62,6 +62,11 @@ pub fn reference(l: &[f64], r: &[f64], bits: u32) -> (Vec<f32>, Vec<f32>) {
 
 /// Minimal RIFF/WAVE writer: PCM 16/24 bit or IEEE float 32.
 pub fn write_wav(path: &Path, rate: u32, bits: u32, l: &[f64], r: &[f64]) {
+    write_wav_channels(path, rate, bits, 2, l, r);
+}
+
+/// As [`write_wav`] with 2 or 3 channels (the third repeats the left channel).
+pub fn write_wav_channels(path: &Path, rate: u32, bits: u32, channels: u16, l: &[f64], r: &[f64]) {
     let (format_tag, bits_per_sample) = if bits == 0 {
         (3u16, 32u16)
     } else {
@@ -70,7 +75,7 @@ pub fn write_wav(path: &Path, rate: u32, bits: u32, l: &[f64], r: &[f64]) {
     let bytes_per_sample = usize::from(bits_per_sample / 8);
     let mut data = Vec::with_capacity(l.len() * 2 * bytes_per_sample);
     for (&a, &b) in l.iter().zip(r) {
-        for v in [a, b] {
+        for v in [a, b, a].into_iter().take(usize::from(channels)) {
             match bits {
                 16 => data.extend_from_slice(&((v * 32767.0).round() as i16).to_le_bytes()),
                 24 => {
@@ -80,14 +85,14 @@ pub fn write_wav(path: &Path, rate: u32, bits: u32, l: &[f64], r: &[f64]) {
             }
         }
     }
-    let block_align = 2 * bits_per_sample / 8;
+    let block_align = channels * bits_per_sample / 8;
     let mut out = Vec::new();
     out.extend_from_slice(b"RIFF");
     out.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
     out.extend_from_slice(b"WAVEfmt ");
     out.extend_from_slice(&16u32.to_le_bytes());
     out.extend_from_slice(&format_tag.to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
     out.extend_from_slice(&rate.to_le_bytes());
     out.extend_from_slice(&(rate * u32::from(block_align)).to_le_bytes());
     out.extend_from_slice(&block_align.to_le_bytes());
@@ -239,12 +244,15 @@ impl Harness {
 
     /// Keep rendering (and discarding) until the decoder has carried out the last command, so
     /// everything rendered afterwards belongs to the new stream.
+    ///
+    /// The acknowledgement is an empty callback: it runs the flush handshake but cannot take any
+    /// frame of the new stream, so nothing real is ever discarded here.
     pub fn settle(&mut self) {
         for _ in 0..30_000 {
             if !self.engine.command_pending() {
                 return;
             }
-            let _ = self.render_block(256);
+            self.out.render(&mut [], self.latency).expect("stream open");
             std::thread::sleep(std::time::Duration::from_micros(100));
         }
         panic!("decoder never carried out the command");
@@ -252,13 +260,13 @@ impl Harness {
 
     /// After the last real frame: callbacks return no audio and `QueueEnded` arrives.
     pub fn finish(&mut self) {
-        for _ in 0..200 {
+        for _ in 0..30_000 {
             let (_, real) = self.render_block(512);
             assert_eq!(real, 0, "audio beyond the expected length");
             if self.sink.kinds().contains(&EventKind::QueueEnded) {
                 return;
             }
-            std::thread::sleep(std::time::Duration::from_micros(200));
+            std::thread::sleep(std::time::Duration::from_micros(100));
         }
         panic!("QueueEnded never arrived");
     }
@@ -311,4 +319,34 @@ pub fn best_lag(
         }
     }
     best
+}
+
+/// Every `TrackStarted` is closed by exactly one `TrackLeft` for the same item before the next
+/// `TrackStarted`; `allow_open` lets the last started track still be playing.
+pub fn assert_paired(kinds: &[EventKind], allow_open: bool) {
+    let mut open: Option<QueueItemId> = None;
+    for kind in kinds {
+        match kind {
+            EventKind::TrackStarted { item, .. } => {
+                assert!(
+                    open.is_none(),
+                    "{item:?} started while {open:?} is still open: {kinds:?}"
+                );
+                open = Some(*item);
+            }
+            EventKind::TrackLeft { item, .. } => {
+                assert_eq!(
+                    open,
+                    Some(*item),
+                    "TrackLeft without matching start: {kinds:?}"
+                );
+                open = None;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        allow_open || open.is_none(),
+        "{open:?} was never closed: {kinds:?}"
+    );
 }

@@ -134,6 +134,7 @@ fn track_boundaries_and_end_of_queue_are_reported_with_exact_frames() {
             EventKind::QueueEnded,
         ]
     );
+    assert_paired(&h.sink.kinds(), false);
     // Every event carries the injected clock (frozen at 1_000_005 here), never the system clock.
     assert!(h.sink.all().iter().all(|e| e.at.as_i64() == 1_000_005));
 }
@@ -167,12 +168,18 @@ fn load_while_playing_reports_the_skipped_track_position() {
     );
     h.settle();
     let _ = h.render_exact(4_800, 480);
-    // Adopting the new stream emits nothing extra: the command already announced it.
+    // Adopting the new stream emits nothing extra: the command already announced it. (A real
+    // underrun under load would be legitimate news, so it is not what this test is about.)
     let extra: Vec<EventKind> = h
         .sink
         .take()
         .into_iter()
-        .filter(|k| !matches!(k, EventKind::PositionMark { .. }))
+        .filter(|k| {
+            !matches!(
+                k,
+                EventKind::PositionMark { .. } | EventKind::Underrun { .. }
+            )
+        })
         .collect();
     assert!(extra.is_empty(), "{extra:?}");
 }

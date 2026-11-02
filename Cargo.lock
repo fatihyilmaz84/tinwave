@@ -832,6 +832,7 @@ dependencies = [
  "symphonia",
  "thiserror",
  "tinwave-core",
+ "tinwave-test-alloc",
 ]
 
 [[package]]
@@ -846,6 +847,10 @@ dependencies = [
  "thiserror",
  "tinwave-core",
 ]
+
+[[package]]
+name = "tinwave-test-alloc"
+version = "0.1.0"
 
 [[package]]
 name = "tinytemplate"

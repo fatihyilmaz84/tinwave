@@ -52,6 +52,9 @@ pub(crate) struct TrackReader {
     delay: u64,
     /// External valid length, if any.
     valid: Option<u64>,
+    /// Playable frames of the trimmed timeline when known: the external valid length, else the
+    /// container's own count (which already excludes encoder delay and padding).
+    length: Option<u64>,
     /// Frame (trimmed timeline) the next emitted frame will have.
     pos: u64,
     /// Packets skipped because the decoder reported them corrupt.
@@ -108,6 +111,7 @@ impl TrackReader {
             .make_audio_decoder(params, &options)
             .map_err(|e| PlaybackError::UnsupportedCodec(e.to_string()))?;
         let track_id = audio_track.id;
+        let container_frames = audio_track.num_frames;
         let (delay, valid) = track
             .gapless
             .map_or((0, None), |g| (g.delay_frames, Some(g.valid_frames)));
@@ -119,6 +123,7 @@ impl TrackReader {
             skip: delay,
             delay,
             valid,
+            length: valid.or(container_frames),
             pos: 0,
             corrupt_packets: 0,
             raw: Vec::new(),
@@ -136,7 +141,8 @@ impl TrackReader {
     /// Seek to `frame` of the trimmed timeline. Lands sample-exact: the container seeks to a packet
     /// at or before the target and the remainder is decoded and dropped.
     pub fn seek(&mut self, frame: u64) -> Result<(), PlaybackError> {
-        if self.valid.is_some_and(|valid| frame > valid) {
+        // Detected here instead of trusting the demuxer to report it: some clamp to the last packet.
+        if self.length.is_some_and(|length| frame >= length) {
             return Err(PlaybackError::SeekOutOfRange { requested: frame });
         }
         let stream_frame = frame + self.delay;
@@ -174,7 +180,12 @@ impl TrackReader {
             .as_secs_f64();
         // Rounded: the container timestamp is exact in frames, only the f64 hop adds noise.
         let landed = (actual_secs * f64::from(self.rate)).round().max(0.0) as u64;
-        self.skip = stream_frame.saturating_sub(landed);
+        if landed > stream_frame {
+            return Err(PlaybackError::Seek(format!(
+                "container landed at frame {landed}, after the target {stream_frame}"
+            )));
+        }
+        self.skip = stream_frame - landed;
         self.pos = frame;
         Ok(())
     }

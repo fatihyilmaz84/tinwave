@@ -85,8 +85,9 @@ pub struct Engine {
     cursor: Option<Mark>,
     /// Highest mark sequence already turned into events (marks never repeat or reorder).
     seen_seq: Option<u64>,
-    /// Track a command already announced; adopting its first mark emits nothing.
-    announced: Option<QueueItemId>,
+    /// Track (and start frame) a command already announced with `TrackStarted`; adopting its first
+    /// mark emits nothing, and if another item starts instead, the announced one is closed as failed.
+    announced: Option<(QueueItemId, u64)>,
     /// Output frame at which the current stream began, and the number of 100 ms marks already
     /// reported since then.
     grid_base: u64,
@@ -369,6 +370,9 @@ impl Engine {
         };
         // The old callback must be gone before the decoder re-bases on `consumed`.
         self.stream = None;
+        // The new renderer starts with an empty ring; starved callbacks before the decoder has
+        // switched over are not underruns. The decoder sets this again with its first push.
+        self.sh.primed.store(false, Release);
         let (producer, consumer) = ring(self.sample_rate);
         let gen = self.next_gen();
         self.send(Cmd::Reconfigure {
@@ -430,10 +434,15 @@ impl Engine {
                 (Some(prev), MarkKind::Continuation) => {
                     let left_at = prev.offset + (mark.start_frame - prev.start_frame);
                     let (left, started) = (prev.item.id, mark.item.id);
+                    let cause = if mark.prev_failed {
+                        LeaveCause::Failed
+                    } else {
+                        LeaveCause::Finished
+                    };
                     self.emit(EventKind::TrackLeft {
                         item: left,
                         frame: left_at,
-                        cause: LeaveCause::Finished,
+                        cause,
                     });
                     self.emit(EventKind::TrackStarted {
                         item: started,
@@ -444,7 +453,15 @@ impl Engine {
                 _ => {
                     // Adopt the stream a command started; an item the command did not name means
                     // the named one failed to open and a later entry took over.
-                    if self.announced.take() != Some(mark.item.id) {
+                    let announced = self.announced.take();
+                    if announced.map(|a| a.0) != Some(mark.item.id) {
+                        if let Some((item, frame)) = announced {
+                            self.emit(EventKind::TrackLeft {
+                                item,
+                                frame,
+                                cause: LeaveCause::Failed,
+                            });
+                        }
                         self.emit(EventKind::TrackStarted {
                             item: mark.item.id,
                             frame: mark.offset,
@@ -463,10 +480,15 @@ impl Engine {
         if ended {
             if let Some(last) = self.cursor.take() {
                 let frame = last.offset + view.eos_total.saturating_sub(last.start_frame);
+                let cause = if view.eos_failed {
+                    LeaveCause::Failed
+                } else {
+                    LeaveCause::Finished
+                };
                 self.emit(EventKind::TrackLeft {
                     item: last.item.id,
                     frame,
-                    cause: LeaveCause::Finished,
+                    cause,
                 });
                 self.emit(EventKind::QueueEnded);
             }
@@ -535,7 +557,7 @@ impl Engine {
         expect_audio: bool,
     ) {
         self.cursor = None;
-        self.announced = item.filter(|_| expect_audio);
+        self.announced = item.filter(|_| expect_audio).map(|i| (i, frame));
         self.pending = Some(Pending {
             gen,
             item,
@@ -553,7 +575,13 @@ impl Engine {
     /// A command's effect is now visible. If it produced no track at all, the queue is over.
     fn pending_applied(&mut self, done: Pending) {
         if done.expect_audio && self.sh.marks().is_empty() {
-            self.announced = None;
+            if let Some((item, frame)) = self.announced.take() {
+                self.emit(EventKind::TrackLeft {
+                    item,
+                    frame,
+                    cause: LeaveCause::Failed,
+                });
+            }
             self.emit(EventKind::QueueEnded);
         }
     }
@@ -563,6 +591,7 @@ impl Engine {
         let latency = self.sh.latency_frames.load(Relaxed);
         let eos = self.sh.eos.load(Acquire);
         let eos_total = self.sh.eos_total.load(Acquire);
+        let eos_failed = self.sh.eos_failed.load(Acquire);
         let marks: Vec<Mark> = self.sh.marks().iter().cloned().collect();
         let ended = eos && consumed >= eos_total && !marks.is_empty();
         let played = if ended {
@@ -574,6 +603,7 @@ impl Engine {
             consumed,
             played,
             eos_total,
+            eos_failed,
             ended,
             marks,
         }
@@ -622,6 +652,7 @@ struct View {
     /// Frames heard: consumed minus output latency, or all consumed once the stream has ended.
     played: u64,
     eos_total: u64,
+    eos_failed: bool,
     ended: bool,
     marks: Vec<Mark>,
 }

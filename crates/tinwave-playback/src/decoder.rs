@@ -61,8 +61,11 @@ impl std::fmt::Debug for Cmd {
 /// Idle poll interval while the ring is full. The ring holds one second, so this keeps it at
 /// least ~97 % full while costing about 40 wakeups per second.
 const FULL_RING_WAIT: Duration = Duration::from_millis(25);
-/// Poll interval while waiting for the renderer to acknowledge a flush.
-const FLUSH_WAIT: Duration = Duration::from_millis(1);
+/// Poll interval while waiting for the renderer to acknowledge a flush: starts short (a running
+/// stream acks within a callback) and backs off, so a stream that is not running (failed device
+/// switch) costs about 20 wakeups per second instead of 1000.
+const FLUSH_WAIT_MIN: Duration = Duration::from_millis(1);
+const FLUSH_WAIT_MAX: Duration = Duration::from_millis(50);
 
 pub(crate) struct Decoder {
     pub sh: Arc<Shared>,
@@ -86,6 +89,9 @@ struct State {
     written: u64,
     next_seq: u64,
     mark_kind: MarkKind,
+    /// The item that started last failed mid-decode (copied into the next mark and the end of
+    /// stream, so the control side can tell `Failed` from `Finished`).
+    item_failed: bool,
     /// A flush was requested; once the renderer acks `req`, restart at `cur`/`frame`.
     awaiting: Option<Awaiting>,
 }
@@ -107,8 +113,10 @@ impl Decoder {
             written: 0,
             next_seq: 0,
             mark_kind: MarkKind::Initial,
+            item_failed: false,
             awaiting: None,
         };
+        let mut flush_wait = FLUSH_WAIT_MIN;
         loop {
             if self.sh.shutdown.load(Acquire) {
                 return;
@@ -127,18 +135,22 @@ impl Decoder {
 
             if let Some(awaiting) = &st.awaiting {
                 if self.sh.flush_ack.load(Acquire) != awaiting.req {
-                    match self.rx.recv_timeout(FLUSH_WAIT) {
+                    match self.rx.recv_timeout(flush_wait) {
                         Ok(cmd) => {
+                            flush_wait = FLUSH_WAIT_MIN;
                             if !self.accept(&mut st, cmd) {
                                 return;
                             }
                         }
-                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Timeout) => {
+                            flush_wait = (flush_wait * 2).min(FLUSH_WAIT_MAX);
+                        }
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
                     continue;
                 }
                 let (frame, gen) = (awaiting.frame, awaiting.gen);
+                flush_wait = FLUSH_WAIT_MIN;
                 st.awaiting = None;
                 self.restart(&mut st, frame, gen);
             }
@@ -194,12 +206,14 @@ impl Decoder {
                 frame,
                 gen,
             } => {
+                self.drop_reader(st);
                 st.queue = queue;
                 st.cur = index;
                 self.begin_flush(st, frame, gen);
             }
             Cmd::Seek { item, frame, gen } => match st.queue.iter().position(|t| t.id == item) {
                 Some(index) => {
+                    self.drop_reader(st);
                     st.cur = index;
                     self.begin_flush(st, frame, gen);
                 }
@@ -233,6 +247,7 @@ impl Decoder {
                 gen,
             } => {
                 self.producer = producer;
+                self.drop_reader(st);
                 // No item means nothing is loaded: adopt the ring and stay idle.
                 st.cur = item
                     .and_then(|id| st.queue.iter().position(|t| t.id == id))
@@ -248,7 +263,10 @@ impl Decoder {
     }
 
     fn begin_flush(&mut self, st: &mut State, frame: u64, gen: u64) {
-        st.reader = None;
+        debug_assert!(
+            st.reader.is_none(),
+            "readers are dropped through drop_reader"
+        );
         st.pending.clear();
         st.pending_off = 0;
         self.sh.primed.store(false, Release);
@@ -268,7 +286,11 @@ impl Decoder {
     }
 
     fn reset_stream(&mut self, st: &mut State) {
-        st.reader = None;
+        debug_assert!(
+            st.reader.is_none(),
+            "readers are dropped through drop_reader"
+        );
+        st.item_failed = false;
         st.pending.clear();
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
@@ -279,6 +301,7 @@ impl Decoder {
 
     fn finish_queue(&mut self, st: &mut State) {
         self.sh.eos_total.store(st.written, Release);
+        self.sh.eos_failed.store(st.item_failed, Release);
         self.sh.eos.store(true, Release);
         self.sh.primed.store(true, Release);
     }
@@ -319,7 +342,9 @@ impl Decoder {
                         item: track,
                         offset: frame,
                         kind: st.mark_kind,
+                        prev_failed: st.item_failed,
                     });
+                    st.item_failed = false;
                     st.mark_kind = MarkKind::Continuation;
                     st.reader = Some(reader);
                     return true;
@@ -358,6 +383,7 @@ impl Decoder {
                             error,
                         });
                     }
+                    st.item_failed = true;
                     self.finish_item(st);
                 }
             }
@@ -365,16 +391,26 @@ impl Decoder {
     }
 
     fn finish_item(&mut self, st: &mut State) {
-        if let (Some(mut reader), Some(track)) = (st.reader.take(), st.queue.get(st.cur)) {
-            let packets = reader.take_corrupt_packets();
-            if packets > 0 {
+        self.drop_reader(st);
+        st.cur += 1;
+    }
+
+    /// The only way a reader goes away: corrupt packets it skipped are reported first, whether the
+    /// track ended, failed, was seeked inside, skipped or restarted for a device switch.
+    /// Must run while `st.cur` still names the reader's item.
+    fn drop_reader(&mut self, st: &mut State) {
+        let Some(mut reader) = st.reader.take() else {
+            return;
+        };
+        let packets = reader.take_corrupt_packets();
+        if packets > 0 {
+            if let Some(track) = st.queue.get(st.cur) {
                 self.emit(EventKind::CorruptPackets {
                     item: track.id,
                     packets,
                 });
             }
         }
-        st.cur += 1;
     }
 
     fn emit(&self, kind: EventKind) {

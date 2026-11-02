@@ -180,14 +180,13 @@ fn switching_device_resumes_at_the_exact_frame() {
     assert_eq!(position.item, QueueItemId(1));
     assert_eq!(position.frame, 14_400 - 960 + 5_000 - 960);
 
-    // No track-change noise from the re-open (underruns while the test polls the empty new ring
-    // are expected and not what is checked here).
+    // No track-change noise and no spurious underrun from the re-open: the new stream starts
+    // unprimed, so callbacks before the decoder has switched over are not starvation.
     let events = h.sink.take();
     assert!(
-        events.iter().all(|k| matches!(
-            k,
-            EventKind::PositionMark { .. } | EventKind::Underrun { .. }
-        )),
+        events
+            .iter()
+            .all(|k| matches!(k, EventKind::PositionMark { .. })),
         "{events:?}"
     );
 }

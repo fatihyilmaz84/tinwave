@@ -10,7 +10,7 @@ struct Case {
     name: &'static str,
     a: std::path::PathBuf,
     b: std::path::PathBuf,
-    /// `Some(bits)` = lossless, must match the reference to 1.5e-5; `None` = lossy.
+    /// `Some(bits)` = lossless, must reproduce the quantised reference exactly; `None` = lossy.
     bits: Option<u32>,
     lossy_tolerance: f32,
 }
@@ -88,9 +88,9 @@ fn seek_and_check(
     let start = base + frame as usize;
     let err = max_err(&rec, &refs.0, &refs.1, start);
     match c.bits {
-        Some(_) => assert!(
-            err <= 1.5e-5,
-            "{}: seek to {item}:{frame} off by {err}",
+        Some(_) => assert_eq!(
+            err, 0.0,
+            "{}: seek to {item}:{frame} must be bit-exact, off by {err}",
             c.name
         ),
         None => {

@@ -28,6 +28,8 @@ pub(crate) struct Mark {
     pub item: Arc<Track>,
     pub offset: u64,
     pub kind: MarkKind,
+    /// The item before this one failed mid-decode instead of finishing.
+    pub prev_failed: bool,
 }
 
 #[derive(Debug)]
@@ -48,6 +50,8 @@ pub(crate) struct Shared {
     /// The decoder has pushed everything; `eos_total` holds the final stream frame count.
     pub eos: AtomicBool,
     pub eos_total: AtomicU64,
+    /// The last item before the end of stream failed mid-decode.
+    pub eos_failed: AtomicBool,
     pub underruns: AtomicU64,
     /// Highest control-command generation whose effect (first mark or end of stream) is published.
     pub applied_gen: AtomicU64,
@@ -67,6 +71,7 @@ impl Shared {
             primed: AtomicBool::new(false),
             eos: AtomicBool::new(true),
             eos_total: AtomicU64::new(0),
+            eos_failed: AtomicBool::new(false),
             underruns: AtomicU64::new(0),
             applied_gen: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
