@@ -41,7 +41,7 @@ CREATE TABLE session (
   tz_offset_min INTEGER NOT NULL
 );
 
--- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (measured 54 B, T-0006).
+-- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (measured 57.3 B: table 36.9 + index 20.4; whole file 62.8 B, T-0006).
 -- WITHOUT ROWID keyed on the sync dedupe key: no rowid and no separate UNIQUE index (saves ~19 B/event).
 CREATE TABLE signal_event (
   device    INTEGER NOT NULL,               -- with seq = global dedupe key for sync

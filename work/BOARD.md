@@ -22,7 +22,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder r1 | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | tw-builder **r2** ([review-1](reports/T-0014/review-1.md): per-block SAFETY comments) | `t/T-0014-windows-volume-device-provider` · `D:\dev\Tinwave-worktrees\T-0014-windows-volume-device-provider` |
 | [T-0030](tickets/T-0030-engine-append-and-docs.md) Engine follow-ups: append-after-end buffering, regression test, docs (P0) | tw-builder r1 | `t/T-0030-engine-append-and-docs` · `D:\dev\Tinwave-worktrees\T-0030-engine-append-and-docs` |
 
@@ -30,7 +29,9 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Build report |
+|---|---|---|
+| [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-reviewer r1 | [build-1](reports/T-0006/build-1.md) (partial → schema decision → amended) · 6ee0329 |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |

@@ -42,3 +42,14 @@ questions for lead:
 Lead answers (2026-11-02): schema change, not budget change — WITHOUT ROWID PRIMARY KEY (device, seq), `ts_off` = ms
 since session.started_ts, index (recording, session, ts_off), `session.uuid` added (database.md updated). Staging,
 stop_poll, checkpoint policy and Paused-as-play-end accepted (checkpoint policy documented in database.md).
+
+---
+HANDOFF T-0006 (round 1, amended)
+status: done
+branch: t/T-0006-signals-db-writer   commit: 6ee0329 (schema commit 92c54c6, then merge of main at fc57b4b; Cargo.lock unchanged by it)
+summary: Lead schema decision implemented: signal_event WITHOUT ROWID, PRIMARY KEY (device, seq); ts_off (ms since session.started_ts) replaces ts; index (recording, session, ts_off); session.uuid BLOB NOT NULL UNIQUE. Migration 0001 edited in place, matches database.md. 100k realistic events = 57.3 B/event incl. index (table 36.9 + index 20.4; whole file 62.8 B, 6 136 KiB); the 60 B test passes un-ignored; regression guard 58.5 B. Lead 54 B figure came from a different fixture (source on every event with a recording, ~9 events/play). Fixture bug fixed: Listener stamped every session at the same clock time (inflated ts_off to 63.0 B/event); sessions now stamped by the advanced ManualClock.
+acceptance criteria: all [x] - migrations idempotent + schema_matches_database_md updated; 256-event batch p50 2.67/2.67/2.69 ms, mean 2.8-2.9, p99 4.4-5.0, max 95-233 ms (after WAL checkpoint), criterion mean 3.5/3.9/12 (noisy); 60 B test passes; writer RSS +1.3-1.4 MB warm over four runs (one +2.26 MB with a raised baseline while another build ran), cold ~+2.3 MB; duplicate (device, seq) ignored (ts_off of the original not overwritten); shutdown flush intact; first_seq via PK prefix; new a_session_found_by_uuid_after_a_restart_gets_no_second_row; round trip started_ts + ts_off == ts.
+checks: fmt pass, clippy pass, tests 265 passed / 0 failed / 1 ignored (not theirs), deny pass
+files changed (amend): migrations/signals/0001_init.sql, src/dict.rs (session by uuid: LRU, this transaction, SELECT by uuid, insert; LRU holds {id, started_ts}), src/store.rs (INSERT OR IGNORE (device, seq, session, ts_off, ...)), tests/{signal_store, storage_budget, common/mod}.rs
+note: ts_off can be negative on clock skew (signed INTEGER).
+proposals/questions: none

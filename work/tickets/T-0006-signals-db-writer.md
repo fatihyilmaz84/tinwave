@@ -3,7 +3,7 @@ id: T-0006
 title: signals.db migrations and batched SignalWriter
 type: feature
 epic: E-00
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: [T-0005, T-0022]
@@ -13,7 +13,7 @@ scope:
   - Cargo.lock
 owner: tw-builder (round 1)
 branch: t/T-0006-signals-db-writer
-review_round: 0
+review_round: 1
 created_by: lead
 ---
 
