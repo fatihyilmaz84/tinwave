@@ -12,6 +12,11 @@ cxx = { workspace = true }
 cxx-qt = { workspace = true }
 cxx-qt-lib = { workspace = true }
 
+# Dev-only teardown stress target for the artwork image provider (tools/stress/, ADR 0008 rule 6). Not packaged.
+[[bin]]
+name = "image-stress"
+path = "tools/stress/main.rs"
+
 [build-dependencies]
 cxx-qt-build = { workspace = true }
 
