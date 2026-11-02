@@ -3,7 +3,7 @@ id: T-0007
 title: Storage growth test v1 — 5 simulated years of a heavy listener
 type: feature
 epic: E-00
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: []          # T-0006 done

@@ -3,7 +3,7 @@ id: T-0017
 title: Windows output on direct WASAPI (shared + exclusive), cpal fallback output
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: []          # T-0016, T-0028, T-0030 done
@@ -51,3 +51,6 @@ and system-volume signals live in tinwave-context, T-0014). D-0001 Windows first
 
 ## Signals & storage
 Enables `ExclusiveModeToggled`; no new signals.
+
+## Merged
+2026-11-02, merge commit 8e16368 (branch head 5243dce; Cargo.lock conflict resolved by regenerating). Reviews: review-1 (CHANGES_REQUESTED), review-2 (APPROVE). Gates green on main (357 tests). Includes the engine position fix (2bd5e6a). Non-blocking → T-0031.
