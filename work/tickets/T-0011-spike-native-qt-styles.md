@@ -3,14 +3,14 @@ id: T-0011
 title: "Spike: native Qt Quick styles and OS integration for the Quiet Native design system"
 type: spike
 epic: E-00
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: []
 scope:
   - spikes/T-0011-native-styles/
-owner:
-branch:
+owner: tw-spike (round 1)
+branch: t/T-0011-spike-native-qt-styles
 review_round: 0
 created_by: lead
 ---
@@ -20,6 +20,16 @@ ADR 0003 and docs/design/design-system.md commit to native Qt Quick Controls sty
 color scheme, native menus and dialogs, and a token-driven `Theme.qml`, with Qt 6.8 LTS as the floor.
 Spec §2, §12 (memory), §14.1. Rules: docs/rules/qml-ui.md. Visual reference: the PO's design canvas
 (Foundations, Components, Native per platform).
+
+## Machine (lead grooming 2026-11-02)
+- Qt **6.12.0** MSVC kit: `C:\Qt\6.12.0\msvc2022_64` (`qmake.exe`, `qml.exe`, Qt Quick Controls styles incl.
+  FluentWinUI3, Fusion, Native). Set `QMAKE=C:\Qt\6.12.0\msvc2022_64\bin\qmake.exe`; add its `bin` to PATH to run.
+  The old `C:\Qt\6.10.1\mingw_64` kit can't link with MSVC Rust — don't use it.
+- Ninja and CMake: `C:\Qt\Tools\Ninja`, `C:\Qt\Tools\CMake_64` (also CMake 4.0.2 on PATH).
+- Rust 1.92 stable x86_64-pc-windows-msvc; Visual Studio 2026 Community, MSVC 14.50 (ABI-compatible with the
+  msvc2022 kit); Windows SDK 10.0.26100.
+- The design system's floor is Qt **6.8 LTS**; only 6.12 is installed. Measure on 6.12 and state which findings
+  depend on > 6.8 (from Qt docs/changelogs); a floor change is an ADR + PO decision.
 
 ## Question
 Does Qt 6.8 give us the native look and OS integration the design system assumes, at acceptable memory cost,
