@@ -3,7 +3,7 @@ id: T-0028
 title: Fix engine leave-pairing edge cases and the load-dependent test hang; add a pairing property test
 type: bug
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: S
 depends_on: []
@@ -40,3 +40,6 @@ Every `TrackStarted` must have exactly one `TrackLeft`; the signal layer (T-0024
 
 ## Signals & storage
 None (engine events only).
+
+## Merged
+2026-11-02, merge commit c0bfd2a (branch head 517b533). Review: review-1 (APPROVE). Gates green on main (226 tests). Non-blocking findings -> T-0030.
