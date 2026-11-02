@@ -3,7 +3,7 @@ id: T-0033
 title: Store the DeviceSecret in the OS keychain (Windows Credential Manager first)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: []
@@ -41,3 +41,6 @@ small documented module); architecture.md (OS code in tinwave-context behind tra
 
 ## Signals & storage
 None (protects device hashes; T1 OutputDeviceChanged stays stable across restarts).
+
+## Merged
+2026-11-02, merge commit 8612674 (branch head 6f75257). Review: review-1 (APPROVE). Gates green on main.

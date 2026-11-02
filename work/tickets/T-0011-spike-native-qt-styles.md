@@ -3,14 +3,14 @@ id: T-0011
 title: "Spike: native Qt Quick styles and OS integration for the Quiet Native design system"
 type: spike
 epic: E-00
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: []
 scope:
   - spikes/T-0011-native-styles/
-owner:
-branch:
+owner: tw-spike (round 1)
+branch: t/T-0011-spike-native-qt-styles
 review_round: 0
 created_by: lead
 ---
