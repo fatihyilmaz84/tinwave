@@ -317,7 +317,11 @@ impl Mapper {
                 return;
             }
         };
-        let session = Session::new(id);
+        let mut session = Session::new(id);
+        // A session opened while paused (the listener sought or changed the volume of a track
+        // restored paused, or pressed "previous" while paused) starts in silence: otherwise it
+        // would never end by silence, and a play hours later would join it.
+        session.set_audible(at, !self.paused);
         let tz = self.timezone.local_offset();
         self.bus.set_tz_offset(tz);
         self.timezone.session_started(tz);
@@ -545,9 +549,10 @@ impl Mapper {
     /// been heard yet, and no session is open (a track restored paused at launch is the common
     /// case): that act is the first thing the listener did, so the session begins with it, with
     /// the play's origin. Without it the act would go unrecorded. Not for the controller's own
-    /// (`Auto`) commands, which are not the listener's.
-    fn open_session_for_unheard(&mut self, at: UtcMillis, cx: Cx) {
-        if self.session.is_some() || cx.input == InputSource::Auto {
+    /// (`Auto`) commands, which are not the listener's, nor for an act whose signal (`kind`) is
+    /// turned off: a session would then open for something that is not recorded.
+    fn open_session_for_unheard(&mut self, at: UtcMillis, cx: Cx, kind: SignalKind) {
+        if self.session.is_some() || cx.input == InputSource::Auto || !self.bus.enabled(kind) {
             return;
         }
         if let Some(start) = self.play.and_then(|p| p.unheard) {
@@ -557,7 +562,7 @@ impl Mapper {
 
     fn paused_event(&mut self, at: UtcMillis, position_ms: Option<u64>, cx: Cx) {
         self.paused = true;
-        self.open_session_for_unheard(at, cx);
+        self.open_session_for_unheard(at, cx, SignalKind::Paused);
         self.set_audible(at, false);
         let Some(play) = &mut self.play else {
             return;
@@ -587,7 +592,7 @@ impl Mapper {
         if play.unheard.is_none() {
             self.ensure_session(at, PlayOrigin::Resume);
         } else {
-            self.open_session_for_unheard(at, cx);
+            self.open_session_for_unheard(at, cx, SignalKind::Resumed);
         }
         self.set_audible(at, true);
         let scope = self.scope_of(Some(meta), position_ms);
@@ -603,7 +608,12 @@ impl Mapper {
         if let Some(play) = self.play.as_mut().filter(|p| p.item == item) {
             play.from_frame = to_frame;
         }
-        self.open_session_for_unheard(at, cx);
+        let kind = if to_frame >= from_frame {
+            SignalKind::SeekForward
+        } else {
+            SignalKind::SeekBack
+        };
+        self.open_session_for_unheard(at, cx, kind);
         let Some(session) = self.session.as_ref() else {
             return;
         };
@@ -640,7 +650,7 @@ impl Mapper {
         if !self.bus.enabled(SignalKind::VolumeChanged) {
             return;
         }
-        self.open_session_for_unheard(at, cx);
+        self.open_session_for_unheard(at, cx, SignalKind::VolumeChanged);
         let Some(session) = self.session.as_ref() else {
             // No session means nothing has played for 30 minutes (or ever): not listening.
             return;

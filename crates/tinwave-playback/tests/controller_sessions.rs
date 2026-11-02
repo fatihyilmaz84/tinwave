@@ -8,7 +8,9 @@ mod controller_support;
 use controller_support::*;
 use tinwave_core::TzOffsetMin;
 use tinwave_playback::{LoadIntent, PlayState};
-use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, SignalKind, SignalPayload};
+use tinwave_signals::{
+    InputSource, PlayOrigin, QueueOrigin, SignalCategory, SignalKind, SignalPayload,
+};
 
 const SECOND: usize = 48_000;
 const MINUTE_MS: i64 = 60_000;
@@ -368,4 +370,129 @@ fn counts_of_tracks_and_minutes_cover_the_whole_session() {
         panic!("kind");
     };
     assert_eq!((p.tracks, p.minutes), (3, 7));
+}
+
+// --- sessions opened by the listener while a restored track is paused (T-0034) ---------------
+
+/// The shell restores the last track paused at launch: its own (`Auto`) commands, no session.
+fn restored_paused(tag: &str) -> Rig {
+    let mut rig = Rig::new(tag);
+    let a = rig.wav("a.wav", 20 * SECOND);
+    let e = rig.entry(1, &a, 20 * SECOND);
+    rig.ctl.pause(InputSource::Auto);
+    rig.select(vec![e], 0, PlayOrigin::Resume, InputSource::Auto);
+    rig.settle();
+    assert!(
+        rig.new_signals().is_empty(),
+        "restoring is not the listener's act"
+    );
+    rig
+}
+
+/// A session the listener's act opened while paused is silent from its first moment: it ends
+/// after exactly 30 minutes (not 29:59) with no tracks and no minutes, and the play pressed later
+/// opens a new one.
+fn a_session_opened_while_paused_ends_after_30_minutes(
+    mut rig: Rig,
+    act: &str,
+    later_origin: PlayOrigin,
+) {
+    // The act happened now; seeks and volume moves are coalesced for 2 s, so let that close.
+    let act_at = rig.clock.now_ms();
+    rig.clock.advance(3_000);
+    rig.ctl.poll();
+    let opened = rig.new_signals();
+    assert_eq!(
+        kinds(&opened).first().copied(),
+        Some(SignalKind::SessionStarted),
+        "{act}"
+    );
+    let first = opened[0].session;
+
+    rig.clock.advance(HALF_HOUR_MS - 1_000 - 3_000);
+    rig.ctl.poll();
+    assert!(
+        rig.new_signals().is_empty(),
+        "{act}: 29:59 of silence keeps the session"
+    );
+    assert_eq!(rig.ctl.status().session, Some(first), "{act}");
+
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    let ended = rig.new_signals();
+    assert_eq!(
+        kinds(&ended),
+        [SignalKind::SessionEnded],
+        "{act}: 30:00 of silence"
+    );
+    let SignalPayload::SessionEnded(p) = ended[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!((p.tracks, p.minutes), (0, 0), "{act}: nothing was heard");
+    assert_eq!(ended[0].ts.as_i64(), act_at + HALF_HOUR_MS, "{act}");
+
+    rig.clock.advance(2 * HALF_HOUR_MS);
+    rig.ctl.resume(InputSource::MediaKey);
+    rig.hear();
+    let later = rig.new_signals();
+    assert_eq!(
+        kinds(&later),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::Resumed,
+            SignalKind::PlayStarted
+        ],
+        "{act}: the play hours later is a new session"
+    );
+    assert_ne!(later[0].session, first, "{act}");
+    let SignalPayload::SessionStarted(start) = later[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!(start.start_origin, later_origin, "{act}");
+}
+
+#[test]
+fn a_volume_change_on_a_restored_paused_track_opens_a_session_that_ends_by_silence() {
+    let mut rig = restored_paused("ses-paused-volume");
+    rig.ctl.set_volume(0.5, InputSource::Mouse).expect("volume");
+    a_session_opened_while_paused_ends_after_30_minutes(rig, "volume", PlayOrigin::Resume);
+}
+
+#[test]
+fn a_seek_on_a_restored_paused_track_opens_a_session_that_ends_by_silence() {
+    let mut rig = restored_paused("ses-paused-seek");
+    rig.ctl.seek_ms(5_000, InputSource::Mouse).expect("seek");
+    rig.settle();
+    a_session_opened_while_paused_ends_after_30_minutes(rig, "seek", PlayOrigin::Resume);
+}
+
+#[test]
+fn previous_pressed_while_paused_opens_a_session_that_ends_by_silence() {
+    let mut rig = Rig::new("ses-paused-previous");
+    let a = rig.wav("a.wav", 20 * SECOND);
+    let e = rig.entry(1, &a, 20 * SECOND);
+    rig.ctl.pause(InputSource::Auto);
+    rig.load_with(vec![e], 0, LoadIntent::Previous, InputSource::Keyboard)
+        .expect("previous");
+    rig.settle();
+    // The play keeps the origin of the "previous" load.
+    a_session_opened_while_paused_ends_after_30_minutes(rig, "previous", PlayOrigin::Queue);
+}
+
+#[test]
+fn a_seek_whose_signal_is_off_opens_no_session() {
+    let mut rig = restored_paused("ses-paused-seek-off");
+    rig.bus
+        .settings()
+        .clone()
+        .set_category(SignalCategory::SeekSkipReplay, false);
+    rig.ctl.seek_ms(5_000, InputSource::Mouse).expect("seek");
+    rig.settle();
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    assert!(
+        rig.new_signals().is_empty(),
+        "an unrecorded act opens no session"
+    );
+    assert_eq!(rig.ctl.status().session, None);
 }
