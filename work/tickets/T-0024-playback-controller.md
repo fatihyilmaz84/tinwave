@@ -26,6 +26,10 @@ signals are built outside the engine.
 - A controller thread owning poll() cadence and the event → signal mapping (with input source and position).
 - A bounded `EventSink` with a reserved slot for playback-critical events (P-0042), per rust.md Concurrency.
 - Emission tests for every mapped signal kind (testing.md "Signals must be tested").
+- Implements `PlaybackContextSource` for tinwave-context's audio providers (P-0062) and loads/stores the
+  `DeviceSecret` in the OS keychain (Windows Credential Manager first), generated via `&mut impl CryptoRng`.
+- Engine contract after T-0028: `seek` with no current track is rejected and emits nothing; exactly one
+  `TrackLeft` per `TrackStarted`; a stalled first read is buffering, not an Underrun.
 
 ## Acceptance criteria
 - [ ] Each PlaybackEvent maps to exactly the catalog signals with the right payload, position and input source — tests.

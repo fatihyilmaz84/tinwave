@@ -24,6 +24,10 @@ pub struct Renderer {
     gain: f32,
     /// 1.0 playing, 0.0 paused; pause and resume are ramped across one block to avoid clicks.
     pause_level: f32,
+    /// This renderer has taken audio from its ring since it was opened or last flushed. Until it
+    /// has, an empty ring is "waiting for the first audio" (start, seek, device switch), not an
+    /// underrun. Per renderer, so a new stream never inherits the old stream's state.
+    seen_data: bool,
 }
 
 impl Renderer {
@@ -35,6 +39,7 @@ impl Renderer {
             sh,
             gain,
             pause_level,
+            seen_data: false,
         }
     }
 
@@ -64,6 +69,7 @@ impl Renderer {
                 chunk.commit_all();
             }
             sh.flush_ack.store(req, Release);
+            self.seen_data = false;
             out.fill(0.0);
             return 0;
         }
@@ -80,7 +86,8 @@ impl Renderer {
         let (popped, rest) = self.cons.pop_partial_slice(out);
         let popped_len = popped.len();
         rest.fill(0.0);
-        if popped_len < len && !eos && sh.primed.load(Acquire) {
+        self.seen_data |= popped_len > 0;
+        if popped_len < len && !eos && self.seen_data {
             sh.underruns.fetch_add(1, Relaxed);
         }
 
@@ -115,5 +122,79 @@ impl Renderer {
 
         sh.consumed.fetch_add(frames as u64, Release);
         frames
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering::{Relaxed, Release};
+
+    use rtrb::RingBuffer;
+
+    use super::*;
+
+    fn rig() -> (Arc<Shared>, rtrb::Producer<f32>, Renderer) {
+        let sh = Shared::new(1.0);
+        sh.eos.store(false, Release);
+        let (prod, cons) = RingBuffer::new(4_800);
+        let renderer = Renderer::new(cons, Arc::clone(&sh));
+        (sh, prod, renderer)
+    }
+
+    #[test]
+    fn waiting_for_the_first_audio_is_not_an_underrun() {
+        let (sh, mut prod, mut r) = rig();
+        let mut out = [0.0f32; 480];
+        for _ in 0..50 {
+            assert_eq!(r.render(&mut out, 0), 0);
+        }
+        assert_eq!(sh.underruns.load(Relaxed), 0);
+
+        // Once audio has flowed, running dry is.
+        let _ = prod.push_partial_slice(&[0.25; 240]);
+        assert_eq!(r.render(&mut out, 0), 120);
+        assert_eq!(
+            sh.underruns.load(Relaxed),
+            1,
+            "partial block: starved mid-stream"
+        );
+        r.render(&mut out, 0);
+        assert_eq!(sh.underruns.load(Relaxed), 2);
+    }
+
+    #[test]
+    fn a_flush_returns_the_renderer_to_waiting() {
+        let (sh, mut prod, mut r) = rig();
+        let mut out = [0.0f32; 480];
+        let _ = prod.push_partial_slice(&[0.25; 480]);
+        r.render(&mut out, 0);
+        sh.flush_req.fetch_add(1, Release);
+        r.render(&mut out, 0); // drains and acknowledges
+        for _ in 0..20 {
+            r.render(&mut out, 0);
+        }
+        assert_eq!(
+            sh.underruns.load(Relaxed),
+            0,
+            "refilling after a seek is not starvation"
+        );
+    }
+
+    #[test]
+    fn a_new_renderer_does_not_inherit_the_old_ones_state() {
+        let (sh, mut prod, mut old) = rig();
+        let mut out = [0.0f32; 480];
+        let _ = prod.push_partial_slice(&[0.25; 960]);
+        old.render(&mut out, 0);
+        old.render(&mut out, 0);
+        drop(old);
+        // A device switch builds a new renderer on the same shared state; its ring is empty until
+        // the decoder has switched over, whatever the old stream had seen.
+        let (_prod, cons) = RingBuffer::<f32>::new(4_800);
+        let mut fresh = Renderer::new(cons, Arc::clone(&sh));
+        for _ in 0..50 {
+            fresh.render(&mut out, 0);
+        }
+        assert_eq!(sh.underruns.load(Relaxed), 0);
     }
 }
