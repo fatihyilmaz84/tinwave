@@ -14,8 +14,12 @@ publish = false
 
 [workspace.dependencies]
 tinwave-core = { path = "crates/tinwave-core", version = "0.1.0" }
+tinwave-signals = { path = "crates/tinwave-signals", version = "0.1.0" }
 # Dev-only counting allocator; never a runtime dependency.
 tinwave-test-alloc = { path = "crates/tinwave-test-alloc", version = "0.1.0" }
+arc-swap = "1"
+# Pure-Rust build: no C compiler step for a hash that runs once per device change.
+blake3 = { version = "1", default-features = false, features = ["pure"] }
 crossbeam-channel = "0.5"
 getrandom = "0.4"
 # Dev-only (benchmarks). No plotting, rayon or HTML report: smaller dependency tree.
@@ -27,7 +31,12 @@ serde_json = "1"
 # MPL-2.0: allowed only for symphonia* crates (deny.toml exceptions, ADR 0005). Never patched in-tree.
 symphonia = { version = "0.6", features = ["aac", "alac", "isomp4", "mp3", "aiff"] }
 thiserror = "2"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 uuid = { version = "1", features = ["serde"] }
+# Windows-only (cfg(windows) in the crates that use it); each crate lists the Win32 features it needs.
+windows = "0.62"
+# The `#[implement]` macro expands to paths in this crate, so it must be a direct dependency.
+windows-core = "0.62"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
