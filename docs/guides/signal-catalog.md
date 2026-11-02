@@ -143,10 +143,12 @@ Captured by [context providers](context-engine.md) into a `ContextSnapshot`, ded
 | Queue, favorites, ratings, playlists, edits | E | ~40 | ~2.5 KB |
 | Search | E | ~20 | ~1.5 KB |
 | Output/EQ/window state changes | E | ~30 | ~2 KB |
-| Context snapshots (deduped, quantized) | — | ~60 | ~2 KB |
-| UI counters (dwell, hover, impressions) | C | ~300 rows | ~5 KB |
+| Context snapshots (deduped, quantized; ~70 B per row incl. 64-bit hash, its UNIQUE index and key) | — | ~60 | ~4.5 KB |
+| UI counters (dwell, hover, impressions) | C | ~300 rows | ~7 KB |
+| Dictionaries and sessions (UUID ↔ small id for recordings, sources, entities; session rows) | — | — | ~20 KB while the library is being discovered, saturating as it is covered |
 | Play records (warm tier) | — | ~120 | ~6 KB |
-| **Total** | | | **~40 KB/day ≈ 3.6 MB per 90-day hot window** |
+| **Total** | | | **~70 KB/day upper bound; measured ~49 KB/day ≈ 4.4 MB per 90-day hot window (T-0007)** |
 
-After 90 days raw events are deleted; only play records (~2 MB/year) and monthly rollups (~0.5 MB/year)
+Measured by the storage growth test (T-0007, real pipeline, seed 2026): events average ~39 B on disk (29–47 by kind),
+so the event-group rows above are conservative upper bounds. After 90 days raw events are deleted; only play records (~2 MB/year) and monthly rollups (~0.5 MB/year)
 remain. Every new signal must add its estimate to this table.

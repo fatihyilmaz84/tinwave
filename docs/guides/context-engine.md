@@ -25,7 +25,8 @@ pub trait ContextProvider: Send + Sync {
 - Every missing value is explicit `Unknown`, never a guess.
 - Fields are **quantized before hashing** (temperature to whole °C, sun altitude to 5°, battery to 10 %,
   idle to buckets 0/60/300/900 s). Without this every snapshot is unique and dedupe does nothing.
-  Target: ≤ ~60 distinct snapshots per day, ~30 bytes each.
+  Target: ≤ ~60 distinct snapshots per day; ~30 bytes of quantized fields, ~70 bytes per stored row with the id,
+  64-bit hash (UNIQUE index, used for dedupe) and packed key (measured in T-0007).
 
 ## Providers and per-OS APIs
 
