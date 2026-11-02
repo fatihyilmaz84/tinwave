@@ -88,6 +88,10 @@ design-system.md. Nothing found requires abandoning native-first.**
 5. **Spec bugs found by the self-test (so "all text pairs >= 4.5:1 (checked)" is currently false):** light `textFaint`
    `#6E6E77` is 4.28:1 on `sidebar` and 4.39:1 on the Tin Teal `selected` tint; light `srcDownload` `#2E7D46` is
    4.30:1 on `sidebar`. Suggested: `textFaint` `#6A6A73` (min 4.54), `srcDownload` `#2B7842` (min 4.60).
+   *Superseded by T-0035 (2026-11-02):* the contrast rule now also counts the `hover` overlay on every fixed surface
+   (never over `selected`, which shows alone). That needs light `textFaint` `#64646D`, `srcDownload` `#2A7240`,
+   `warning` `#925700` and dark `textFaint` `#94949C`; design-system §3.1 is the source of truth and
+   `Theme.selfCheck()` the check.
 6. **`selected`** percentages do not match the hexes: `#E6F1F2` is about 10 % of Tin Teal over white (spec says 12 %),
    `#1B2B2D` is about 12 % of `#5CC6CF` over `#161618` (spec says 18 %). The prototype uses 10 %/12 %; pick one rule.
 7. **Alpha hex trap.** `hover` `#0000000A` and `separator` `#0000001A` are CSS `#RRGGBBAA`; QML parses `#AARRGGBB`, so

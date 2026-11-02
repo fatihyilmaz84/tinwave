@@ -3,7 +3,7 @@ id: T-0035
 title: Design-system §3 token fixes from T-0011 (accentFill, onAccent, contrast, selected, alpha hex)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0040]
@@ -42,3 +42,9 @@ Also add the tokens the shell had to work around: hairline width, default first-
 corner radius (canvas rounded top-left) and the canvas sidebar row height (34) vs native ItemDelegate (40) — decide in
 design-system §3/§4 and expose in Theme.qml; then replace the workarounds in apps/tinwave-desktop/qml/Main.qml
 (scope extends to Main.qml/Sidebar.qml for those substitutions only).
+
+## Outcome
+2026-11-02: merged 11bc7e1. Round 2 failed on a two-line binding fix; the lead took it over (481582b). Gates on main:
+fmt, clippy, deny green; nextest 463/464 — the one failure was storage_growth's 60 s wall-clock budget (97 s at 100 % CPU
+from parallel agent runs; 32 s idle earlier; sizes within budget), unrelated to this QML/doc change → T-0047.
+ADR 0007 hexes annotated as superseded; screenshots refreshed.

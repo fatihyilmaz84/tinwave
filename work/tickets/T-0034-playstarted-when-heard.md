@@ -3,7 +3,7 @@ id: T-0034
 title: PlayStarted only when audio is heard; engine publishes the initial StreamInfo
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0024]
@@ -11,7 +11,7 @@ scope:
   - crates/tinwave-playback/
 owner: tw-builder
 branch: t/T-0034-playstarted-when-heard
-review_round: 1
+review_round: 2
 created_by: from P-0096, P-0097, P-0128
 ---
 
