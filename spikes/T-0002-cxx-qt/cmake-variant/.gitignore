@@ -1,0 +1,7 @@
+build/
+rust/src/*.rs
+!rust/src/lib.rs
+rust/qml/
+rust/cpp/
+rust/target/
+rust/Cargo.lock

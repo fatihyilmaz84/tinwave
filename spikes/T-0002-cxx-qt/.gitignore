@@ -1,0 +1,7 @@
+target/
+target-*/
+deploy*/
+*.tmp
+out.txt
+err.txt
+.qmlls.ini
