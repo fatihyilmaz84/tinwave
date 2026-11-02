@@ -1,4 +1,36 @@
-//! The seam between the engine core and an operating-system audio API (real outputs: T-0017).
+//! The seam between the engine core and an operating-system audio API, and the outputs behind it.
+//!
+//! - [`AudioOutput`] / [`OutputStream`]: the contract (T-0016).
+//! - `WasapiOutput` (Windows only): direct WASAPI, shared by default, exclusive on request,
+//!   event driven, MMCSS "Pro Audio". The only module with `unsafe` is `windows/os.rs`.
+//! - [`CpalOutput`]: generic output for macOS and Linux, and the Windows fallback.
+//! - [`ManualOutput`]: no device, no thread; the caller plays the audio callback (tests).
+//! - [`Pump`] / [`RenderDevice`]: the device-independent half of an event-driven callback
+//!   (render, convert, write), so it can be tested with a fake device.
+//!
+//! None of the outputs ever touches endpoint volume or mute: in-app volume is the renderer's
+//! software gain (ADR 0004 decision 5). Device and system-volume *signals* come from
+//! `tinwave-context`; an output only reports `is_lost` so the host can `switch_device`.
+
+mod convert;
+mod cpal;
+mod follow;
+mod info;
+mod plan;
+mod pump;
+mod stream_thread;
+#[cfg(windows)]
+mod windows;
+
+pub use convert::{convert_into, SampleFormat};
+pub use cpal::{CpalControl, CpalOutput};
+pub use follow::{DeviceEvent, DeviceFollower, DeviceStateChange, FollowTarget};
+pub use info::{StreamInfo, StreamMode};
+pub use plan::{plan_exclusive, resolve_mode, ModeOutcome, EXCLUSIVE_CANDIDATES};
+pub use pump::{DeviceLost, Pump, PumpStep, RenderDevice};
+pub use stream_thread::{run_render_thread, DeviceSetup, OpenState};
+#[cfg(windows)]
+pub use windows::{WasapiControl, WasapiOutput};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -34,6 +66,12 @@ pub trait AudioOutput: Send {
 pub trait OutputStream: Send {
     /// The device was removed or the stream invalidated; it must be re-opened.
     fn is_lost(&self) -> bool;
+
+    /// How the stream was opened (backend, mode, format, latency, and why exclusive mode was not
+    /// used, if it was asked for). Backends that do not know return [`StreamInfo::unknown`].
+    fn info(&self) -> StreamInfo {
+        StreamInfo::unknown()
+    }
 }
 
 /// An output without a device or a thread: the caller plays the part of the audio callback by

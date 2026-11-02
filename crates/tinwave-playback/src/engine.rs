@@ -343,12 +343,26 @@ impl Engine {
     /// Where playback is, from frames the output has taken minus the output latency. Resolution is
     /// one audio callback. After a command this reports the command's target until the decoder has
     /// processed it.
+    ///
+    /// While a track is current (it has a `TrackStarted`), the position is that track's: it never
+    /// names a later track the decoder has just opened but [`poll`](Self::poll) has not announced
+    /// yet, and it stops at the end of the current track until it does. So the item here always
+    /// matches the events, and a command built on it (`seek`, `load`, `switch_device`) cannot name
+    /// a track that was never started.
     #[must_use]
     pub fn position(&self) -> Option<Position> {
         if let Some(p) = self.unapplied() {
             return p.item.map(|item| self.position_of(item, p.frame));
         }
-        let view = self.view();
+        let mut view = self.view();
+        if self.cursor.is_some() {
+            if let Some(seen) = self.seen_seq {
+                if let Some(next) = view.marks.iter().find(|m| m.seq > seen) {
+                    view.played = view.played.min(next.start_frame);
+                    view.marks.retain(|m| m.seq <= seen);
+                }
+            }
+        }
         let (idx, frame) = resolve(&view.marks, view.played)?;
         Some(self.position_of(view.marks[idx].item.id, frame))
     }
