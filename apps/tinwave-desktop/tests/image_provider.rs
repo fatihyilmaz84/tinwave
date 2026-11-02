@@ -162,6 +162,8 @@ fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
         ("scroll", 700),
     ];
     let mut tasks_run = 0;
+    // Runs, per mode, that quit with requests still unfinished (their finished() never arrived: in flight at quit).
+    let (mut storm_unfinished, mut scroll_unfinished) = (0, 0);
     for (mode, exit_ms) in cases {
         let run = run_stress(&[
             format!("--qml={}", scene("Storm.qml")),
@@ -183,7 +185,18 @@ fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
             "{mode} {exit_ms} ms: more finished() than responses: {c:?}"
         );
         tasks_run += c["tasks_run"];
+        if c["finished"] < c["responses"] {
+            if mode == "storm" {
+                storm_unfinished += 1;
+            } else {
+                scroll_unfinished += 1;
+            }
+        }
     }
+    assert!(
+        storm_unfinished > 0 && scroll_unfinished > 0,
+        "no run quit with requests still in flight (storm {storm_unfinished}, scroll {scroll_unfinished})"
+    );
     assert!(
         tasks_run > 0,
         "the workers never ran a task, so nothing was in flight"

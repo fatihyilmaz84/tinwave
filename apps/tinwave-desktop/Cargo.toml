@@ -6,6 +6,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+# `image-stress` is a second binary; `cargo run -p tinwave-desktop` must keep starting the app.
+default-run = "tinwave-desktop"
 
 [dependencies]
 cxx = { workspace = true }

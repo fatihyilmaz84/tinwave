@@ -12,6 +12,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 
 // State shared by the provider, all its responses and all its tasks. A shared_ptr keeps it alive for the last user, so
 // a task or response that outlives the provider (they are deleted by Qt's reader thread) never sees freed memory.
@@ -24,12 +25,14 @@ struct ProviderShared
     ProviderShared& operator=(const ProviderShared&) = delete;
 
     // Stops the provider: queued tasks skip their work and only emit done(); returns once no worker is running.
-    // GUI thread only (QThreadPool::waitForDone), idempotent.
+    // Setting `closing` and starting a task are serialised by `gate`, so after quiesce() returned no task can have
+    // been, or ever be, started. GUI thread only (QThreadPool::waitForDone), idempotent.
     void quiesce();
 
     const void* rustCtx;                  // opaque Rust context; valid until ~ProviderShared
     QThreadPool pool;                     // bounded (rule 4)
-    std::atomic_bool closing{false};      // set by quiesce(); tasks then skip the work
+    std::mutex gate;                      // makes "closing is false, so start the task" atomic against quiesce()
+    std::atomic_bool closing{false};      // set by quiesce() under `gate`; tasks then skip the work
     std::atomic_uint32_t seq{0};          // request counter, becomes the pool priority (newest first)
 
     // Observability for the teardown stress target and the "exactly one finished()" test. Relaxed atomics.

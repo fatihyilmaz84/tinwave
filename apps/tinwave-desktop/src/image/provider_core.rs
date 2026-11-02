@@ -13,7 +13,7 @@ use super::source::ArtworkSource;
 /// Spec section 12 allows 80-160 MB while browsing, with Qt itself taking 65-75 MB of the idle baseline; the T-0002
 /// spike measured a 8 MB cache holding about 72 percent of the requests of a 100 000-row traversal while the
 /// browsing peak stayed at 123 MB working set. A 48 px thumbnail at 150 percent scaling is 9 KB, so 8 MB holds about
-/// 900 of them. QML's own pixmap cache is bypassed (`cache: false` in `TwArtwork`) so this is the only cache.
+/// 900 of them. QML's own pixmap cache is bypassed (`cache: false` on the `Image`s of the future artwork component) so this is the only cache.
 pub const THUMBNAIL_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
 /// Largest accepted thumbnail edge in pixels (a 1024 px square is 4 MiB, half the cache). Larger requests are

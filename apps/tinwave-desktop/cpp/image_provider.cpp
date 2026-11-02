@@ -13,7 +13,9 @@
 //     not start a task). complete() refuses a second emission and counts it: emitting twice crashed in
 //     QObject::deleteLater (crash A, 120/120 runs).
 //  4. A bounded QThreadPool in shared state held by provider, responses and tasks, newest-request-first, with a
-//     closing flag checked before any work.
+//     closing flag checked before any work. "closing is false, so start the task" (response constructor) and "set
+//     closing" (quiesce) both run under ProviderShared::gate, so once quiesce() has set the flag no task can be
+//     started any more and waitForDone() then really waits for the last one.
 //  5. Teardown: tasks in flight while Qt destroys the QML engine (and with it the pixmap-reader QThread that owns the
 //     responses) crashed inside ~QThread (crash B, 4/400 real-app runs). The owner calls tw_provider_quiesce() after
 //     the event loop ended and BEFORE the engine is destroyed: it sets `closing` and waits until no worker is running.
@@ -36,9 +38,12 @@ extern "C" int32_t tw_render_thumbnail(const void* ctx, const unsigned char* id,
 extern "C" void tw_provider_ctx_release(const void* ctx);
 
 namespace {
-// Edge of the square thumbnail when the Image gave no sourceSize (QML should always set it: logical pixels, Qt
+// Edge of the square thumbnail when the Image gave no usable sourceSize (QML should always set it: logical pixels, Qt
 // multiplies by the device pixel ratio itself).
 constexpr int kDefaultEdge = 128;
+// Largest accepted edge in pixels; the same limit as MAX_THUMBNAIL_EDGE in src/image/provider_core.rs. Checked here
+// as well so a QML property cannot make us allocate a huge QImage before Rust gets to refuse the size.
+constexpr int kMaxEdge = 1024;
 } // namespace
 
 ProviderShared::ProviderShared(const void* ctx, int poolThreads) : rustCtx(ctx)
@@ -48,16 +53,17 @@ ProviderShared::ProviderShared(const void* ctx, int poolThreads) : rustCtx(ctx)
 
 ProviderShared::~ProviderShared()
 {
-    // The last reference is the Rust handle, dropped on the GUI thread after the quiesce and after the engine (the UI
-    // owner's order), so the pool is already idle and this returns at once. It only guards the Rust context against a
-    // worker that would still use it.
-    pool.waitForDone();
+    // Runs when the last holder is gone. Tasks hold a reference, so none can still be using the Rust context here;
+    // normally the last holder is the Rust handle, dropped on the GUI thread after the quiesce and the engine.
     tw_provider_ctx_release(rustCtx);
 }
 
 void ProviderShared::quiesce()
 {
-    closing.store(true);
+    {
+        std::lock_guard<std::mutex> lock(gate);
+        closing.store(true);
+    }
     pool.waitForDone(); // queued tasks now skip the work and only emit; returns when no worker is running
 }
 
@@ -76,11 +82,13 @@ void ThumbTask::run()
     QImage img;
     if (!m_cancelled->load() && !m_shared->closing.load()) {
         m_shared->tasksRun.fetch_add(1, std::memory_order_relaxed);
-        img = QImage(m_size, QImage::Format_RGB32);
-        const QByteArray utf8 = m_id.toUtf8();
-        const int32_t ok = tw_render_thumbnail(m_shared->rustCtx, reinterpret_cast<const unsigned char*>(utf8.constData()),
-                                               size_t(utf8.size()), m_size.width(), m_size.height(), img.bits());
-        if (!ok) img = QImage();
+        img = QImage(m_size, QImage::Format_RGB32); // m_size is within 1..kMaxEdge (the response checked)
+        if (!img.isNull()) { // allocation can fail; never hand Rust a null buffer
+            const QByteArray utf8 = m_id.toUtf8();
+            const int32_t ok = tw_render_thumbnail(m_shared->rustCtx, reinterpret_cast<const unsigned char*>(utf8.constData()),
+                                                   size_t(utf8.size()), m_size.width(), m_size.height(), img.bits());
+            if (!ok) img = QImage();
+        }
     } else {
         m_shared->tasksSkipped.fetch_add(1, std::memory_order_relaxed);
     }
@@ -96,20 +104,32 @@ public:
         : m_cancelled(std::make_shared<std::atomic_bool>(false)), m_shared(std::move(shared))
     {
         m_shared->responses.fetch_add(1, std::memory_order_relaxed);
-        if (m_shared->closing.load()) { // shutting down: complete empty, start no work
+        // Size-specific thumbnail = whatever the Image asked for (logical sourceSize * devicePixelRatio).
+        const bool usable = requested.width() > 0 && requested.height() > 0;
+        const QSize size = usable ? requested : QSize(kDefaultEdge, kDefaultEdge);
+        if (size.width() > kMaxEdge || size.height() > kMaxEdge) { // refuse: complete empty, allocate nothing
             QMetaObject::invokeMethod(this, [this] { complete(); }, Qt::QueuedConnection);
             return;
         }
-        // Size-specific thumbnail = whatever the Image asked for (logical sourceSize * devicePixelRatio).
-        const QSize size = requested.isValid() ? requested : QSize(kDefaultEdge, kDefaultEdge);
-        auto* task = new ThumbTask(id, size, m_cancelled, m_shared);
-        connect(task, &ThumbTask::done, this, [this](const QImage& img) {
+        auto task = std::make_unique<ThumbTask>(id, size, m_cancelled, m_shared);
+        connect(task.get(), &ThumbTask::done, this, [this](const QImage& img) {
             m_image = img;
             complete();
         }, Qt::QueuedConnection);
-        // Newest request first: during a fast scroll the most recent rows are the visible ones. The counter wraps
-        // after 2^31 requests; the only effect is one short stretch of mis-ordered priorities.
-        m_shared->pool.start(task, int(m_shared->seq.fetch_add(1, std::memory_order_relaxed) & 0x7fffffffu));
+        {
+            // Atomic against quiesce(): either closing is already set and we start nothing, or the task is in the
+            // pool before quiesce() can set it, and its waitForDone() waits for it.
+            std::lock_guard<std::mutex> lock(m_shared->gate);
+            if (!m_shared->closing.load()) {
+                // Newest request first: during a fast scroll the most recent rows are the visible ones. The counter
+                // wraps after 2^31 requests; the only effect is one short stretch of mis-ordered priorities.
+                m_shared->pool.start(task.release(),
+                                     int(m_shared->seq.fetch_add(1, std::memory_order_relaxed) & 0x7fffffffu));
+                return;
+            }
+        }
+        // Shutting down: complete empty, start no work (the unstarted task is deleted by the unique_ptr).
+        QMetaObject::invokeMethod(this, [this] { complete(); }, Qt::QueuedConnection);
     }
 
     QQuickTextureFactory* textureFactory() const override
