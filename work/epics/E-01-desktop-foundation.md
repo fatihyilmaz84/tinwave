@@ -22,7 +22,7 @@ playlists — and open the Signal Center to watch every interaction being record
   never endpoint volume, and passes Tinwave's event-context GUID if it ever touches endpoint volume (ADR 0004, P-0009)
 - Play records written live at play end
 - T0 playback signals (start/complete/skip/seek/replay/pause/volume/mute/queue/favorite)
-- ContextHub (snapshot assembly): exclude or bucket the 1 % `system_volume` field from the snapshot hash, or snapshots
+- ContextHub (snapshot assembly) with a `ContextTagger` seam so the controller's signals carry `ctx` (P-0095): exclude or bucket the 1 % `system_volume` field from the snapshot hash, or snapshots
   explode past the ~60/day target (T-0014 review note).
 - T1 context providers: clock, power, idle, output device, system volume (Windows first); output device + system volume
   on Windows is T-0014 (ADR 0004)
