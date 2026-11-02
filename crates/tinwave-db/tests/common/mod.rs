@@ -261,9 +261,11 @@ impl Listener {
     pub fn play(&mut self, out: &mut Vec<SignalEvent>) {
         // A new session after a long silence: a few per day.
         if self.plays_in_session >= 30 + u32::try_from(self.dice.below(20)).unwrap() {
-            self.session = self.ids.session();
             self.plays_in_session = 0;
             self.ts += 3 * 3_600_000;
+            // The session id is a UUIDv7 stamped by the injected clock: it carries the session start.
+            self.ids.clock.set(UtcMillis::new(self.ts));
+            self.session = self.ids.session();
         }
         self.plays_in_session += 1;
         let track = self.pick_track();

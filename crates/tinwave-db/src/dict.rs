@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 
 use rusqlite::{params, Connection, OptionalExtension};
-use tinwave_core::SessionId;
+use tinwave_core::{SessionId, TzOffsetMin};
 
 use crate::lru::Lru;
 use crate::DbError;
@@ -48,12 +48,20 @@ impl Table {
     }
 }
 
+/// A `session` row as the writer needs it: its integer id and the start that event times are
+/// stored relative to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SessionRow {
+    pub(crate) id: i64,
+    pub(crate) started_ts: i64,
+}
+
 pub(crate) type DictKey = (Table, [u8; 16]);
 
 /// The caches that outlive a transaction.
 pub(crate) struct DictCaches {
     pub(crate) dict: Lru<DictKey, i64>,
-    pub(crate) sessions: Lru<SessionId, i64>,
+    pub(crate) sessions: Lru<SessionId, SessionRow>,
 }
 
 impl DictCaches {
@@ -69,7 +77,7 @@ impl DictCaches {
 pub(crate) struct Resolver<'a> {
     caches: &'a mut DictCaches,
     fresh: HashMap<DictKey, i64>,
-    fresh_sessions: HashMap<SessionId, i64>,
+    fresh_sessions: HashMap<SessionId, SessionRow>,
 }
 
 impl<'a> Resolver<'a> {
@@ -122,17 +130,56 @@ impl<'a> Resolver<'a> {
         Ok(id)
     }
 
-    /// The cached integer of a session, if the writer already created its row.
-    pub(crate) fn known_session(&mut self, session: SessionId) -> Option<i64> {
-        self.caches
-            .sessions
-            .get(&session)
-            .or_else(|| self.fresh_sessions.get(&session).copied())
-    }
-
-    /// Remembers a session row inserted in this transaction.
-    pub(crate) fn new_session(&mut self, session: SessionId, id: i64) {
-        self.fresh_sessions.insert(session, id);
+    /// The `session` row of `session`: from the LRU, from rows inserted earlier in this
+    /// transaction, from the database (a session that survived a restart), or inserted now.
+    /// `device` is the session's device row, `tz` the offset recorded on a new row; the start is
+    /// the time embedded in the session's UUIDv7.
+    pub(crate) fn session(
+        &mut self,
+        conn: &Connection,
+        session: SessionId,
+        device: i64,
+        tz: TzOffsetMin,
+    ) -> Result<SessionRow, DbError> {
+        if let Some(row) = self.caches.sessions.get(&session) {
+            return Ok(row);
+        }
+        if let Some(&row) = self.fresh_sessions.get(&session) {
+            return Ok(row);
+        }
+        let uuid = &session.as_bytes()[..];
+        let mut select = conn
+            .prepare_cached("SELECT id, started_ts FROM session WHERE uuid = ?1")
+            .map_err(DbError::sqlite("preparing the session lookup"))?;
+        let found = select
+            .query_row([uuid], |row| {
+                Ok(SessionRow {
+                    id: row.get(0)?,
+                    started_ts: row.get(1)?,
+                })
+            })
+            .optional()
+            .map_err(DbError::sqlite("looking up a session"))?;
+        let row = if let Some(row) = found {
+            row
+        } else {
+            let started_ts = session.created_at().as_i64();
+            let mut insert = conn
+                .prepare_cached(
+                    "INSERT INTO session (uuid, device, started_ts, tz_offset_min) \
+                     VALUES (?1, ?2, ?3, ?4)",
+                )
+                .map_err(DbError::sqlite("preparing the session insert"))?;
+            insert
+                .execute(params![uuid, device, started_ts, tz.minutes()])
+                .map_err(DbError::sqlite("inserting a session"))?;
+            SessionRow {
+                id: conn.last_insert_rowid(),
+                started_ts,
+            }
+        };
+        self.fresh_sessions.insert(session, row);
+        Ok(row)
     }
 
     /// Call after the transaction committed: moves the new entries into the LRUs.

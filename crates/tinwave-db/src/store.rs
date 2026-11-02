@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
-use tinwave_core::{DeviceId, SessionId, TzOffsetMin};
+use tinwave_core::{DeviceId, TzOffsetMin};
 use tinwave_signals::{CounterRow, EntityKind, SignalEvent, SignalKind, SignalSink, SignalsError};
 
 use crate::connection;
@@ -22,11 +22,8 @@ pub const SIGNALS_MIGRATIONS: &[Migration] = &[Migration {
 }];
 
 const INSERT_EVENT: &str = "INSERT OR IGNORE INTO signal_event \
-    (device, seq, ts, session, kind, recording, source, pos_ds, payload, ctx) \
+    (device, seq, session, ts_off, kind, recording, source, pos_ds, payload, ctx) \
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
-
-const INSERT_SESSION: &str =
-    "INSERT INTO session (device, started_ts, tz_offset_min) VALUES (?1, ?2, ?3)";
 
 /// Counter rows are deltas: add the count and the milliseconds, keep the larger scroll depth.
 const UPSERT_COUNTER: &str = "INSERT INTO ui_counter \
@@ -269,7 +266,7 @@ impl SignalStore {
                     }
                 };
                 let device = resolver.resolve(&tx, Table::Device, event.id.device.as_bytes(), 0)?;
-                let session = Self::session_row(&tx, &mut resolver, event, device, tz)?;
+                let session = resolver.session(&tx, event.session, device, tz)?;
                 let recording = event
                     .recording
                     .map(|r| resolver.resolve(&tx, Table::Recording, r.as_bytes(), 0))
@@ -282,8 +279,8 @@ impl SignalStore {
                     .execute(params![
                         device,
                         to_i64("seq", event.id.seq)?,
-                        event.ts.as_i64(),
-                        session,
+                        session.id,
+                        event.ts.as_i64() - session.started_ts,
                         event.kind().discriminant(),
                         recording,
                         source,
@@ -329,30 +326,6 @@ impl SignalStore {
             .map_err(DbError::sqlite("committing the batch"))?;
         resolver.publish();
         Ok(report)
-    }
-
-    /// The integer id of the event's session, inserting the `session` row the first time the
-    /// session is seen. The row's start is the time embedded in the session's UUIDv7.
-    fn session_row(
-        conn: &Connection,
-        resolver: &mut Resolver<'_>,
-        event: &SignalEvent,
-        device: i64,
-        tz: TzOffsetMin,
-    ) -> Result<i64, DbError> {
-        let session: SessionId = event.session;
-        if let Some(id) = resolver.known_session(session) {
-            return Ok(id);
-        }
-        let mut insert = conn
-            .prepare_cached(INSERT_SESSION)
-            .map_err(DbError::sqlite("preparing the session insert"))?;
-        insert
-            .execute(params![device, session.created_at().as_i64(), tz.minutes()])
-            .map_err(DbError::sqlite("inserting a session"))?;
-        let id = conn.last_insert_rowid();
-        resolver.new_session(session, id);
-        Ok(id)
     }
 
     /// Dictionary and session entries currently held by the in-memory LRUs (never more than

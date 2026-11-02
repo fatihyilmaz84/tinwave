@@ -102,11 +102,10 @@ fn schema_matches_database_md() {
     assert_eq!(
         names("signal_event"),
         [
-            "id",
             "device",
             "seq",
-            "ts",
             "session",
+            "ts_off",
             "kind",
             "recording",
             "source",
@@ -118,7 +117,35 @@ fn schema_matches_database_md() {
     assert_eq!(names("dict_entity"), ["id", "kind", "uuid"]);
     assert_eq!(
         names("session"),
-        ["id", "device", "started_ts", "tz_offset_min"]
+        ["id", "uuid", "device", "started_ts", "tz_offset_min"]
+    );
+    // signal_event is WITHOUT ROWID, keyed (device, seq): the sync dedupe key is the primary key.
+    let event_pk: Vec<_> = columns("signal_event")
+        .into_iter()
+        .filter(|c| c.1 > 0)
+        .collect();
+    assert_eq!(event_pk, [("device".to_owned(), 1), ("seq".to_owned(), 2)]);
+    assert_eq!(
+        count(
+            &r,
+            "SELECT count(*) FROM pragma_index_list('signal_event') WHERE origin = 'u'"
+        ),
+        0,
+        "no separate UNIQUE index"
+    );
+    let index_columns: Vec<String> = {
+        let mut stmt = r
+            .prepare("SELECT name FROM pragma_index_info('signal_event_rec_ts') ORDER BY seqno")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(index_columns, ["recording", "session", "ts_off"]);
+    assert!(
+        r.prepare("SELECT rowid FROM signal_event").is_err(),
+        "WITHOUT ROWID"
     );
     // ui_counter: (day, kind, entity_kind, entity) is the primary key, in that order.
     assert_eq!(
@@ -200,9 +227,10 @@ fn an_event_round_trips_through_the_surrogate_keys() {
     let r = db.reader();
     let row = |seq: i64| {
         r.query_row(
-            "SELECT d.uuid, e.ts, e.kind, rec.uuid, s.uuid, e.pos_ds, e.payload, e.ctx, e.session
+            "SELECT d.uuid, ss.started_ts + e.ts_off, e.kind, rec.uuid, s.uuid, e.pos_ds, e.payload, e.ctx, e.session
              FROM signal_event e
              JOIN dict_device d ON d.id = e.device
+             JOIN session ss ON ss.id = e.session
              LEFT JOIN dict_recording rec ON rec.id = e.recording
              LEFT JOIN dict_source s ON s.id = e.source
              WHERE e.seq = ?1",
@@ -251,8 +279,45 @@ fn an_event_round_trips_through_the_surrogate_keys() {
         .unwrap();
     assert_eq!(started, session.created_at().as_i64());
     assert_eq!(tz, 0);
+    let stored_uuid: Vec<u8> = r
+        .query_row("SELECT uuid FROM session", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(stored_uuid, session.as_bytes());
+    assert_eq!(
+        count(&r, "SELECT ts_off FROM signal_event WHERE seq = 7"),
+        5,
+        "stored relative to the session start"
+    );
     assert_eq!(count(&r, "SELECT count(*) FROM session"), 1);
     assert_eq!(count(&r, "SELECT count(*) FROM dict_device"), 1);
+}
+
+#[test]
+fn a_session_found_by_uuid_after_a_restart_gets_no_second_row() {
+    let db = TempDb::new();
+    let mut ids = Ids::new(31);
+    let (device, rec, session) = (ids.device(), ids.recording(), ids.session());
+    let mut store = SignalStore::open(&db.path).unwrap();
+    store
+        .write_batch(&[favorited(device, session, rec, 0)], &[])
+        .unwrap();
+    drop(store);
+    // A new run: empty LRU, same session id (for example a queued event of a long session).
+    let mut store = SignalStore::open(&db.path).unwrap();
+    store
+        .write_batch(&[favorited(device, session, rec, 1)], &[])
+        .unwrap();
+    let r = db.reader();
+    assert_eq!(count(&r, "SELECT count(*) FROM session"), 1);
+    assert_eq!(
+        count(&r, "SELECT count(DISTINCT session) FROM signal_event"),
+        1
+    );
+    assert_eq!(
+        count(&r, "SELECT e.ts_off FROM signal_event e WHERE e.seq = 1"),
+        1_000,
+        "relative to the stored session start"
+    );
 }
 
 #[test]
@@ -311,8 +376,8 @@ fn a_duplicate_device_seq_is_ignored() {
     let r = db.reader();
     assert_eq!(count(&r, "SELECT count(*) FROM signal_event"), 15);
     assert_eq!(
-        count(&r, "SELECT ts FROM signal_event WHERE seq = 5"),
-        T0 + 5_000
+        count(&r, "SELECT ts_off FROM signal_event WHERE seq = 5"),
+        5_000
     );
 
     // Same seq from another device is a different event.
