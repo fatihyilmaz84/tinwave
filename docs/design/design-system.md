@@ -133,8 +133,9 @@ Durations, counts and sizes use tabular figures (`font.features: { "tnum": 1 }`)
 - **Sizes:** sidebar 232 (rail 56) · transport bar 80 · side panel 320 · row 40 comfortable / 32 compact ·
   sidebar nav row 34 (`sidebarRowHeight`; the canvas nav item — a native `ItemDelegate` is 40 by default, so its height is
   set from this token) · album tile min 168 · window min 880 × 560, first-start default 1200 × 800
-  (`windowDefaultWidth/Height`, clamped to the available screen minus `windowChromeAllowance` 48 for the title bar, never below
-  the minimum; the last size is remembered later) · hairline 1 (`hairline`, logical px: separators and
+  (`windowDefaultWidth/Height`, clamped once at start to the available virtual-desktop size, the height also minus
+  `windowChromeAllowance` 48 for the title bar, never below the minimum; QML has no per-screen available size; the last
+  size is remembered later) · hairline 1 (`hairline`, logical px: separators and
   outlines) · hit target ≥ 32 px (mouse), ≥ 44 px for touch-capable layouts.
 - **Radius:** `control` Win 4 / mac 6 / Linux 4 · `surface` 8 / 10 / 8 · `content` = `surface` (`radiusContent`: the
   content surface's rounded top-left corner where it meets the sidebar, outlined by a `hairline` in `separator` on its top

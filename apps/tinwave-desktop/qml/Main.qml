@@ -11,9 +11,10 @@ ApplicationWindow {
 
     visible: true
     title: "Tinwave"
-    // First-start size, clamped to the available screen; the last size is remembered later.
-    width: Theme.firstStartWidth(Screen.desktopAvailableWidth)
-    height: Theme.firstStartHeight(Screen.desktopAvailableHeight)
+    // First-start size: the default, clamped once in Component.onCompleted (an assignment, not a binding, so a later
+    // screen change never resizes the window back); the last size is remembered later.
+    width: Theme.windowDefaultWidth
+    height: Theme.windowDefaultHeight
     minimumWidth: Theme.windowMinWidth
     minimumHeight: Theme.windowMinHeight
     color: Theme.windowFill
@@ -27,6 +28,9 @@ ApplicationWindow {
     // Developer/automation flag until Settings can own it: `--color-scheme=light|dark|system` switches the app's own
     // colour scheme in-process (the OS setting is never touched).
     Component.onCompleted: {
+        width = Theme.firstStartWidth(Screen.desktopAvailableWidth)
+        height = Theme.firstStartHeight(Screen.desktopAvailableHeight)
+
         const prefix = "--color-scheme="
         const arg = Qt.application.arguments.find(a => a.startsWith(prefix))
         if (arg !== undefined)
