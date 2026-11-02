@@ -23,6 +23,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test (P0, D-0005) | tw-builder r1 | `t/T-0028-engine-pairing-fixes` · `D:\dev\Tinwave-worktrees\T-0028-engine-pairing-fixes` |
+| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | tw-builder r1 | `t/T-0014-windows-volume-device-provider` · `D:\dev\Tinwave-worktrees\T-0014-windows-volume-device-provider` |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder r1 | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -34,7 +35,6 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | feature | M | crates/tinwave-context | after T-0015 (uses the coalescer) |
 | [T-0002](tickets/T-0002-spike-cxx-qt.md) Spike: CXX-Qt | spike | M | spikes/T-0002 | needs Qt MSVC kit |
 | [T-0011](tickets/T-0011-spike-native-qt-styles.md) Spike: native Qt styles & Theme | spike | M | spikes/T-0011 | needs Qt MSVC kit |
 
@@ -51,12 +51,12 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0007](tickets/T-0007-storage-growth-test.md) Growth test v1 | T-0006 |
 | [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | T-0006 |
-| [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | T-0016, T-0006 |
-| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output (E-01) | T-0016 |
-| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | T-0016 |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | T-0016 |
-| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (E-01, P2) | T-0016 |
-| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | T-0016 |
+| [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | T-0006, T-0028 |
+| [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output (E-01) | T-0028 (same crate) |
+| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | T-0028 (same crate) |
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | T-0028 (same crate) |
+| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (E-01, P2) | T-0028 (same crate) |
+| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | T-0028 (same crate) |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
