@@ -65,12 +65,14 @@ pub enum EventKind {
     },
     /// Playback paused. Input for `Paused`.
     Paused {
-        /// Where, when something is loaded.
+        /// Where, while a track is current; `None` when none is (nothing loaded, stopped, or the
+        /// queue ended). Always names a track that has a `TrackStarted`.
         position: Option<Position>,
     },
     /// Playback resumed. Input for `Resumed`.
     Resumed {
-        /// Where, when something is loaded.
+        /// Where, while a track is current; `None` when none is (nothing loaded, stopped, or the
+        /// queue ended). Always names a track that has a `TrackStarted`.
         position: Option<Position>,
     },
     /// A seek was requested. Input for `SeekForward` / `SeekBack`. Only emitted while a track is
@@ -90,7 +92,8 @@ pub enum EventKind {
         from: f32,
         /// New `volume_linear`.
         to: f32,
-        /// Where, when something is loaded.
+        /// Where, while a track is current; `None` when none is (nothing loaded, stopped, or the
+        /// queue ended). Always names a track that has a `TrackStarted`.
         position: Option<Position>,
     },
     /// Playback position, once per 100 ms of heard audio while playing.

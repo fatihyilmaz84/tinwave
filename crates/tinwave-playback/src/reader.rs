@@ -57,6 +57,8 @@ pub(crate) struct TrackReader {
     length: Option<u64>,
     /// Frame (trimmed timeline) the next emitted frame will have.
     pos: u64,
+    /// A seek landed exactly on the end of the track: there is nothing left to read.
+    at_end: bool,
     /// Packets skipped because the decoder reported them corrupt.
     corrupt_packets: u64,
     raw: Vec<f32>,
@@ -125,6 +127,7 @@ impl TrackReader {
             valid,
             length: valid.or(container_frames),
             pos: 0,
+            at_end: false,
             corrupt_packets: 0,
             raw: Vec::new(),
         })
@@ -140,10 +143,20 @@ impl TrackReader {
 
     /// Seek to `frame` of the trimmed timeline. Lands sample-exact: the container seeks to a packet
     /// at or before the target and the remainder is decoded and dropped.
+    ///
+    /// `frame == length` is the end of the track, not an error: the reader is positioned there and
+    /// the next [`next_chunk`](Self::next_chunk) reports the end, so the track counts as finished
+    /// and the queue moves on (this is also where a device switch lands when it happens to coincide
+    /// with a track boundary). Only `frame > length` is out of range.
     pub fn seek(&mut self, frame: u64) -> Result<(), PlaybackError> {
         // Detected here instead of trusting the demuxer to report it: some clamp to the last packet.
-        if self.length.is_some_and(|length| frame >= length) {
+        if self.length.is_some_and(|length| frame > length) {
             return Err(PlaybackError::SeekOutOfRange { requested: frame });
+        }
+        self.at_end = self.length == Some(frame);
+        if self.at_end {
+            self.pos = frame;
+            return Ok(());
         }
         let stream_frame = frame + self.delay;
         // Lossy codecs carry state across packets (MP3 bit reservoir and overlap-add, AAC and
@@ -194,7 +207,7 @@ impl TrackReader {
     /// `Ok(false)` at the end of the track.
     pub fn next_chunk(&mut self, out: &mut Vec<f32>) -> Result<bool, PlaybackError> {
         loop {
-            if self.valid.is_some_and(|valid| self.pos >= valid) {
+            if self.at_end || self.valid.is_some_and(|valid| self.pos >= valid) {
                 return Ok(false);
             }
             let packet = match self.format.next_packet() {

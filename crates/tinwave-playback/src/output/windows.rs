@@ -95,6 +95,12 @@ impl WasapiControl {
 /// **joins the render thread**. The thread leaves its loop within one device period, so this is
 /// quick unless a driver hangs inside `GetBuffer` / `ReleaseBuffer`; then the drop, and with it the
 /// engine's, is delayed until the driver returns. That is the price of the guarantee.
+///
+/// # `open` can wait for the driver after its timeout
+/// `open` gives up after a timeout only while the render thread is still building the device. Once
+/// the thread has claimed the stream (it is priming the first buffer and starting the device) the
+/// stream is committed, and `open` waits for that last step to report. That wait has no timeout of
+/// its own: it is bounded only by the driver returning from `Start` / `ReleaseBuffer`.
 #[derive(Debug)]
 pub struct WasapiOutput {
     control: WasapiControl,
