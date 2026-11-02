@@ -23,14 +23,15 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0044](tickets/T-0044-artwork-image-provider.md) Artwork image provider: T-0041 pattern, RAII UI owner (P0) | tw-builder r1 | `t/T-0044-artwork-image-provider` · `D:\dev\Tinwave-worktrees\T-0044-artwork-image-provider` |
-| [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes + T-0040 shell tokens | tw-builder r1 | `t/T-0035-design-token-fixes` · `D:\dev\Tinwave-worktrees\T-0035-design-token-fixes` |
 | [T-0034](tickets/T-0034-playstarted-when-heard.md) PlayStarted when heard; initial StreamInfo; initial_repeat (P-0128) | tw-builder r1 | `t/T-0034-playstarted-when-heard` · `D:\dev\Tinwave-worktrees\T-0034-playstarted-when-heard` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0035](tickets/T-0035-design-token-fixes.md) Design-system §3 token fixes + T-0040 shell tokens | tw-reviewer r1 (build-1: contrast 15 accents × 2 schemes, 5 shell tokens) | `t/T-0035-design-token-fixes` @ 727589c · `D:\dev\Tinwave-worktrees\T-0035-design-token-fixes` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -59,6 +60,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
+| [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | T-0035 |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
 ## Design gaps to close before E-01 screen tickets
@@ -110,5 +112,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0128 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04).
+Proposals P-0001..P-0132 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass).
