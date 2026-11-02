@@ -1,0 +1,43 @@
+[package]
+name = "tinwave-context"
+description = "Tinwave context providers. Today: the audio output device and system volume providers (Windows MMDevice notifications, ADR 0004). All OS code for context lives here."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tinwave-core = { workspace = true }
+tinwave-signals = { workspace = true }
+arc-swap = { workspace = true }
+blake3 = { workspace = true }
+crossbeam-channel = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-core = { workspace = true }
+# Only what the COM module uses; see src/audio/win/com.rs.
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_Media_Audio_Endpoints",
+  "Win32_Media_KernelStreaming",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem",
+] }
+
+# Not `workspace = true`: the Windows COM module needs `unsafe`, which the workspace forbids.
+# This crate is the single place (besides tinwave-test-alloc) that opts in. `deny` keeps every other
+# module of the crate free of `unsafe`; only `src/audio/win/com.rs` carries `#![allow(unsafe_code)]`.
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+unwrap_used = "warn"
+expect_used = "warn"
+undocumented_unsafe_blocks = "deny"
