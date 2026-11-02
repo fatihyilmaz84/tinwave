@@ -29,7 +29,7 @@ signals are built outside the engine.
 
 ## Acceptance criteria
 - [ ] Each PlaybackEvent maps to exactly the catalog signals with the right payload, position and input source — tests.
-- [ ] A failed track never produces `Completed` — test.
+- [ ] A failed track (`TrackLeft{Failed}`) produces neither `Completed` nor `Skipped` — test.
 - [ ] poll() cadence from the injected clock in tests; no wall-clock reads in domain code.
 
 ## Signals & storage

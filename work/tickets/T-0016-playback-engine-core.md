@@ -3,7 +3,7 @@ id: T-0016
 title: tinwave-playback engine core from the T-0003 design (reader, ring, renderer, seek, position)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []          # D-0003 decided; the engine emits PlaybackEvents, not signals

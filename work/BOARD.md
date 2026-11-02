@@ -22,7 +22,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-builder **r2** ([review-1](reports/T-0016/review-1.md): flaky harness under load, CorruptPackets on seek/skip, leave causes) | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
+| [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | tw-reviewer **r2** — b41cf11 ([build-2](reports/T-0016/build-2.md)) | `t/T-0016-playback-engine-core` · `D:\dev\Tinwave-worktrees\T-0016-playback-engine-core` |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-builder r1 | `t/T-0006-signals-db-writer` · `D:\dev\Tinwave-worktrees\T-0006-signals-db-writer` |
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: uuid v7, getrandom, CryptoRng, .bat/.cmd, InputSource, seek rule | tw-builder r1 | `t/T-0015-workspace-deps-tidy` · `D:\dev\Tinwave-worktrees\T-0015-workspace-deps-tidy` |
 
