@@ -58,8 +58,11 @@
 //! - **Sessions** start with the first play after 30 minutes of silence and end after 30 minutes
 //!   of silence, measured on the injected clock: silence is the absence of audible playback
 //!   (paused, stopped, queue ended). A play that outlives its session (paused for over 30
-//!   minutes) produces no outcome signal when it is finally left: the next play starts the next
-//!   session and is recorded there. `SessionEnded.minutes` runs from the start to the last
+//!   minutes) is still scored when the listener finally leaves it: that action is the first
+//!   play of the next session, so `SessionStarted` (origin of the command: the chosen origin, or
+//!   the next entry's for next/previous) comes first, then the `Skipped` / `Completed` of the old
+//!   play in the new session, then the new `PlayStarted`. (Only a `stop` in the last 3 % of such
+//!   a play has no command origin and is not kept.) `SessionEnded.minutes` runs from the start to the last
 //!   audible moment (not including the 30 minutes of silence).
 //! - **Gestures need a session.** A volume change with no session (nothing has played for 30
 //!   minutes, or ever) is applied but not recorded.
@@ -186,7 +189,9 @@ impl Controller {
             input,
             play_origin: match intent {
                 LoadIntent::Select(origin) => Some(origin),
-                LoadIntent::Next | LoadIntent::Previous => None,
+                LoadIntent::Next | LoadIntent::Previous => {
+                    entries.get(index).map(|e| mapper::play_origin(e.origin))
+                }
             },
             previous: intent == LoadIntent::Previous,
         };

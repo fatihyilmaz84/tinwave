@@ -31,7 +31,9 @@ const COMPLETED_FROM_PERCENT: u64 = 97;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Cx {
     pub input: InputSource,
-    /// Origin to report for a `TrackStarted { Requested }`; `None` derives it from the queue entry.
+    /// Origin of the play a `load` begins: reported by its `TrackStarted { Requested }` and used
+    /// to open a session if the track it leaves had outlived the previous one. `None` for
+    /// commands that do not start a play.
     pub play_origin: Option<PlayOrigin>,
     /// The command was "previous".
     pub previous: bool,
@@ -386,6 +388,15 @@ impl Mapper {
             // Neither completed nor skipped: the track could not be played to its end.
             LeaveCause::Failed => return,
         };
+        if completed || cause == LeaveCause::Replaced {
+            // A play that outlived its session (paused over 30 minutes) is left by a real user
+            // action: that action is the first play of the next session, so the session opens
+            // here, with the origin of the command that caused it, and the outcome lands in it.
+            // (`stop` has no origin: a stale stop at the very end is the one outcome not kept.)
+            if let Some(origin) = cx.play_origin {
+                self.ensure_session(at, origin);
+            }
+        }
         let scope = self.scope_of(Some(play.meta), Some(position_ms));
         if completed {
             let wall = at.as_i64().saturating_sub(play.started_at.as_i64()).max(0);
@@ -605,7 +616,7 @@ fn fraction_of(position_ms: u64, duration_ms: u64) -> Fraction {
 }
 
 /// The `PlayStarted` origin of an entry nobody asked for by name (auto-advance, next, previous).
-fn play_origin(origin: QueueOrigin) -> PlayOrigin {
+pub(super) fn play_origin(origin: QueueOrigin) -> PlayOrigin {
     match origin {
         QueueOrigin::Manual | QueueOrigin::Shuffle => PlayOrigin::Queue,
         QueueOrigin::Radio => PlayOrigin::Radio,

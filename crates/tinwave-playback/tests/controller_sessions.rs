@@ -204,18 +204,84 @@ fn pause_then_quit_ends_the_session_at_the_quit() {
     );
 }
 
-#[test]
-fn a_play_that_outlived_its_session_leaves_no_outcome_and_the_next_play_starts_a_new_session() {
-    let (mut rig, _) = paused_after_two_minutes("ses-stale-skip");
-    let a = rig.wav("b.wav", SECOND);
-    let b = rig.entry(2, &a, SECOND);
-    rig.clock.advance(HALF_HOUR_MS + MINUTE_MS);
-    rig.ctl.poll();
-    rig.new_signals();
+/// The paused play of `paused_after_two_minutes` is left by "next" after `silence_ms` of pause.
+fn next_after_pause(tag: &str, silence_ms: i64) -> (Rig, Vec<tinwave_signals::SignalEvent>) {
+    let (mut rig, _) = paused_after_two_minutes(tag);
+    let b = rig.wav("b.wav", 10 * SECOND);
+    let a = rig.dir.path("a.wav");
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Playlist),
+    ];
+    rig.clock.advance(silence_ms);
+    rig.load_with(entries, 1, LoadIntent::Next, InputSource::MediaKey)
+        .expect("next");
+    let fresh = rig.new_signals();
+    (rig, fresh)
+}
 
+#[test]
+fn next_after_exactly_30_minutes_of_pause_scores_the_skip_in_the_new_session() {
+    let (rig, fresh) = next_after_pause("ses-stale-skip", HALF_HOUR_MS);
+    assert_eq!(
+        kinds(&fresh),
+        [
+            SignalKind::SessionEnded,
+            SignalKind::SessionStarted,
+            SignalKind::Skipped,
+            SignalKind::PlayStarted
+        ],
+        "nothing is dropped"
+    );
+    let SignalPayload::SessionStarted(started) = fresh[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(
+        started.start_origin,
+        PlayOrigin::Playlist,
+        "the origin of the entry the command moved to"
+    );
+    let new_session = fresh[1].session;
+    assert_ne!(new_session, rig.first_session_id());
+    assert_eq!(fresh[2].session, new_session);
+    assert_eq!(fresh[3].session, new_session);
+    assert_eq!(
+        fresh[2].recording,
+        Some(recording(1)),
+        "the old play's outcome"
+    );
+    assert_eq!(fresh[3].recording, Some(recording(2)));
+    let SignalPayload::Skipped(p) = fresh[2].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.input, InputSource::MediaKey);
+    assert_eq!(rig.ctl.status().session, Some(new_session));
+}
+
+#[test]
+fn next_after_29_59_of_pause_stays_in_the_same_session() {
+    let (rig, fresh) = next_after_pause("ses-stale-skip-early", HALF_HOUR_MS - 1_000);
+    assert_eq!(
+        kinds(&fresh),
+        [SignalKind::Skipped, SignalKind::PlayStarted]
+    );
+    assert_eq!(fresh[0].session, rig.first_session_id());
+    assert_eq!(fresh[1].session, rig.first_session_id());
+}
+
+#[test]
+fn a_chosen_track_after_a_long_pause_opens_the_session_with_the_chosen_origin() {
+    let (mut rig, _) = paused_after_two_minutes("ses-stale-select");
+    let b = rig.wav("b.wav", 10 * SECOND);
+    let a = rig.dir.path("a.wav");
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Manual),
+    ];
+    rig.clock.advance(HALF_HOUR_MS + MINUTE_MS);
     rig.load_with(
-        vec![b],
-        0,
+        entries,
+        1,
         LoadIntent::Select(PlayOrigin::Search),
         InputSource::Mouse,
     )
@@ -223,10 +289,17 @@ fn a_play_that_outlived_its_session_leaves_no_outcome_and_the_next_play_starts_a
     let fresh = rig.new_signals();
     assert_eq!(
         kinds(&fresh),
-        [SignalKind::SessionStarted, SignalKind::PlayStarted],
-        "the old, paused play is not scored as a skip"
+        [
+            SignalKind::SessionEnded,
+            SignalKind::SessionStarted,
+            SignalKind::Skipped,
+            SignalKind::PlayStarted
+        ]
     );
-    assert_ne!(fresh[0].session, rig.first_session_id());
+    let SignalPayload::SessionStarted(started) = fresh[1].payload else {
+        panic!("kind");
+    };
+    assert_eq!(started.start_origin, PlayOrigin::Search);
 }
 
 #[test]
