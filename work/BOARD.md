@@ -22,6 +22,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 | [T-0044](tickets/T-0044-artwork-image-provider.md) Artwork image provider: T-0041 pattern, RAII UI owner (P0) | tw-builder r2 — CHANGES_REQUESTED: default-run, atomic closing, size clamp | `t/T-0044-artwork-image-provider` · `D:\dev\Tinwave-worktrees\T-0044-artwork-image-provider` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -41,10 +42,9 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | tests/ overlaps T-0044 → after it |
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | feature | M | desktop qml/Tw, icons, tools, build.rs, Sidebar.qml | after T-0044 (build.rs) |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | feature | M | desktop src/platform | wiring touches src/app → after T-0044 |
-| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper | feature | S | new crate / playback | playback crate free |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits | feature | M | tinwave-playback | playback crate free |
-| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | playback crate free |
-| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | playback crate free |
+| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper | feature | S | new crate / playback | after T-0023 if it touches tinwave-playback |
+| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | after T-0023 |
+| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | after T-0023 |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
 overlap (work/README.md); the branch merging second merges main first.
