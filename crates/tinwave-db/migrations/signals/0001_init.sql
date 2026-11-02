@@ -1,0 +1,83 @@
+-- signals.db, migration 0001. Source of truth: docs/rules/database.md ("Signal tables").
+-- Pragmas (WAL, auto_vacuum, journal limit) are connection settings, not migrations: see src/pragma.rs.
+
+-- Dictionaries: each UUID stored once, referenced by small integers everywhere else.
+CREATE TABLE dict_device    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
+CREATE TABLE dict_recording (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
+CREATE TABLE dict_source    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
+-- Albums, artists, playlists (UUIDv7 ids are unique across types; kind = EntityKind code, for readability/export).
+CREATE TABLE dict_entity    (id INTEGER PRIMARY KEY, kind INTEGER NOT NULL, uuid BLOB NOT NULL UNIQUE);
+
+CREATE TABLE session (
+  id            INTEGER PRIMARY KEY,
+  device        INTEGER NOT NULL REFERENCES dict_device(id),
+  started_ts    INTEGER NOT NULL,           -- UTC ms
+  tz_offset_min INTEGER NOT NULL
+);
+
+-- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index.
+CREATE TABLE signal_event (
+  id        INTEGER PRIMARY KEY,            -- rowid, ~time ordered
+  device    INTEGER NOT NULL,               -- with seq = global dedupe key for sync
+  seq       INTEGER NOT NULL,               -- device-local monotonic sequence
+  ts        INTEGER NOT NULL,               -- UTC ms
+  session   INTEGER NOT NULL,
+  kind      INTEGER NOT NULL,               -- SignalKind discriminant (stable, never reused); tier derived from kind
+  recording INTEGER,
+  source    INTEGER,
+  pos_ds    INTEGER,                        -- playback position in deciseconds
+  payload   BLOB,                           -- tiny packed struct, versioned per kind; NULL when empty
+  ctx       INTEGER,                        -- context_snapshot id
+  UNIQUE (device, seq)
+);
+CREATE INDEX signal_event_rec_ts ON signal_event(recording, ts);
+
+CREATE TABLE context_snapshot (
+  id     INTEGER PRIMARY KEY,
+  hash   INTEGER NOT NULL UNIQUE,           -- 64-bit hash of quantized fields
+  key    INTEGER NOT NULL,                  -- packed u32 taste-engine context key
+  fields BLOB NOT NULL                      -- quantized ContextFields (temp as i8 °C, etc.)
+);
+
+-- WARM: one row per play, default 3 years.
+CREATE TABLE play (
+  id           INTEGER PRIMARY KEY,
+  device       INTEGER NOT NULL,
+  session      INTEGER NOT NULL,
+  recording    INTEGER NOT NULL,
+  source       INTEGER,
+  started_ts   INTEGER NOT NULL,
+  listened_ds  INTEGER NOT NULL,
+  end_reason   INTEGER NOT NULL,            -- Completed | SkippedEarly | SkippedMid | SkippedLate | Stopped | Quit
+  end_frac     INTEGER NOT NULL,            -- u8, per-255
+  flags        INTEGER NOT NULL,            -- u16 bitset, see storage-budget.md
+  peak_section INTEGER,
+  context_key  INTEGER NOT NULL             -- packed u32
+);
+CREATE INDEX play_rec_ts ON play(recording, started_ts);
+
+-- COLD: forever.
+CREATE TABLE rollup_monthly (
+  month       INTEGER NOT NULL,             -- yyyymm local
+  recording   INTEGER NOT NULL,
+  plays       INTEGER NOT NULL,
+  completes   INTEGER NOT NULL,
+  skips_early INTEGER NOT NULL,
+  skips_late  INTEGER NOT NULL,
+  fav_delta   INTEGER NOT NULL,
+  listened_s  INTEGER NOT NULL,
+  score_sum   REAL NOT NULL,
+  PRIMARY KEY (month, recording)
+) WITHOUT ROWID;
+
+-- High-frequency UI signals are counters, never events.
+CREATE TABLE ui_counter (
+  day      INTEGER NOT NULL,                -- yyyymmdd local
+  kind     INTEGER NOT NULL,                -- Impression | ArtworkHover | PageDwell
+  entity_kind INTEGER NOT NULL,             -- EntityKind code: Track -> dict_recording, else dict_entity
+  entity   INTEGER NOT NULL,                -- dictionary id in the table entity_kind selects
+  count    INTEGER NOT NULL,
+  total_ms INTEGER NOT NULL DEFAULT 0,
+  max_scrolled INTEGER NOT NULL DEFAULT 0,  -- PageDwell only: running max scrolled fraction, quantized 0-255
+  PRIMARY KEY (day, kind, entity_kind, entity)
+) WITHOUT ROWID;
