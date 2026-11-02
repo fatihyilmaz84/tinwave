@@ -19,16 +19,16 @@ _Maintained by the lead. Last updated: 2026-11-02._
   `D:\dev\Tinwave-worktrees\T-0008-spike-windows-volume-device\` (all merged/installed).
 
 ## In progress
-| Ticket | Owner | Branch / worktree |
-|---|---|---|
-| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-builder r2 — CHANGES_REQUESTED: debug-only TINWAVE_MAIN_QML, macOS style | `t/T-0040-desktop-skeleton` · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
-| [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r2 — CHANGES_REQUESTED: non-joining teardown, repeat/exclusive changes outside a session | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
+_none_
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0040](tickets/T-0040-desktop-skeleton.md) Desktop skeleton: CXX-Qt crate, Fluent window shell, Theme (P0) | tw-reviewer r2 (build-2: debug-only TINWAVE_MAIN_QML, macOS style) | `t/T-0040-desktop-skeleton` @ 6e2dba4 · `D:\dev\Tinwave-worktrees\T-0040-desktop-skeleton` |
+| [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-reviewer r2 (build-2: non-joining close, preferences reported by next session) | `t/T-0024-playback-controller` @ 835152a · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |

@@ -3,7 +3,7 @@ id: T-0040
 title: apps/tinwave-desktop skeleton — CXX-Qt crate, FluentWinUI3 window shell, Theme.qml, start-up error path
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []

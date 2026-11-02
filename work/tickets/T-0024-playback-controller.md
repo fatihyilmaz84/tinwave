@@ -3,7 +3,7 @@ id: T-0024
 title: Playback controller — owns Engine::poll(), session lifecycle, maps PlaybackEvents to T0 signals through the bus
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P0
 size: M
 depends_on: []          # T-0006, T-0016, T-0028, T-0030, T-0031 done
