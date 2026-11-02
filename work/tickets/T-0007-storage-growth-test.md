@@ -3,7 +3,7 @@ id: T-0007
 title: Storage growth test v1 — 5 simulated years of a heavy listener
 type: feature
 epic: E-00
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: []          # T-0006 done
@@ -44,3 +44,6 @@ docs/rules/testing.md "Storage growth test", docs/rules/storage-budget.md, signa
 
 ## Signals & storage
 Validates ADR 0002 early. If estimates are wrong, propose catalog/budget updates rather than loosening asserts.
+
+## Merged
+2026-11-02, merge commit fb8548e (branch head 0f3f2e7). Reviews: review-1 (CHANGES_REQUESTED), review-2 (APPROVE). 90 days 4.38 MB (budget 6 MB); 5-year projection with tiering 16.9 MB (budget 60 MB). Catalog §9 corrected from its measurements.

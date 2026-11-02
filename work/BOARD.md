@@ -23,14 +23,13 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0031](tickets/T-0031-engine-boundary-followups.md) Engine boundary follow-ups (P0) | tw-builder r1 | `t/T-0031-engine-boundary-followups` · `D:\dev\Tinwave-worktrees\T-0031-engine-boundary-followups` |
+| [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | tw-builder r1 | `t/T-0021-persist-signal-settings` · `D:\dev\Tinwave-worktrees\T-0021-persist-signal-settings` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Build report |
-|---|---|---|
-| [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 (E-00) | tw-reviewer **r2** | [build-2](reports/T-0007/build-2.md) · 0f3f2e7 |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -49,7 +48,6 @@ overlap (work/README.md); the branch merging second merges main first.
 ## Backlog
 | Ticket | Depends on |
 |---|---|
-| [T-0021](tickets/T-0021-persist-signal-settings.md) Persist Signal Center toggles (E-01) | after T-0007 (tinwave-db tests) |
 | [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | after T-0031 (same crate) |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | after T-0031 (same crate) |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | after T-0031 (same crate) |
@@ -89,6 +87,7 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0007](tickets/T-0007-storage-growth-test.md) Storage growth test v1 | fb8548e | build-1/2, review-1 (changes), review-2 (approve); 4.38 MB / 90 days |
 | [T-0017](tickets/T-0017-windows-wasapi-output.md) Windows WASAPI output + cpal fallback | 8e16368 | build-1/2, review-1 (changes), review-2 (approve); incl. engine position fix |
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | 445df54 | build-1/2, review-1 (changes), review-2 (approve); 39.4 B/event |
 | [T-0030](tickets/T-0030-engine-append-and-docs.md) Engine follow-ups | 975e812 | build-1, review-1 (approve) |
