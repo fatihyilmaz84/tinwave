@@ -3,7 +3,7 @@ id: T-0007
 title: Storage growth test v1 — 5 simulated years of a heavy listener
 type: feature
 epic: E-00
-status: in_review
+status: in_progress
 priority: P1
 size: M
 depends_on: []          # T-0006 done
@@ -13,9 +13,9 @@ scope:
   - crates/tinwave-db/Cargo.toml          # dev-dependencies only
   - Cargo.toml                            # [workspace.dependencies] only
   - Cargo.lock
-owner: tw-builder (round 1, same builder as T-0006)
+owner: tw-builder (round 2, same builder as T-0006)
 branch: t/T-0007-storage-growth-test
-review_round: 1
+review_round: 2
 created_by: lead
 ---
 
