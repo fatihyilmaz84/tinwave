@@ -344,15 +344,26 @@ impl Engine {
     /// one audio callback. After a command this reports the command's target until the decoder has
     /// processed it.
     ///
-    /// While a track is current (it has a `TrackStarted`), the position is that track's: it never
-    /// names a later track the decoder has just opened but [`poll`](Self::poll) has not announced
-    /// yet, and it stops at the end of the current track until it does. So the item here always
-    /// matches the events, and a command built on it (`seek`, `load`, `switch_device`) cannot name
-    /// a track that was never started.
+    /// The position always names a track that has a `TrackStarted`:
+    /// - While a track is current, it is that track's: never a later track the decoder has just
+    ///   opened but [`poll`](Self::poll) has not announced yet, and it stops at the end of the
+    ///   current track until it does.
+    /// - Right after a command, before the first frames of its track are heard, it is the
+    ///   command's target.
+    /// - With **no current track** it is `None`: nothing loaded, after `stop`, and after the queue
+    ///   ended, even when a track appended to the ended queue is already decoding (it is announced
+    ///   when it is heard). So `Paused`, `Resumed`, `VolumeChanged` and a command built on the
+    ///   position never carry an item without a `TrackStarted`.
     #[must_use]
     pub fn position(&self) -> Option<Position> {
         if let Some(p) = self.unapplied() {
             return p.item.map(|item| self.position_of(item, p.frame));
+        }
+        if self.cursor.is_none() {
+            // Not adopted yet: only what a command announced, never a mark nobody has announced.
+            return self
+                .announced
+                .map(|(item, frame)| self.position_of(item, frame));
         }
         let mut view = self.view();
         if self.cursor.is_some() {

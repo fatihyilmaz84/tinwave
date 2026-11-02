@@ -331,7 +331,7 @@ fn seek_past_the_end_is_reported_for_wav_flac_alac_and_mp3() {
         ("mp3", fixture("sweep_mp3lame_a.mp3")),
     ];
     for (name, a) in cases {
-        for target in [SPLIT as u64, SPLIT as u64 + 5_000, 10_000_000] {
+        for target in [SPLIT as u64 + 1, SPLIT as u64 + 5_000, 10_000_000] {
             let mut h = Harness::new();
             h.engine
                 .load(
@@ -479,7 +479,8 @@ fn external_gapless_info_trims_head_and_tail_and_seeks_inside_the_trimmed_timeli
         );
 
         // Seek inside the trimmed timeline: frame 2_000 is file frame 3_000. A seek to the end of
-        // the valid range is out of range even though the file continues.
+        // the valid range finishes the track (tests/boundary.rs); one frame beyond it is out of
+        // range even though the file continues.
         h.engine.load(vec![trimmed.clone()], 0, 0).expect("reload");
         h.settle();
         let _ = h.render_exact(480, 480);
@@ -488,7 +489,7 @@ fn external_gapless_info_trims_head_and_tail_and_seeks_inside_the_trimmed_timeli
         let rec = h.render_exact(1_500, 500);
         assert_eq!(max_err(&rec, &refs.0, &refs.1, 3_000), 0.0, "{name} seek");
         h.sink.take();
-        h.engine.seek(5_000).expect("seek accepted");
+        h.engine.seek(5_001).expect("seek accepted");
         h.settle();
         assert!(
             h.sink.kinds().iter().any(|k| matches!(
