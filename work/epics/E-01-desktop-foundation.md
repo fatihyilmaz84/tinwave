@@ -26,6 +26,8 @@ playlists — and open the Signal Center to watch every interaction being record
   on Windows is T-0014 (ADR 0004)
 - `Theme.qml` tokens + style selection (from T-0011), then the `Tw*` component catalog (design-system.md §5) as
   small design tickets before the screens that use them
+- Install a `tracing` subscriber in the app composition root (the signals writer logs failed commits at warn/error;
+  P-0072).
 - Desktop shell (CXX-Qt) per the design canvas: Library, Album, Artist, Now Playing, Queue views. The ticket that
   creates `apps/tinwave-desktop` must add `"apps/*"` to workspace `members` (T-0001 left it out: Cargo rejects an
   empty glob)
