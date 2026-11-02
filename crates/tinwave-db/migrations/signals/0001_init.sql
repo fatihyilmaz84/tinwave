@@ -1,5 +1,6 @@
--- signals.db, migration 0001. Source of truth: docs/rules/database.md ("Signal tables").
--- Pragmas (WAL, auto_vacuum, journal limit) are connection settings, not migrations: see src/pragma.rs.
+-- signals.db, migration 0001. Source of truth: docs/rules/database.md ("Signal tables");
+-- tests/signal_store.rs::the_migration_is_the_sql_block_of_database_md fails when they drift.
+-- Pragmas (WAL, auto_vacuum, journal limit) are connection settings, not migrations: see src/connection.rs.
 
 -- Dictionaries: each UUID stored once, referenced by small integers everywhere else.
 CREATE TABLE dict_device    (id INTEGER PRIMARY KEY, uuid BLOB NOT NULL UNIQUE);
@@ -16,7 +17,8 @@ CREATE TABLE session (
   tz_offset_min INTEGER NOT NULL
 );
 
--- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (measured 54 B, T-0006).
+-- HOT: raw events, default 90 days. Target <= 60 bytes/row incl. index (realistic mix with ctx and a 50k-track
+-- library: see T-0006 storage_budget test for the current measured figure).
 -- WITHOUT ROWID keyed on the sync dedupe key: no rowid and no separate UNIQUE index (saves ~19 B/event).
 CREATE TABLE signal_event (
   device    INTEGER NOT NULL,               -- with seq = global dedupe key for sync
@@ -31,7 +33,9 @@ CREATE TABLE signal_event (
   ctx       INTEGER,                        -- context_snapshot id
   PRIMARY KEY (device, seq)
 ) WITHOUT ROWID;
-CREATE INDEX signal_event_rec_ts ON signal_event(recording, session, ts_off);  -- session ids are time ordered
+-- No secondary index (lead decision, T-0006 review): nothing queries raw events by recording. Per-track heatmaps
+-- and aggregates are built by the compaction pass, which scans in (device, seq) order; the taste engine and
+-- Insights read `play` (indexed). Adding an index here needs a storage measurement against the 60 B budget.
 
 CREATE TABLE context_snapshot (
   id     INTEGER PRIMARY KEY,

@@ -60,7 +60,7 @@ fn rss_kib() -> i64 {
 
 fn main() {
     let db = TempDb::new();
-    let mut listener = Listener::new(99, 5_000);
+    let mut listener = Listener::new(99, common::REFERENCE_LIBRARY);
     let device = listener.device();
     let events = listener.events(EVENTS);
     let (bus, drain) = SignalBus::channel(

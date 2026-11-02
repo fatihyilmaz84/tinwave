@@ -2,12 +2,12 @@
 //!
 //! `docs/rules/testing.md` budget: batch write of 256 events < 5 ms. Criterion reports the mean
 //! of the batch write alone; the gate after it times 2 000 batches one by one on a database that
-//! already holds 100 000 events (the hot window of the reference listener, so index pages are not
-//! all cached) and **fails (non-zero exit) when the median is 5 ms or more**. It also prints the
-//! mean, p99 and max, which are not gated: about one batch in thirteen follows a WAL checkpoint
-//! (the checkpoint fsyncs; the writer runs it between batches, `SignalStore::checkpoint_if_due`,
-//! and so does the gate, outside the timed section) and is slower, up to tens of milliseconds, and
-//! the OS file system adds occasional stalls of 100 ms or more that no code here controls.
+//! already holds 100 000 events (the hot window of the reference listener, a 50 000-track library
+//! with a `ctx` on every event) and **fails (non-zero exit) when the median is 5 ms or more**. It also prints the
+//! mean, p99 and max, which are not gated: the batch right after a WAL
+//! checkpoint (the checkpoint fsyncs; the writer runs it between batches,
+//! `SignalStore::checkpoint_if_due`, and so does the gate, outside the timed section) is slower,
+//! and the OS file system adds occasional stalls that no code here controls.
 //!
 //! Run: `cargo bench -p tinwave-db --bench write_batch`.
 
@@ -33,7 +33,7 @@ const GATE_BATCHES: usize = 2_000;
 /// that produced it, so the next batches continue the same history.
 fn loaded_store(db: &TempDb) -> (SignalStore, Listener) {
     let mut store = SignalStore::open(&db.path).unwrap();
-    let mut listener = Listener::new(7, 5_000);
+    let mut listener = Listener::new(7, common::REFERENCE_LIBRARY);
     let preload = listener.events(PRELOAD_EVENTS);
     for chunk in preload.chunks(BATCH) {
         store.write_batch(chunk, &[]).unwrap();

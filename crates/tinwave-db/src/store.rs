@@ -34,21 +34,39 @@ const UPSERT_COUNTER: &str = "INSERT INTO ui_counter \
     total_ms = total_ms + excluded.total_ms, \
     max_scrolled = max(max_scrolled, excluded.max_scrolled)";
 
-/// The WAL size at which an idle writer checkpoints: 8 MiB.
-const WAL_SOFT_LIMIT_BYTES: u64 = 8 * 1024 * 1024;
-/// The WAL size at which a checkpoint happens even if events are waiting: 64 MiB. Bounds the
-/// disk the WAL can take (and the time a crash recovery replays) under an unbroken flood.
-const WAL_HARD_LIMIT_BYTES: u64 = 64 * 1024 * 1024;
-/// An idle writer checkpoints a non-empty WAL at least this often. With `synchronous=NORMAL`
-/// a commit is not fsynced, so this bounds what a power loss (not an application crash) can
-/// take: a typical listener commits a few pages every few minutes and would otherwise sit
-/// below the size limit for hours.
-const WAL_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(60);
-/// Shortest time between two checkpoint attempts that are triggered by size or age, so a reader
-/// that keeps the WAL busy does not make every commit retry (and fsync).
-const WAL_CHECKPOINT_MIN_GAP: Duration = Duration::from_secs(2);
+/// When the writer folds the WAL into the database file.
+///
+/// The store turns SQLite's automatic checkpoint off (see
+/// [`SignalStore::checkpoint_if_due`]); this decides when the writer does it instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckpointPolicy {
+    /// Checkpoint an idle store once the WAL reaches this size. Default 8 MiB.
+    pub soft_limit_bytes: u64,
+    /// Checkpoint at this size even if events are waiting. Bounds the disk the WAL can take (and
+    /// the time a crash recovery replays) under an unbroken flood. Default 64 MiB.
+    pub hard_limit_bytes: u64,
+    /// An idle store checkpoints a non-empty WAL at least this often. With `synchronous=NORMAL` a
+    /// commit is not fsynced, so this bounds what a power loss (not an application crash) can
+    /// take: a typical listener commits a few pages every few minutes and would otherwise sit
+    /// below the size limit for hours. Default 60 s.
+    pub interval: Duration,
+    /// Shortest time between two checkpoint attempts, whatever triggers them, so a reader that
+    /// keeps the WAL busy does not make every commit retry (and fsync). Default 2 s.
+    pub min_gap: Duration,
+}
 
-/// Sizes of the in-memory caches.
+impl Default for CheckpointPolicy {
+    fn default() -> Self {
+        Self {
+            soft_limit_bytes: 8 * 1024 * 1024,
+            hard_limit_bytes: 64 * 1024 * 1024,
+            interval: Duration::from_secs(60),
+            min_gap: Duration::from_secs(2),
+        }
+    }
+}
+
+/// Sizes of the in-memory caches, the timezone and the checkpoint policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StoreConfig {
     /// Dictionary entries (UUID to integer) kept in the LRU, across all dictionaries. Each
@@ -64,6 +82,8 @@ pub struct StoreConfig {
     pub page_cache_kib: u32,
     /// Timezone offset recorded on session rows until [`SessionTz::set`] changes it.
     pub tz_offset: TzOffsetMin,
+    /// When [`SignalStore::checkpoint_if_due`] checkpoints.
+    pub checkpoint: CheckpointPolicy,
 }
 
 impl Default for StoreConfig {
@@ -73,6 +93,7 @@ impl Default for StoreConfig {
             session_cache_capacity: 256,
             page_cache_kib: 256,
             tz_offset: TzOffsetMin::UTC,
+            checkpoint: CheckpointPolicy::default(),
         }
     }
 }
@@ -108,10 +129,13 @@ pub struct BatchReport {
     pub events_inserted: usize,
     /// Events skipped because `(device, seq)` was already stored (sync dedupe, or a retry).
     pub events_duplicate: usize,
-    /// Events dropped because their payload could not be encoded (a producer bug; logged).
+    /// Events dropped because they cannot be stored: the payload does not encode, or `seq` or
+    /// `ctx` does not fit a SQLite integer (a producer bug; logged without values).
     pub events_rejected: usize,
     /// Counter rows added into `ui_counter`.
     pub counter_rows: usize,
+    /// Counter rows dropped because a value does not fit a SQLite integer (logged).
+    pub counter_rows_rejected: usize,
 }
 
 /// The signals.db writer connection: schema, dictionaries and the batch write.
@@ -122,6 +146,7 @@ pub struct BatchReport {
 pub struct SignalStore {
     conn: Connection,
     wal_path: PathBuf,
+    checkpoint: CheckpointPolicy,
     last_checkpoint: Instant,
     caches: DictCaches,
     tz: SessionTz,
@@ -159,6 +184,7 @@ impl SignalStore {
         Ok(Self {
             conn,
             wal_path: PathBuf::from(wal_path),
+            checkpoint: config.checkpoint,
             last_checkpoint: Instant::now(),
             caches: DictCaches::new(config.dict_cache_capacity, config.session_cache_capacity),
             tz: SessionTz::new(config.tz_offset),
@@ -252,15 +278,17 @@ impl SignalStore {
                 .prepare_cached(INSERT_EVENT)
                 .map_err(DbError::sqlite("preparing the event insert"))?;
             for event in events {
+                let ctx = event.ctx.map(|c| fits(c.0));
+                let (Some(seq), true) = (fits(event.id.seq), ctx != Some(None)) else {
+                    reject_event(event, "seq or ctx does not fit a SQLite integer");
+                    report.events_rejected += 1;
+                    continue;
+                };
+                let ctx = ctx.flatten();
                 let payload = match event.encode_payload() {
                     Ok(payload) => payload,
                     Err(error) => {
-                        tracing::warn!(
-                            kind = event.kind().name(),
-                            seq = event.id.seq,
-                            %error,
-                            "signal event rejected: payload does not encode"
-                        );
+                        reject_event(event, variant_name(&error));
                         report.events_rejected += 1;
                         continue;
                     }
@@ -278,7 +306,7 @@ impl SignalStore {
                 let changed = insert
                     .execute(params![
                         device,
-                        to_i64("seq", event.id.seq)?,
+                        seq,
                         session.id,
                         event.ts.as_i64() - session.started_ts,
                         event.kind().discriminant(),
@@ -286,7 +314,7 @@ impl SignalStore {
                         source,
                         event.pos_ds,
                         payload.as_ref().map(|p| p.as_bytes()),
-                        event.ctx.map(|c| to_i64("ctx", c.0)).transpose()?,
+                        ctx,
                     ])
                     .map_err(DbError::sqlite("inserting an event"))?;
                 if changed == 0 {
@@ -302,6 +330,14 @@ impl SignalStore {
                 .prepare_cached(UPSERT_COUNTER)
                 .map_err(DbError::sqlite("preparing the counter upsert"))?;
             for row in counters {
+                let (Some(count), Some(total_ms)) = (fits(row.count), fits(row.total_ms)) else {
+                    tracing::warn!(
+                        kind = row.kind.name(),
+                        "counter row rejected: a value does not fit a SQLite integer"
+                    );
+                    report.counter_rows_rejected += 1;
+                    continue;
+                };
                 let (table, kind_code) = match row.entity_kind {
                     EntityKind::Track => (Table::Recording, 0),
                     other => (Table::Entity, other.code()),
@@ -313,8 +349,8 @@ impl SignalStore {
                         row.kind.discriminant(),
                         row.entity_kind.code(),
                         entity,
-                        to_i64("counter count", row.count)?,
-                        to_i64("counter total_ms", row.total_ms)?,
+                        count,
+                        total_ms,
                         row.max_scrolled.raw(),
                     ])
                     .map_err(DbError::sqlite("adding a counter row"))?;
@@ -356,13 +392,15 @@ impl SignalStore {
     /// Folds the WAL into the database file and truncates it, when it is due. Returns whether it
     /// checkpointed.
     ///
-    /// Due means: the WAL reached 64 MiB (even with `idle == false`); or `idle` (the caller has
-    /// nothing waiting to write) and either it reached 8 MiB or it is not empty and the last
-    /// checkpoint is a minute old. At least 2 s apart, except for the 64 MiB case.
+    /// Due means, and never sooner than [`CheckpointPolicy::min_gap`] after the previous attempt:
+    /// the WAL reached the hard limit (even with `idle == false`); or `idle` (the caller has
+    /// nothing waiting to write) and either it reached the soft limit or it is not empty and the
+    /// last checkpoint is [`CheckpointPolicy::interval`] old.
     ///
     /// The store turns SQLite's automatic checkpoint off because a checkpoint fsyncs: measured
     /// at 100 to 800 ms on Windows, it stalled the commit that triggered it and slowed the
-    /// next batches. The writer calls this between batches instead. `TRUNCATE` (rather than
+    /// next batches. The writer calls this between batches, and also while idle (a commit is not
+    /// fsynced, so an idle writer must still checkpoint on the interval). `TRUNCATE` (rather than
     /// `PASSIVE`) keeps the WAL file's length equal to its content, so the length is a usable
     /// trigger. The checkpoint never waits for a reader: if one still has the WAL open it
     /// reports busy and a later call tries again.
@@ -370,12 +408,13 @@ impl SignalStore {
     /// # Errors
     /// [`DbError::Sqlite`]. The WAL stays valid; a later call tries again.
     pub fn checkpoint_if_due(&mut self, idle: bool) -> Result<bool, DbError> {
+        let policy = self.checkpoint;
         let wal = self.wal_bytes();
         let since = self.last_checkpoint.elapsed();
-        let due = wal >= WAL_HARD_LIMIT_BYTES
-            || (idle
-                && since >= WAL_CHECKPOINT_MIN_GAP
-                && (wal >= WAL_SOFT_LIMIT_BYTES || (wal > 0 && since >= WAL_CHECKPOINT_INTERVAL)));
+        let due = since >= policy.min_gap
+            && (wal >= policy.hard_limit_bytes
+                || (idle
+                    && (wal >= policy.soft_limit_bytes || (wal > 0 && since >= policy.interval))));
         if !due {
             return Ok(false);
         }
@@ -427,8 +466,33 @@ impl SignalSink for SignalStore {
     }
 }
 
-fn to_i64(what: &'static str, value: u64) -> Result<i64, DbError> {
-    i64::try_from(value).map_err(|_| DbError::OutOfRange { what, value })
+/// `value` as a SQLite integer, or `None` above `i64::MAX`. Callers reject the event or row
+/// instead of failing the batch: retrying cannot fix it, and one bad value must not wedge every
+/// later one.
+fn fits(value: u64) -> Option<i64> {
+    i64::try_from(value).ok()
+}
+
+/// Logs a rejected event: its kind, `seq` and why, never its payload or any field value
+/// (`docs/rules/rust.md`).
+fn reject_event(event: &SignalEvent, why: &str) {
+    tracing::warn!(
+        kind = event.kind().name(),
+        seq = event.id.seq,
+        why,
+        "signal event rejected"
+    );
+}
+
+/// The name of an error variant, without any of its fields (they can hold payload values).
+fn variant_name(error: &SignalsError) -> &'static str {
+    match error {
+        SignalsError::PayloadTooLong => "payload too long",
+        SignalsError::NotFinite { .. } => "payload field not finite",
+        SignalsError::InvalidValue { .. } => "payload field out of range",
+        SignalsError::NotAnEvent(_) => "kind is not a raw event",
+        _ => "payload does not encode",
+    }
 }
 
 /// Whether an event ends a play (or a session) and therefore forces an immediate flush: the

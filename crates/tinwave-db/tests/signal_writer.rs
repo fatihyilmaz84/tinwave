@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use common::{count, favorited, paused, Ids, TempDb};
 use rusqlite::Connection;
 use tinwave_core::{DeviceId, RecordingId, SessionId, TzOffsetMin};
-use tinwave_db::{SignalStore, SignalWriter, WriterConfig};
+use tinwave_db::{CheckpointPolicy, SignalStore, SignalWriter, StoreConfig, WriterConfig};
 use tinwave_signals::{
     BusConfig, CounterEntity, EntityKind, SignalBus, SignalDrain, SignalKind, SignalSettings,
 };
@@ -26,8 +26,13 @@ struct Rig {
 
 /// A bus + writer on a temp database. `interval` and `max_events` are the flush policy.
 fn rig(interval: Duration, flush_events: usize) -> Rig {
+    rig_with(interval, flush_events, StoreConfig::default())
+}
+
+/// [`rig`] with explicit store settings (for example a fast checkpoint policy).
+fn rig_with(interval: Duration, flush_events: usize, store_config: StoreConfig) -> Rig {
     let db = TempDb::new();
-    let store = SignalStore::open(&db.path).unwrap();
+    let store = SignalStore::open_with(&db.path, store_config).unwrap();
     let mut ids = Ids::new(11);
     let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
     let mut cfg = BusConfig::new(device);
@@ -344,4 +349,73 @@ fn a_new_run_continues_the_sequence_and_the_session_offset_follows_the_setter() 
 
 fn ids_clock() -> tinwave_core::ManualClock {
     Ids::new(0).clock
+}
+
+fn wal_len(rig: &Rig) -> u64 {
+    std::fs::metadata(format!("{}-wal", rig.db.path.display())).map_or(0, |m| m.len())
+}
+
+#[test]
+fn an_idle_writer_checkpoints_a_non_empty_wal_within_the_interval() {
+    // A play end is flushed at once, but a commit is not fsynced: with nothing more to write the
+    // writer must still fold the WAL into the database on its own, or a power loss could take
+    // committed play ends.
+    let interval = Duration::from_millis(300);
+    let store_config = StoreConfig {
+        checkpoint: CheckpointPolicy {
+            interval,
+            min_gap: Duration::from_millis(50),
+            ..CheckpointPolicy::default()
+        },
+        ..StoreConfig::default()
+    };
+    let rig = rig_with(LONG, 100_000, store_config);
+    let conn = rig.db.reader();
+    rig.pause();
+    assert!(eventually(Duration::from_secs(5), || rig.events(&conn) == 1));
+    // Nothing else is emitted: the writer is idle from here on.
+    assert!(
+        eventually(interval * 10 + Duration::from_secs(2), || {
+            rig.writer.stats().checkpoints >= 1 && wal_len(&rig) == 0
+        }),
+        "the idle writer never checkpointed (stats: {:?}, WAL {} bytes)",
+        rig.writer.stats(),
+        wal_len(&rig)
+    );
+    assert_eq!(rig.events(&conn), 1, "the checkpoint kept the data");
+}
+
+#[test]
+fn shutdown_drains_more_than_one_batch_that_was_still_queued() {
+    // The default flush size (256). The database fails, so the writer stops pulling from the bus
+    // and a thousand events pile up in its queues; then it recovers and shuts down at once: the
+    // final drain must take all of them, not one batch of 256.
+    let rig = rig(Duration::from_secs(5), 256);
+    let conn = rig.db.reader();
+    conn.execute_batch(
+        "CREATE TRIGGER inject_failure BEFORE INSERT ON signal_event          BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+    )
+    .unwrap();
+    rig.pause();
+    assert!(eventually(Duration::from_secs(5), || {
+        rig.writer.stats().failed_commits >= 1
+    }));
+    for _ in 0..1_000 {
+        rig.favorite();
+    }
+    assert_eq!(rig.bus.queued_total(), 1_001);
+    assert_eq!(rig.bus.dropped_total(), 0);
+    conn.execute_batch("DROP TRIGGER inject_failure;").unwrap();
+
+    let Rig {
+        db: _db,
+        bus,
+        writer,
+        ..
+    } = rig;
+    let stats = writer.shutdown().unwrap();
+    assert_eq!(stats.events_inserted, 1_001);
+    assert_eq!(stats.events_lost, 0);
+    assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 1_001);
+    drop(bus);
 }

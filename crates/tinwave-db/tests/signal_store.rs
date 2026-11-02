@@ -8,12 +8,12 @@ mod common;
 use std::error::Error;
 use std::time::Duration;
 
-use common::{count, favorited, Ev, Ids, TempDb, T0};
+use common::{count, favorited, paused, Ev, Ids, TempDb, T0};
 use tinwave_core::{TzOffsetMin, UtcMillis};
-use tinwave_db::{DbError, SignalStore, StoreConfig, SIGNALS_MIGRATIONS};
+use tinwave_db::{CheckpointPolicy, DbError, SignalStore, StoreConfig, SIGNALS_MIGRATIONS};
 use tinwave_signals::{
     BusConfig, CounterEntity, CounterRow, EntityKind, Fraction, LocalDay, SignalBus, SignalEvent,
-    SignalKind, SignalPayload, SignalSettings, SignalsError,
+    SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
 };
 
 fn day() -> LocalDay {
@@ -133,16 +133,14 @@ fn schema_matches_database_md() {
         0,
         "no separate UNIQUE index"
     );
-    let index_columns: Vec<String> = {
-        let mut stmt = r
-            .prepare("SELECT name FROM pragma_index_info('signal_event_rec_ts') ORDER BY seqno")
-            .unwrap();
-        stmt.query_map([], |row| row.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect()
-    };
-    assert_eq!(index_columns, ["recording", "session", "ts_off"]);
+    assert_eq!(
+        count(
+            &r,
+            "SELECT count(*) FROM pragma_index_list('signal_event') WHERE origin = 'c'"
+        ),
+        0,
+        "no secondary index on signal_event (lead decision, T-0006 review)"
+    );
     assert!(
         r.prepare("SELECT rowid FROM signal_event").is_err(),
         "WITHOUT ROWID"
@@ -173,12 +171,96 @@ fn schema_matches_database_md() {
             ("entity".to_owned(), 4)
         ]
     );
+    // The tables of the block that are not touched by the writer: columns, order and keys.
+    assert_eq!(names("dict_device"), ["id", "uuid"]);
+    assert_eq!(names("dict_recording"), ["id", "uuid"]);
+    assert_eq!(names("dict_source"), ["id", "uuid"]);
+    assert_eq!(names("context_snapshot"), ["id", "hash", "key", "fields"]);
+    assert_eq!(
+        names("play"),
+        [
+            "id",
+            "device",
+            "session",
+            "recording",
+            "source",
+            "started_ts",
+            "listened_ds",
+            "end_reason",
+            "end_frac",
+            "flags",
+            "peak_section",
+            "context_key"
+        ]
+    );
+    assert_eq!(
+        names("rollup_monthly"),
+        [
+            "month",
+            "recording",
+            "plays",
+            "completes",
+            "skips_early",
+            "skips_late",
+            "fav_delta",
+            "listened_s",
+            "score_sum"
+        ]
+    );
+    let rollup_pk: Vec<_> = columns("rollup_monthly")
+        .into_iter()
+        .filter(|c| c.1 > 0)
+        .collect();
+    assert_eq!(
+        rollup_pk,
+        [("month".to_owned(), 1), ("recording".to_owned(), 2)]
+    );
+    assert_eq!(
+        count(
+            &r,
+            "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'play_rec_ts'"
+        ),
+        1
+    );
     assert_eq!(
         count(
             &r,
             "SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'signal_event_rec_ts'"
         ),
-        1
+        0
+    );
+}
+
+/// The SQL of the `signals.db` block in `docs/rules/database.md`, comments and whitespace removed.
+fn normalized(sql: &str) -> Vec<String> {
+    let no_comments: String = sql
+        .lines()
+        .map(|line| line.split("--").next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    no_comments
+        .split(';')
+        .map(|statement| statement.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|statement| !statement.is_empty())
+        .collect()
+}
+
+#[test]
+fn the_migration_is_the_sql_block_of_database_md() {
+    let doc = include_str!("../../../docs/rules/database.md").replace("\r\n", "\n");
+    let start = doc.find("## Signal tables").expect("the signals section");
+    let open = doc[start..].find("```sql\n").expect("its sql block") + start + 7;
+    let close = doc[open..].find("```").expect("end of the block") + open;
+    let from_doc = normalized(&doc[open..close]);
+    let from_migration = normalized(SIGNALS_MIGRATIONS[0].sql);
+    assert!(
+        from_doc.len() >= 11,
+        "found the block: {} statements",
+        from_doc.len()
+    );
+    assert_eq!(
+        from_migration, from_doc,
+        "0001_init.sql and database.md drifted: the migration is edited in place until it ships"
     );
 }
 
@@ -769,52 +851,223 @@ fn the_dictionary_cache_is_bounded() {
     );
 }
 
-// ---------------------------------------------------------------- WAL checkpoints
+// ---------------------------------------------------------------- values that do not fit
 
 #[test]
-fn the_wal_is_checkpointed_when_idle_and_large_and_never_inside_a_commit() {
+fn values_above_i64_max_are_rejected_one_by_one_and_do_not_wedge_the_batch() {
     let db = TempDb::new();
     let mut store = SignalStore::open(&db.path).unwrap();
-    let mut listener = common::Listener::new(21, 2_000);
-    let wal = |p: &std::path::Path| {
-        std::fs::metadata(format!("{}-wal", p.display())).map_or(0, |m| m.len())
-    };
+    let mut ids = Ids::new(9);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+    let mut huge_seq = favorited(device, session, rec, 1);
+    huge_seq.id.seq = u64::MAX;
+    let mut huge_ctx = favorited(device, session, rec, 2);
+    huge_ctx.ctx = Some(tinwave_signals::ContextSnapshotId(u64::MAX));
+    let mut fine = favorited(device, session, rec, 3);
+    fine.ctx = Some(tinwave_signals::ContextSnapshotId(i64::MAX as u64));
+    let rows = [
+        counter(
+            SignalKind::Impression,
+            EntityKind::Album,
+            [1; 16],
+            u64::MAX,
+            0,
+            0,
+        ),
+        counter(
+            SignalKind::ArtworkHover,
+            EntityKind::Album,
+            [1; 16],
+            1,
+            u64::MAX,
+            0,
+        ),
+        counter(SignalKind::Impression, EntityKind::Album, [2; 16], 4, 0, 0),
+    ];
 
-    // Commits alone never checkpoint: SQLite's automatic checkpoint is off, so the WAL only grows.
+    let report = store
+        .write_batch(
+            &[favorited(device, session, rec, 0), huge_seq, huge_ctx, fine],
+            &rows,
+        )
+        .expect("a value that cannot be stored must not fail the whole batch");
+    assert_eq!(report.events_inserted, 2);
+    assert_eq!(report.events_rejected, 2);
+    assert_eq!(report.counter_rows, 1);
+    assert_eq!(report.counter_rows_rejected, 2);
+
+    let r = db.reader();
+    let seqs: Vec<i64> = {
+        let mut stmt = r
+            .prepare("SELECT seq FROM signal_event ORDER BY seq")
+            .unwrap();
+        stmt.query_map([], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert_eq!(seqs, [0, 3]);
+    assert_eq!(
+        count(&r, "SELECT ctx FROM signal_event WHERE seq = 3"),
+        i64::MAX
+    );
+    assert_eq!(count(&r, "SELECT count(*) FROM ui_counter"), 1);
+    assert_eq!(count(&r, "SELECT count FROM ui_counter"), 4);
+}
+
+#[test]
+fn a_rejected_value_does_not_wedge_the_writer_stage() {
+    // Through the sink the bus uses: the batch is accepted, so nothing is retried forever.
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let mut ids = Ids::new(10);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+    let mut huge = favorited(device, session, rec, 1);
+    huge.id.seq = u64::MAX;
+    store
+        .write(&[huge, favorited(device, session, rec, 2)], &[])
+        .unwrap();
+    assert!(store.last_error().is_none());
+    assert_eq!(store.last_report().events_rejected, 1);
+    assert_eq!(count(&db.reader(), "SELECT count(*) FROM signal_event"), 1);
+}
+
+// ---------------------------------------------------------------- time relative to the session
+
+#[test]
+fn an_event_before_its_sessions_start_gets_a_negative_offset_that_round_trips() {
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let mut ids = Ids::new(11);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+    // The session's UUIDv7 is stamped T0; the event claims to be 5 s older (clock step back).
+    let early = Ev {
+        device,
+        seq: 0,
+        ts: T0 - 5_000,
+        session,
+        recording: Some(rec),
+        source: None,
+        pos_ds: None,
+        payload: SignalPayload::Favorited,
+    }
+    .build();
+    store.write_batch(&[early], &[]).unwrap();
+    let r = db.reader();
+    assert_eq!(count(&r, "SELECT ts_off FROM signal_event"), -5_000);
+    assert_eq!(
+        count(
+            &r,
+            "SELECT s.started_ts + e.ts_off FROM signal_event e JOIN session s ON s.id = e.session"
+        ),
+        T0 - 5_000,
+        "absolute time is started_ts + ts_off"
+    );
+}
+
+// ---------------------------------------------------------------- WAL checkpoints
+
+fn policy(soft: u64, hard: u64, interval: Duration, min_gap: Duration) -> StoreConfig {
+    StoreConfig {
+        checkpoint: CheckpointPolicy {
+            soft_limit_bytes: soft,
+            hard_limit_bytes: hard,
+            interval,
+            min_gap,
+        },
+        ..StoreConfig::default()
+    }
+}
+
+const NEVER: Duration = Duration::from_secs(3_600);
+const HUGE: u64 = u64::MAX;
+
+#[test]
+fn commits_never_checkpoint_and_an_idle_store_checkpoints_a_large_wal() {
+    let db = TempDb::new();
+    let cfg = policy(64 * 1024, HUGE, NEVER, Duration::ZERO);
+    let mut store = SignalStore::open_with(&db.path, cfg).unwrap();
+    let mut listener = common::Listener::new(21, 2_000);
     let mut written = 0;
-    while store.wal_bytes() < 9 * 1024 * 1024 {
+    let mut previous = 0;
+    // SQLite's automatic checkpoint is off: the WAL only grows with commits.
+    while store.wal_bytes() < 128 * 1024 {
         let batch = listener.events(256);
         written += batch.len();
         store.write_batch(&batch, &[]).unwrap();
         assert!(
-            written < 400_000,
-            "the WAL should have reached 9 MiB by now"
+            store.wal_bytes() > previous,
+            "a commit never shrinks the WAL"
         );
+        previous = store.wal_bytes();
     }
-    assert_eq!(store.wal_bytes(), wal(&db.path));
-
-    // Too soon after opening, and not idle: nothing happens.
-    assert!(
-        !store.checkpoint_if_due(true).unwrap(),
-        "less than 2 s since open"
-    );
-    std::thread::sleep(Duration::from_millis(2_100));
     assert!(
         !store.checkpoint_if_due(false).unwrap(),
-        "events are waiting and the WAL is below 64 MiB"
+        "events are waiting and the WAL is below the hard limit"
     );
-    assert!(store.wal_bytes() >= 9 * 1024 * 1024);
-
-    // Idle, large and old enough: the WAL is folded into the database and truncated.
     assert!(store.checkpoint_if_due(true).unwrap());
-    assert_eq!(store.wal_bytes(), 0);
+    assert_eq!(
+        store.wal_bytes(),
+        0,
+        "folded into the database and truncated"
+    );
     let r = db.reader();
     assert_eq!(
         count(&r, "SELECT count(*) FROM signal_event"),
         i64::try_from(written).unwrap()
     );
-    // Nothing to do now.
-    assert!(!store.checkpoint_if_due(true).unwrap());
+    assert!(
+        !store.checkpoint_if_due(true).unwrap(),
+        "nothing left to do"
+    );
     store.write_batch(&listener.events(10), &[]).unwrap();
     assert!(store.wal_bytes() > 0, "the next commit starts a new WAL");
+}
+
+#[test]
+fn a_small_wal_is_checkpointed_once_the_interval_has_passed() {
+    let db = TempDb::new();
+    let interval = Duration::from_millis(150);
+    let cfg = policy(HUGE, HUGE, interval, Duration::ZERO);
+    let mut store = SignalStore::open_with(&db.path, cfg).unwrap();
+    let mut ids = Ids::new(12);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+    store
+        .write_batch(&[paused(device, session, rec, 0)], &[])
+        .unwrap();
+    assert!(store.wal_bytes() > 0);
+    assert!(
+        !store.checkpoint_if_due(false).unwrap(),
+        "only an idle store checkpoints on age"
+    );
+    std::thread::sleep(interval + Duration::from_millis(50));
+    assert!(store.checkpoint_if_due(true).unwrap());
+    assert_eq!(store.wal_bytes(), 0);
+}
+
+#[test]
+fn the_hard_limit_also_waits_for_the_minimum_gap() {
+    let db = TempDb::new();
+    let mut ids = Ids::new(13);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+
+    // Over the hard limit but less than `min_gap` since the last attempt: not yet.
+    let cfg = policy(HUGE, 1, NEVER, Duration::from_secs(3_600));
+    let mut store = SignalStore::open_with(&db.path, cfg).unwrap();
+    store
+        .write_batch(&[favorited(device, session, rec, 0)], &[])
+        .unwrap();
+    assert!(!store.checkpoint_if_due(false).unwrap());
+    assert!(!store.checkpoint_if_due(true).unwrap());
+    assert!(store.wal_bytes() > 0);
+    drop(store);
+
+    // With no gap, the same WAL is checkpointed even though events are waiting.
+    let cfg = policy(HUGE, 1, NEVER, Duration::ZERO);
+    let mut store = SignalStore::open_with(&db.path, cfg).unwrap();
+    store
+        .write_batch(&[favorited(device, session, rec, 1)], &[])
+        .unwrap();
+    assert!(store.checkpoint_if_due(false).unwrap());
+    assert_eq!(store.wal_bytes(), 0);
 }

@@ -37,6 +37,7 @@ mod writer;
 pub use error::DbError;
 pub use migrate::{migrate, Migration, MigrationReport};
 pub use store::{
-    ends_a_play, BatchReport, SessionTz, SignalStore, StoreConfig, SIGNALS_MIGRATIONS,
+    ends_a_play, BatchReport, CheckpointPolicy, SessionTz, SignalStore, StoreConfig,
+    SIGNALS_MIGRATIONS,
 };
 pub use writer::{SignalWriter, WriterConfig, WriterStats};

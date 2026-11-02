@@ -31,6 +31,13 @@
 //! [`WriterConfig::flush_interval`]: the same seconds-long interval `SignalDrain::wait` uses as
 //! its retry backoff. The typed error is kept ([`SignalWriter::take_last_error`]).
 //!
+//! # Checkpoints
+//!
+//! A commit is not fsynced (`synchronous=NORMAL`), so committed events sit in the WAL until a
+//! checkpoint. The writer asks the store to checkpoint ([`SignalStore::checkpoint_if_due`]) after
+//! every flush and also when it is idle, so a play end flushed a minute ago is made durable even
+//! if nothing else is ever written. The thresholds are [`CheckpointPolicy`](crate::CheckpointPolicy).
+//!
 //! # Shutdown
 //!
 //! [`SignalWriter::shutdown`] drains everything the bus has accepted, commits it, runs
@@ -83,8 +90,10 @@ pub struct WriterStats {
     pub events_inserted: u64,
     /// Events skipped as `(device, seq)` duplicates.
     pub events_duplicate: u64,
-    /// Events dropped because their payload did not encode.
+    /// Events dropped because they cannot be stored (payload does not encode, `seq` or `ctx` too big).
     pub events_rejected: u64,
+    /// Counter rows dropped because a value does not fit a SQLite integer.
+    pub counter_rows_rejected: u64,
     /// Counter rows added.
     pub counter_rows: u64,
     /// Commits that failed (each is retried).
@@ -102,6 +111,7 @@ struct Shared {
     events_inserted: AtomicU64,
     events_duplicate: AtomicU64,
     events_rejected: AtomicU64,
+    counter_rows_rejected: AtomicU64,
     counter_rows: AtomicU64,
     failed_commits: AtomicU64,
     checkpoints: AtomicU64,
@@ -116,6 +126,7 @@ impl Shared {
             events_inserted: self.events_inserted.load(Ordering::Relaxed),
             events_duplicate: self.events_duplicate.load(Ordering::Relaxed),
             events_rejected: self.events_rejected.load(Ordering::Relaxed),
+            counter_rows_rejected: self.counter_rows_rejected.load(Ordering::Relaxed),
             counter_rows: self.counter_rows.load(Ordering::Relaxed),
             failed_commits: self.failed_commits.load(Ordering::Relaxed),
             checkpoints: self.checkpoints.load(Ordering::Relaxed),
@@ -131,6 +142,7 @@ impl Shared {
         add(&self.events_inserted, report.events_inserted);
         add(&self.events_duplicate, report.events_duplicate);
         add(&self.events_rejected, report.events_rejected);
+        add(&self.counter_rows_rejected, report.counter_rows_rejected);
         add(&self.counter_rows, report.counter_rows);
     }
 
@@ -363,6 +375,11 @@ impl Worker {
             }
             if self.due(Instant::now()) {
                 self.commit();
+                self.maintain();
+            } else if !woke && self.stage.is_empty() {
+                // Idle: nothing to write and nothing arrived. A commit is not fsynced, so a play
+                // end flushed a minute ago still sits in the WAL until a checkpoint (power-loss
+                // exposure); `maintain` is rate-limited by the policy's minimum gap.
                 self.maintain();
             }
         }

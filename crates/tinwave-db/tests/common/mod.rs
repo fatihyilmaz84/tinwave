@@ -12,9 +12,9 @@ use tinwave_core::{
     SourceId, UtcMillis,
 };
 use tinwave_signals::{
-    CompletedPayload, ElapsedDs, GestureTime, InputSource, PausedPayload, PlayOrigin,
-    PlayStartedPayload, PositionDs, QueueOrigin, QueuedPayload, ResumedPayload, Section,
-    SeekPayload, SignalEvent, SignalPayload, SkipPayload, View, ViewOpenedPayload, Volume,
+    CompletedPayload, ContextSnapshotId, ElapsedDs, GestureTime, InputSource, PausedPayload,
+    PlayOrigin, PlayStartedPayload, PositionDs, QueueOrigin, QueuedPayload, ResumedPayload,
+    Section, SeekPayload, SignalEvent, SignalPayload, SkipPayload, View, ViewOpenedPayload, Volume,
     VolumePayload,
 };
 
@@ -171,10 +171,22 @@ impl Dice {
     }
 }
 
-/// A synthetic heavy listener (storage-budget.md reference user): a 5 000-track library with a
-/// skewed popularity, a few sessions a day, and per play about nine events of the mix a real
-/// session produces (play start, volume gestures, seeks, pause/resume, queueing, views, and the
-/// end of the play as completed or skipped).
+/// Tracks in the reference user's library (`docs/rules/testing.md`, `storage-budget.md`).
+pub const REFERENCE_LIBRARY: usize = 50_000;
+
+/// A synthetic heavy listener (storage-budget.md reference user): a library with a skewed
+/// popularity (use [`REFERENCE_LIBRARY`]), a few sessions a day, and per play about 6.4 events
+/// (measured, see `events_per_play`) of the mix a real session produces: play start, volume
+/// gestures, seeks, pause/resume, queueing, views, and the end of the play as completed or
+/// skipped.
+///
+/// Compared with the volume table of `docs/guides/signal-catalog.md` section 9 (~450 events a
+/// day for 120 plays, ~3.75 per play) this model is about 70 % heavier in events, so the bytes
+/// per event it measures are conservative for payload (more volume gestures, whose payload is the
+/// largest) and neutral for the key columns. Every event carries a `ctx` snapshot id: a new id
+/// about every 8 events (`ContextHub` reuses the previous id while the quantized fields are
+/// unchanged; the context guide targets ~60 distinct snapshots a day, i.e. one per ~7.5 events of
+/// the catalog's day), so ids are small integers that repeat in runs, as in real data.
 pub struct Listener {
     dice: Dice,
     device: DeviceId,
@@ -184,6 +196,9 @@ pub struct Listener {
     seq: u64,
     ts: i64,
     plays_in_session: u32,
+    ctx: u64,
+    plays: u64,
+    emitted: u64,
 }
 
 impl Listener {
@@ -203,11 +218,19 @@ impl Listener {
             seq: 0,
             ts: T0,
             plays_in_session: 0,
+            ctx: 1,
+            plays: 0,
+            emitted: 0,
         }
     }
 
     pub fn device(&self) -> DeviceId {
         self.device
+    }
+
+    /// Events generated per play so far (the doc of [`Listener`] quotes this).
+    pub fn events_per_play(&self) -> f64 {
+        self.emitted as f64 / self.plays.max(1) as f64
     }
 
     fn pick_track(&mut self) -> (RecordingId, SourceId) {
@@ -227,19 +250,25 @@ impl Listener {
         payload: SignalPayload,
     ) {
         self.ts += i64::try_from(1 + self.dice.below(45)).unwrap() * 1_000;
-        out.push(
-            Ev {
-                device: self.device,
-                seq: self.seq,
-                ts: self.ts,
-                session: self.session,
-                recording: rec.map(|r| r.0),
-                source: rec.map(|r| r.1),
-                pos_ds,
-                payload,
-            }
-            .build(),
-        );
+        // A new context snapshot about every 8 events.
+        if self.dice.chance(12) {
+            self.ctx += 1;
+        }
+        self.emitted += 1;
+        let ctx = ContextSnapshotId(self.ctx);
+        let mut event = Ev {
+            device: self.device,
+            seq: self.seq,
+            ts: self.ts,
+            session: self.session,
+            recording: rec.map(|r| r.0),
+            source: rec.map(|r| r.1),
+            pos_ds,
+            payload,
+        }
+        .build();
+        event.ctx = Some(ctx);
+        out.push(event);
         self.seq += 1;
     }
 
@@ -268,6 +297,7 @@ impl Listener {
             self.session = self.ids.session();
         }
         self.plays_in_session += 1;
+        self.plays += 1;
         let track = self.pick_track();
         let origin = if self.dice.chance(30) {
             PlayOrigin::Radio
