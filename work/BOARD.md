@@ -40,7 +40,6 @@ _none_
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | tests/ overlaps T-0044 → after it |
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | feature | M | desktop qml/Tw, icons, tools, build.rs, Sidebar.qml | after T-0044 (build.rs) |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | feature | M | desktop src/platform | wiring touches src/app → after T-0044 |
-| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + Qt THIRD-PARTY-NOTICES | feature | M | desktop packaging/ | free now (next agent slot) |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper | feature | S | new crate / playback | after T-0034 if it touches tinwave-playback |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits | feature | M | tinwave-playback | after T-0034 |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | after T-0034 |
