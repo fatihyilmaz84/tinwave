@@ -22,6 +22,8 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0024](tickets/T-0024-playback-controller.md) Playback controller → T0 signals, sessions (P0) | tw-builder r1 | `t/T-0024-playback-controller` · `D:\dev\Tinwave-worktrees\T-0024-playback-controller` |
+| [T-0033](tickets/T-0033-device-secret-keychain.md) DeviceSecret in Windows Credential Manager | tw-builder r1 | `t/T-0033-device-secret-keychain` · `D:\dev\Tinwave-worktrees\T-0033-device-secret-keychain` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -46,7 +48,6 @@ overlap (work/README.md); the branch merging second merges main first.
 ## Backlog
 | Ticket | Depends on |
 |---|---|
-| [T-0024](tickets/T-0024-playback-controller.md) Playback controller: poll() + PlaybackEvents → signals (E-01, P0) | ready (playback crate free) |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither (E-01) | ready (playback crate free) |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits (E-01) | ready (playback crate free) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (E-01, P2) | ready (playback crate free) |
