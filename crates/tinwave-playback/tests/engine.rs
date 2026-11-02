@@ -4,7 +4,9 @@
 mod common;
 
 use common::*;
-use tinwave_playback::{EventKind, LeaveCause, PlaybackError, Position, QueueItemId, StartCause};
+use tinwave_playback::{
+    EventKind, LeaveCause, PlaybackError, Position, QueueItemId, StartCause, StreamInfo,
+};
 
 fn wav_pair(tag: &str) -> (std::path::PathBuf, std::path::PathBuf, TempDir) {
     let dir = TempDir::new(tag);
@@ -167,7 +169,8 @@ fn switching_device_resumes_at_the_exact_frame() {
     assert_eq!(
         h.sink.take(),
         vec![EventKind::OutputReopened {
-            device: Some("speakers-2".into())
+            device: Some("speakers-2".into()),
+            info: StreamInfo::unknown(),
         }]
     );
     h.settle();

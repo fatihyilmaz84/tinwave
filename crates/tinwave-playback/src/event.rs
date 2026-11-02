@@ -3,7 +3,7 @@
 
 use tinwave_core::UtcMillis;
 
-use crate::{PlaybackError, Position, QueueItemId};
+use crate::{PlaybackError, Position, QueueItemId, StreamInfo};
 
 /// One fact, stamped with the injected clock's wall time.
 ///
@@ -142,6 +142,9 @@ pub enum EventKind {
     OutputReopened {
         /// Device id as given to `switch_device`; `None` is the system default.
         device: Option<String>,
+        /// How the new stream was opened: backend, shared or exclusive mode, sample format,
+        /// latency, and why exclusive mode was not used when it was asked for.
+        info: StreamInfo,
     },
 }
 

@@ -1415,6 +1415,7 @@ dependencies = [
  "symphonia",
  "thiserror 2.0.21",
  "tinwave-core",
+ "tinwave-signals",
  "tinwave-test-alloc",
  "tracing",
  "wasapi",
