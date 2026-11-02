@@ -22,7 +22,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | tw-builder **r2** ([review-1](reports/T-0014/review-1.md): per-block SAFETY comments) | `t/T-0014-windows-volume-device-provider` · `D:\dev\Tinwave-worktrees\T-0014-windows-volume-device-provider` |
 | [T-0030](tickets/T-0030-engine-append-and-docs.md) Engine follow-ups: append-after-end buffering, regression test, docs (P0) | tw-builder r1 | `t/T-0030-engine-append-and-docs` · `D:\dev\Tinwave-worktrees\T-0030-engine-append-and-docs` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -32,6 +31,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | Ticket | Reviewer | Build report |
 |---|---|---|
 | [T-0006](tickets/T-0006-signals-db-writer.md) signals.db & batched writer | tw-reviewer r1 | [build-1](reports/T-0006/build-1.md) (partial → schema decision → amended) · 6ee0329 |
+| [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | tw-reviewer **r2** | [build-2](reports/T-0014/build-2.md) · 3ee67fc |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -94,5 +94,5 @@ Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0076 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0077 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog).
