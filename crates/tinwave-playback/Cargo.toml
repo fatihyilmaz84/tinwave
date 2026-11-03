@@ -21,12 +21,16 @@ wasapi = { workspace = true }
 # Only what src/output/windows/os.rs uses: MMCSS thread characteristics and IAudioClient::GetStreamLatency.
 windows = { workspace = true, features = ["Win32_Foundation", "Win32_Media_Audio", "Win32_System_Threading"] }
 
+[build-dependencies]
+# Compiles the C ABI over the vendored Signalsmith Stretch headers (src/stretch/, ADR 0006). MIT OR Apache-2.0.
+cc = "1"
+
 [dev-dependencies]
 tinwave-test-alloc = { workspace = true }
 
-# Not `workspace = true`: the Windows COM calls need `unsafe`, which the workspace forbids. As in
-# tinwave-context, `deny` keeps every other module free of `unsafe`; only
-# `src/output/windows/os.rs` carries `#![allow(unsafe_code)]`, with a SAFETY comment per block.
+# Not `workspace = true`: the Windows COM calls and the C++ stretcher need `unsafe`, which the workspace
+# forbids. As in tinwave-context, `deny` keeps every other module free of `unsafe`; only
+# `src/output/windows/os.rs` and `src/stretch/` carry `#![allow(unsafe_code)]`, with a SAFETY comment per block.
 [lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"
