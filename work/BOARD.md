@@ -25,6 +25,8 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus, --accent) | tw-builder r1 | `t/T-0036-windows-platform-bridge` · `D:\dev\Tinwave-worktrees\T-0036-windows-platform-bridge` |
+| [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | tw-builder r1 | `t/T-0051-packaging-hardening` · `D:\dev\Tinwave-worktrees\T-0051-packaging-hardening` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 (sent back before review: defer no-session queue acts, P-0160) | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -36,10 +38,8 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | chore | M | desktop packaging/ | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | free |
-| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | feature | M | desktop src/platform | free (T-0044 merged) |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper | feature | S | new crate / playback | after T-0023 if it touches tinwave-playback |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | after T-0023 |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | after T-0023 |

@@ -3,16 +3,16 @@ id: T-0051
 title: Packaging hardening and notices completeness (before any public release)
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0042]
 scope:
   - apps/tinwave-desktop/packaging/
   - docs/rules/qml-ui.md            # the About-dialog LGPL rule only (P-0174)
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0051-packaging-hardening
+review_round: 1
 created_by: from T-0042 review-1 (non-blocking findings, P-0171..P-0174)
 ---
 
