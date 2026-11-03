@@ -1,7 +1,7 @@
 ---
 id: D-0009
 title: Tinwave's own licence — open-source desktop, closed-source mobile
-status: open
+status: decided
 blocks: [first public release; D-0007]
 date: 2026-11-03
 ---
@@ -44,4 +44,5 @@ GPL-3.0 as Tinwave's licence next to the third-party notices, and `deny.toml` ke
 dependencies.
 
 ## PO decision
-_pending_
+**A — GPL-3.0 for the whole repository** (PO, 2026-11-03). Recorded as ADR 0009 (`GPL-3.0-only`); code and
+packaging switch in T-0058; release obligations (About view, source at the release tag) in T-0054.

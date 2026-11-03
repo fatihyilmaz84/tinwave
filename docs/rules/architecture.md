@@ -44,6 +44,13 @@ tinwave-desktop
   only at the output conversion, and only for integer formats (`output/convert.rs` has the policy).
 - `tinwave-desktop` wires everything in one composition root (`app/wiring.rs`). No global singletons elsewhere.
 
+## Licence of dependencies (ADR 0009)
+
+- Tinwave is GPL-3.0-only, but the closed-source mobile apps reuse these crates. Every dependency, in every crate, must
+  be permissive or MPL-2.0 for an approved crate (`deny.toml`): never GPL, never LGPL (Rust links statically).
+- Qt (LGPL-3) is used only by `apps/tinwave-desktop`, dynamically, and only through LGPL modules (no GPL-only Qt module).
+- No outside contribution is merged without a CLA.
+
 ## Boundaries
 
 - **OS-specific code** only in `tinwave-context`, `tinwave-playback` (output) and `tinwave-desktop`, behind

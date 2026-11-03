@@ -579,6 +579,9 @@ Do not bundle unnecessary features merely to match competitors. Keep advanced co
 - Explicit permissions and revocation.
 - No telemetry by default; any optional diagnostics must be clearly disclosed and configurable.
 - Avoid sending library filenames, listening history, or metadata to external services without user consent.
+- Tinwave's own code is GPL-3.0-only; the mobile apps are closed source in a separate repository and reuse the
+  shared crates under the copyright holder's rights, so outside contributions need a CLA and dependencies must stay
+  permissive or MPL-2.0 (ADR 0009).
 - Maintain a dependency inventory and Software Bill of Materials.
 - Review commercial-use terms and redistribution obligations for Qt, audio libraries, codecs, metadata providers, and server APIs.
 - Treat each server integration's API and authentication rules as a separate compliance requirement.

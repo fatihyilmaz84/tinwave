@@ -34,6 +34,13 @@ public release would hit.
 ## Signals & storage
 None.
 
+## Added from ADR 0009 (GPL-3.0, 2026-11-03)
+- The package states where the exact corresponding source is: the public repository at the release tag (written in
+  the package next to the GPL text; check-bundle -Release fails without it).
+- "Appropriate Legal Notices" (GPL-3.0 §0/§5d) need an About view in the desktop UI: copyright holder, no warranty,
+  licence, link to the notices. That is a UI ticket of its own (needs an artboard, D-0008/design gaps); T-0054 only
+  checks the package side.
+
 ## Added from P-0204 (T-0026 build-1)
 - The notices generator reads `LICENSE*` under `crates/*/vendor/**` for every crate in the shipped closure
   (first: Signalsmith Stretch + Linear in tinwave-playback). Must land before any desktop build links tinwave-playback.
