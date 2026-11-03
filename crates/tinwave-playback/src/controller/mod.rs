@@ -469,6 +469,13 @@ impl Controller {
         self.engine.command_pending()
     }
 
+    /// Whether the cadence should be quicker than usual: a command or an output reopen is
+    /// waiting for a poll (see [`Engine::poll_soon`](crate::Engine::poll_soon)).
+    #[must_use]
+    pub fn poll_soon(&self) -> bool {
+        self.engine.poll_soon()
+    }
+
     /// Whether the engine has yet to reopen the output at the sample rate of the next track
     /// (exclusive mode; see [`Engine::reopen_pending`](crate::Engine::reopen_pending)).
     #[must_use]

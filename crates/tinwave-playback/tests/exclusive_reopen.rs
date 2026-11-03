@@ -477,6 +477,68 @@ fn a_load_while_the_decoder_waits_for_a_stream_cancels_the_wait() {
 }
 
 #[test]
+fn a_device_switch_while_the_decoder_waits_at_a_boundary_resumes_and_reopens_on_the_new_device() {
+    let dir = TempDir::new("excl-switch-parked");
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    // A is half a second, so the decoder has pushed all of it and is parked for B at once.
+    let (l, r) = sweep(R44, R44 as usize);
+    write_wav(&a, R44, 24, &l[..22_050], &r[..22_050]);
+    let ref_a = interleave(&reference(&l[..22_050], &r[..22_050], 24));
+    let ref_b = sweep_file(&b, R96);
+
+    let mut h = Harness::exclusive(None);
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    for _ in 0..30_000 {
+        if h.engine.reopen_pending() {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    assert!(
+        h.engine.reopen_pending(),
+        "the decoder never parked for the second track"
+    );
+    let _ = h.render_exact(4_800, 480);
+    let heard = h.engine.position().expect("playing").frame;
+
+    // The listener moves to another device with the decoder parked: A resumes where it was
+    // heard, on the new device and at its own rate; B then reopens that device at 96 kHz.
+    h.engine.switch_device(Some("dac".into())).expect("switch");
+    h.settle_polling();
+    let from = ((heard * u64::from(R44) + 24_000) / 48_000) as usize;
+    let played = play_to_end(&mut h, (22_050 - from) + R96 as usize - BLOCK);
+
+    let opens = h.out.opens();
+    assert_eq!(
+        opens,
+        [
+            (None, 48_000),
+            (None, R44),
+            (Some("dac".to_string()), R44),
+            (Some("dac".to_string()), R96)
+        ]
+    );
+    let mut expected = ref_a[2 * from..].to_vec();
+    expected.extend_from_slice(&ref_b);
+    assert!(
+        played.audio == expected,
+        "the tail of A from the heard frame, then B, bit exact"
+    );
+    let kinds = h.sink.kinds();
+    let (left_a, cause_a) = left_after(&kinds, 1).expect("left");
+    assert_eq!(cause_a, LeaveCause::Finished);
+    assert!(left_a.abs_diff(24_000) <= 1, "left at {left_a}");
+    assert_eq!(
+        left_after(&kinds, 2),
+        Some((SECOND as u64, LeaveCause::Finished))
+    );
+    assert_paired(&kinds, false);
+}
+
+#[test]
 fn a_refused_rate_plays_resampled_at_the_engine_rate_and_is_reported_once() {
     let dir = TempDir::new("excl-refused");
     let paths: Vec<_> = ["a", "b", "c", "d"]
@@ -710,10 +772,25 @@ fn a_speed_change_during_the_second_file_restarts_inside_its_own_stream() {
         }
     }
     h.engine.set_rate(1.5).expect("rate");
+    // The decoder applies the new speed by flushing the stream at the audible place, which needs
+    // the callback's acknowledgement. An empty callback gives it without taking any audio, so the
+    // flush happens while the second file is still being played, whatever the thread scheduling
+    // (had the whole file been drained first, the rate would be adopted without a flush).
+    for _ in 0..30_000 {
+        if h.engine.rate_stats().flushes >= 1 {
+            break;
+        }
+        h.out.render(&mut [], 0).expect("stream open");
+        h.engine.poll();
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    assert!(
+        h.engine.rate_stats().flushes >= 1,
+        "the decoder never flushed"
+    );
     let played = play_to_end(&mut h, 40_000);
     // The flush reopened the file at the audible place without asking for another stream.
     assert_eq!(rates(&h), [48_000, R44, R96]);
-    assert!(h.engine.rate_stats().flushes >= 1);
     let kinds = h.sink.kinds();
     let (frame, cause) = left_after(&kinds, 2).expect("left");
     assert_eq!(cause, LeaveCause::Finished);

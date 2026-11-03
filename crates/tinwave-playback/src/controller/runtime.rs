@@ -7,7 +7,8 @@
 //!
 //! The timeout is shortened to [`FAST_POLL`] while a command has yet to be carried out or the
 //! engine has to reopen the output at another sample rate (exclusive mode): both finish in a
-//! poll, and the listener is waiting for the sound.
+//! poll, and the listener is waiting for the sound. Not while paused (a boundary reopen waits for
+//! playback) and not once the output is lost (see [`Engine::poll_soon`](crate::Engine::poll_soon)).
 
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -270,7 +271,7 @@ struct Shared {
 
 fn run(controller: &mut Controller, rx: &Receiver<Message>, interval: Duration, shared: &Shared) {
     loop {
-        let wait = if controller.command_pending() || controller.reopen_pending() {
+        let wait = if controller.poll_soon() {
             interval.min(FAST_POLL)
         } else {
             interval

@@ -145,6 +145,10 @@ pub struct Engine {
     gen: u64,
     /// The generation of the last command that reached the decoder's queue.
     sent_gen: u64,
+    /// The `Resume` for a stream that is open already, which the decoder's full command queue
+    /// has not taken yet, with the stream's info (reported once it is delivered). Retried by
+    /// every poll; commands are refused as busy meanwhile, so none can overtake it.
+    unsent_resume: Option<(Cmd, StreamInfo)>,
     /// Queue edits sent so far (the last [`EditId`]).
     edits: u64,
     pending: Option<Pending>,
@@ -243,6 +247,7 @@ impl Engine {
             device,
             gen: 0,
             sent_gen: 0,
+            unsent_resume: None,
             edits: 0,
             pending: None,
             cursor: None,
@@ -788,12 +793,32 @@ impl Engine {
     }
 
     /// Whether the decoder is waiting for [`poll`](Self::poll) to reopen the output stream at the
-    /// sample rate of its next track (exclusive mode). A host that polls slowly can poll faster
-    /// while this is true: playback of that track starts when the poll has reopened the stream.
+    /// sample rate of its next track (exclusive mode), and a poll can make progress with it. A
+    /// host that polls slowly can poll faster while this is true: playback of that track starts
+    /// when the poll has reopened the stream.
+    ///
+    /// At a track boundary the request waits for the old stream to play out. While paused it
+    /// does not, so a pause in the last second before a rate change is not "pending": nothing a
+    /// poll does would change until playback resumes.
     #[must_use]
     pub fn reopen_pending(&self) -> bool {
+        if self.unsent_resume.is_some() {
+            return self.stream.is_some();
+        }
         let (id, rate) = self.sh.reopen_request();
-        rate != 0 && id != self.reopen_done && self.stream.is_some()
+        let waits_for_playback = self.sh.reopen_drain.load(Acquire) && self.is_paused();
+        rate != 0 && id != self.reopen_done && self.stream.is_some() && !waits_for_playback
+    }
+
+    /// Whether the host should poll sooner than its usual interval: a command (load, seek, stop,
+    /// device switch) has yet to be carried out, or the output has to be reopened, and a poll
+    /// would move either along. False once the output is lost (nothing a poll does helps until
+    /// the host switches device), so a stuck command does not keep the host awake.
+    #[must_use]
+    pub fn poll_soon(&self) -> bool {
+        self.stream.is_some()
+            && !self.output_lost_reported
+            && (self.command_pending() || self.reopen_pending())
     }
 
     /// Stop the decoder thread and wait for it. (Dropping the engine stops it too but does not
@@ -824,6 +849,10 @@ impl Engine {
     /// Events: one [`EventKind::OutputReopened`] with the new stream's [`StreamInfo`] (a refused
     /// rate is in its `fallback`); [`EventKind::OutputLost`] when no stream could be opened.
     fn service_reopen(&mut self) {
+        if let Some((cmd, info)) = self.unsent_resume.take() {
+            self.deliver_resume(cmd, info);
+            return;
+        }
         // The generation first: the decoder stores it after withdrawing a request, so a request
         // read after a matching generation is the decoder's answer to the latest command.
         if self.sh.reopen_gen.load(Acquire) != self.sent_gen {
@@ -844,22 +873,37 @@ impl Engine {
         self.reopen_done = id;
         self.stream = None;
         let device = self.device.clone();
-        let reopened = self.open_stream(device.as_deref(), rate).and_then(|o| {
-            let cmd = Cmd::Resume {
-                producer: o.producer,
-                rate: o.rate,
-                id,
-            };
-            self.send(cmd).map(|()| (o.stream, o.info))
-        });
-        match reopened {
-            Ok((stream, info)) => {
-                self.stream = Some(stream);
+        match self.open_stream(device.as_deref(), rate) {
+            Ok(opened) => {
+                let cmd = Cmd::Resume {
+                    producer: opened.producer,
+                    rate: opened.rate,
+                    id,
+                };
+                self.stream = Some(opened.stream);
                 self.output_lost_reported = false;
-                self.emit(EventKind::OutputReopened { device, info });
+                self.deliver_resume(cmd, opened.info);
             }
             Err(error) => {
                 tracing::warn!(%error, rate, "the output could not be reopened for the next track");
+                self.output_lost_reported = true;
+                self.emit(EventKind::OutputLost);
+            }
+        }
+    }
+
+    /// Hand the decoder the ring of the stream that was just opened, and report the reopen. A
+    /// full command queue is transient (the parked decoder is draining it): the command is kept
+    /// and the next poll tries again, with the stream already running on its empty ring.
+    fn deliver_resume(&mut self, cmd: Cmd, info: StreamInfo) {
+        match self.tx.try_send(cmd) {
+            Ok(()) => {
+                let device = self.device.clone();
+                self.emit(EventKind::OutputReopened { device, info });
+            }
+            Err(TrySendError::Full(cmd)) => self.unsent_resume = Some((cmd, info)),
+            Err(TrySendError::Disconnected(_)) => {
+                self.stream = None;
                 self.output_lost_reported = true;
                 self.emit(EventKind::OutputLost);
             }
@@ -954,6 +998,10 @@ impl Engine {
     }
 
     fn send(&self, cmd: Cmd) -> Result<(), PlaybackError> {
+        if self.unsent_resume.is_some() {
+            // The decoder is waiting for a stream's ring: nothing may overtake it.
+            return Err(PlaybackError::Busy);
+        }
         self.tx.try_send(cmd).map_err(|e| match e {
             TrySendError::Full(_) => PlaybackError::Busy,
             TrySendError::Disconnected(_) => PlaybackError::EngineStopped,
@@ -1278,5 +1326,93 @@ mod tests {
         handle.set_device_rates(&[48_000, 96_000]);
         engine.switch_device(Some("dac".into())).expect("switch");
         assert!(engine.sh.refused().is_empty());
+    }
+
+    #[test]
+    fn a_boundary_waiting_for_playback_is_not_pending_while_paused() {
+        let (mut engine, _handle, _) = exclusive_engine();
+        engine.sh.park(1, 96_000, 1_000, true);
+        assert!(engine.reopen_pending() && engine.poll_soon());
+        // Paused in the last second before the boundary: no poll can move it along.
+        engine.pause();
+        assert!(
+            !engine.reopen_pending(),
+            "a drain wait does not advance while paused"
+        );
+        assert!(!engine.poll_soon());
+        engine.resume();
+        assert!(engine.reopen_pending() && engine.poll_soon());
+        // A request with nothing to drain (after a load) is served by the next poll, paused or not.
+        engine.sh.park(2, 44_100, 0, false);
+        engine.pause();
+        assert!(engine.reopen_pending());
+    }
+
+    #[test]
+    fn a_lost_output_is_not_polled_quickly() {
+        let (mut engine, handle, events) = exclusive_engine();
+        // A command the decoder will never carry out (nothing renders): pending.
+        engine.pending = Some(Pending {
+            gen: 5,
+            item: None,
+            frame: 0,
+            expect_audio: false,
+        });
+        assert!(engine.command_pending() && engine.poll_soon());
+        handle.set_lost(true);
+        engine.poll();
+        assert_eq!(events.take(), vec![EventKind::OutputLost]);
+        assert!(engine.command_pending(), "the command is still waiting...");
+        assert!(!engine.poll_soon(), "...but polling quickly cannot help");
+
+        // The same after a reopen that could not open a stream.
+        let (mut engine, handle, _) = exclusive_engine();
+        engine.sh.park(1, 96_000, 0, false);
+        handle.fail_next_open();
+        engine.poll();
+        engine.sh.park(2, 44_100, 0, false);
+        assert!(!engine.poll_soon());
+    }
+
+    #[test]
+    fn a_full_command_queue_delays_the_resume_instead_of_losing_the_output() {
+        let (mut engine, handle, events) = exclusive_engine();
+        // A queue of one that nobody reads, already full.
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        engine.tx = tx;
+        engine.tx.try_send(Cmd::RateTarget).expect("room for one");
+        engine.sh.park(1, 96_000, 0, false);
+
+        engine.poll();
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(96_000));
+        assert!(handle.is_open(), "the new stream is running");
+        assert!(
+            events.take().is_empty(),
+            "not reported until the decoder has its ring"
+        );
+        assert!(engine.reopen_pending(), "the next poll tries again");
+        // Nothing may overtake the resume.
+        assert_eq!(engine.append(Vec::new()).err(), Some(PlaybackError::Busy));
+
+        // Still full: still waiting, no second open.
+        engine.poll();
+        assert_eq!(handle.opens().len(), 2);
+        assert!(events.take().is_empty());
+
+        // Room again: the resume goes out and the reopen is reported, once.
+        assert!(matches!(rx.try_recv(), Ok(Cmd::RateTarget)));
+        engine.poll();
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Cmd::Resume {
+                id: 1,
+                rate: 96_000,
+                ..
+            })
+        ));
+        assert_eq!(reopened(&events.take()), 1);
+        assert!(!engine.reopen_pending());
+        engine.poll();
+        assert!(events.take().is_empty());
     }
 }
