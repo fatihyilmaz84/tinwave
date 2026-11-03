@@ -23,14 +23,15 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | tw-builder r1 | `t/T-0043-icon-pipeline` · `D:\dev\Tinwave-worktrees\T-0043-icon-pipeline` |
-| [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness: no spin, per-profile CPU budget, hang backstop (P2) | tw-builder r1 | `t/T-0048-growth-barrier-no-spin` · `D:\dev\Tinwave-worktrees\T-0048-growth-barrier-no-spin` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness: no spin, per-profile CPU budget, hang backstop (P2) | tw-reviewer r1 (build-1: producer CPU 10.5 → 0.7 s; 8 s release budget; nextest kill at 300 s) | `t/T-0048-growth-barrier-no-spin` @ 98d986a · `D:\dev\Tinwave-worktrees\T-0048-growth-barrier-no-spin` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -115,5 +116,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0151 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit).
+Proposals P-0001..P-0153 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify).

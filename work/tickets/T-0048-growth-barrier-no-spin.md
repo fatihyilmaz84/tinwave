@@ -3,7 +3,7 @@ id: T-0048
 title: Growth-test harness: no spinning barrier, per-profile CPU budget, hard hang backstop
 type: chore
 epic: E-00
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0047]
