@@ -34,3 +34,7 @@ gesture) and derived `RateSession` (time-weighted rate) need the engine to repor
 
 ## Signals & storage
 Enables `RateChanged` / `RateSession`; no new kinds.
+
+## Added from P-0206 (T-0026 build-1)
+- Turn the ADR 0006 decision-3 rate arithmetic (fixed output block, `floor(out*rate + carry)` input) from the
+  `drive()` helper in crates/tinwave-playback/tests/stretch.rs into a tested production helper.

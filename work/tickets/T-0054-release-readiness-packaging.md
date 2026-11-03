@@ -33,3 +33,7 @@ public release would hit.
 
 ## Signals & storage
 None.
+
+## Added from P-0204 (T-0026 build-1)
+- The notices generator reads `LICENSE*` under `crates/*/vendor/**` for every crate in the shipped closure
+  (first: Signalsmith Stretch + Linear in tinwave-playback). Must land before any desktop build links tinwave-playback.
