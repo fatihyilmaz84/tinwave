@@ -3,7 +3,7 @@ id: T-0029
 title: Write play records live when a play ends (warm tier)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0006, T-0024]
@@ -45,6 +45,13 @@ taste engine never scans raw events. T-0006 creates the `play` table and flushes
   If a listed enum has more values than its field, stop and report it in the HANDOFF rather than widening silently.
   The context fields come from the events already recorded for the play (the snapshot the bus attached); if none is
   available in the writer, report `partial` with what is missing instead of inventing a source.
+
+## Lead notes on build-1 (2026-11-03)
+- Stopped/Quit rows need a play-end signal that does not exist yet: split to T-0059. This ticket's first criterion is
+  accepted for Completed and Skipped*; Stopped/Quit are T-0059's.
+- Confirmed: the all-unknown ContextKey is raw 0 with no version bits; any key with a known field carries version 1.
+- P-0236: until the context hub writes `context_snapshot.key` via `ContextKey::raw()`, real plays store 0. That is a
+  requirement for the context-hub ticket, not a gap in this one.
 
 ## Signals & storage
 Warm tier per storage-budget.md.
