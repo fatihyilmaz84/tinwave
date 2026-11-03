@@ -16,8 +16,8 @@ use std::time::Duration;
 use common::*;
 use tinwave_core::{ManualClock, UtcMillis};
 use tinwave_playback::{
-    Engine, EngineConfig, EventKind, FsOpener, LeaveCause, QueueItemId, SampleFormat, StreamInfo,
-    StreamMode,
+    Engine, EngineConfig, EventKind, FsOpener, LeaveCause, PumpStep, QueueItemId, SampleFormat,
+    StreamInfo, StreamMode,
 };
 
 const R44: u32 = 44_100;
@@ -387,6 +387,96 @@ fn positions_and_marks_continue_across_the_reopen() {
 }
 
 #[test]
+fn the_position_stays_on_the_old_track_until_the_new_stream_is_heard() {
+    // The device reports 480 frames of latency: after the reopen the first frames of the second
+    // file are consumed 10 ms before they are heard, and until then the listener is still at the
+    // end of the first file, not nowhere.
+    let dir = TempDir::new("excl-position-gap");
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    sweep_file(&a, R44);
+    sweep_file(&b, R96);
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+
+    let mut block = vec![0.0f32; 100 * 2];
+    let mut wall = 0;
+    let mut seen_between = false;
+    let mut seen_second = false;
+    for _ in 0..60_000 {
+        let want_ready = h.out.buffered_frames().unwrap_or(0) >= 100 || h.engine.reopen_pending();
+        if want_ready {
+            h.out.render(&mut block, h.latency).expect("stream open");
+            h.engine.poll();
+            wall = h.engine.rate_stats().wall_frames;
+            let position = h.engine.position().expect("a position at every moment");
+            if wall > R44 as u64 + 100 && wall < R44 as u64 + 400 {
+                // Consumed, not heard yet: the old track, near its end, never past it.
+                assert_eq!(position.item, QueueItemId(1), "at {wall} frames");
+                assert!(position.frame <= SECOND as u64);
+                seen_between = true;
+            }
+            if wall >= R44 as u64 + 1_000 {
+                assert_eq!(position.item, QueueItemId(2));
+                seen_second = true;
+                break;
+            }
+        } else {
+            h.engine.poll();
+            std::thread::sleep(Duration::from_micros(100));
+        }
+    }
+    assert!(seen_between && seen_second, "wall frames {wall}");
+}
+
+#[test]
+fn a_load_while_the_decoder_waits_for_a_stream_cancels_the_wait() {
+    let dir = TempDir::new("excl-cancel-park");
+    let (a, b, c) = (dir.path("a.wav"), dir.path("b.wav"), dir.path("c.wav"));
+    // A is half a second, so the decoder has pushed all of it and is parked for B at once.
+    let (l, r) = sweep(R44, R44 as usize);
+    write_wav(&a, R44, 24, &l[..22_050], &r[..22_050]);
+    sweep_file(&b, R96);
+    let ref_c = sweep_file(&c, R44);
+
+    let mut h = Harness::exclusive(None);
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    // Wait for the decoder to ask for 96 kHz (nothing has been played: the old stream is not
+    // empty yet, so the engine does not answer).
+    for _ in 0..30_000 {
+        if h.engine.reopen_pending() {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    assert!(
+        h.engine.reopen_pending(),
+        "the decoder never parked for the second track"
+    );
+
+    // The listener picks another track, at the rate of the stream that is open.
+    h.engine.load(vec![track(3, &c)], 0, 0).expect("load");
+    h.settle_polling();
+    let rec = h.render_exact(4_800, 480);
+    assert!(rec == ref_c[..2 * 4_800]);
+    assert!(
+        !h.engine.reopen_pending(),
+        "the request of the replaced queue is gone"
+    );
+    assert_eq!(
+        rates(&h),
+        [48_000, R44],
+        "the stream was never opened at 96 kHz"
+    );
+}
+
+#[test]
 fn a_refused_rate_plays_resampled_at_the_engine_rate_and_is_reported_once() {
     let dir = TempDir::new("excl-refused");
     let paths: Vec<_> = ["a", "b", "c", "d"]
@@ -628,9 +718,17 @@ fn a_speed_change_during_the_second_file_restarts_inside_its_own_stream() {
     let (frame, cause) = left_after(&kinds, 2).expect("left");
     assert_eq!(cause, LeaveCause::Finished);
     assert!(frame.abs_diff(SECOND as u64) <= 16, "left at {frame}");
-    // The rest of the second file (76,000 frames at 1.5) is about 50,700 frames long.
-    let rest = played.audio.len() / 2;
-    assert!(rest.abs_diff(76_000 * 2 / 3) < 3_000, "{rest}");
+    // Both files were played through, once: the source frames the renderer advanced add up to
+    // their lengths (a restart repeats or drops a few frames of fade, not more), however long the
+    // decoder took to apply the new speed.
+    let stats = h.engine.rate_stats();
+    let advanced = stats.source_frames();
+    let lengths = (R44 + R96) as f64;
+    assert!(
+        (advanced - lengths).abs() < 2_000.0,
+        "advanced {advanced} of {lengths} frames"
+    );
+    assert!(stats.wall_frames as usize <= played.audio.len() / 2 + R44 as usize + 20_000);
     assert_paired(&kinds, false);
 }
 
@@ -659,13 +757,29 @@ fn a_24_bit_pair_reaches_the_device_as_the_files_integers() {
     engine
         .load(vec![track(1, &a), track(2, &b)], 0, 0)
         .expect("load");
+    // The device calls only when the decoder has a block ready (a partial block mid-stream would
+    // put silence inside the recording), except between two streams and for the last frames.
+    let total = (R44 + R96) as usize;
+    let mut played = 0;
     for _ in 0..60_000 {
-        let _ = dev.step();
+        if engine.command_pending() {
+            // The decoder needs the callback to acknowledge the flush the load started.
+            dev.service_flush();
+        }
+        let ready = dev.buffered_frames() >= BLOCK
+            || engine.reopen_pending()
+            || played + dev.buffered_frames() >= total;
+        if ready {
+            if let Some(PumpStep::Fed { real, .. }) = dev.step() {
+                played += real;
+            }
+        } else {
+            std::thread::sleep(Duration::from_micros(100));
+        }
         engine.poll();
         if sink.kinds().contains(&EventKind::QueueEnded) {
             break;
         }
-        std::thread::sleep(Duration::from_micros(100));
     }
     assert!(
         sink.kinds().contains(&EventKind::QueueEnded),
