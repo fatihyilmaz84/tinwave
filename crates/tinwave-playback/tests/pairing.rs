@@ -241,7 +241,7 @@ fn run_sequence(seed: u64, fx: &Fixtures, steps: usize) {
     };
 
     for step in 0..steps {
-        let op = if needs_retry { 99 } else { dice.below(24) };
+        let op = if needs_retry { 99 } else { dice.below(27) };
         let mut command = false;
         match op {
             0..=3 => {
@@ -346,6 +346,29 @@ fn run_sequence(seed: u64, fx: &Fixtures, steps: usize) {
                     empty = if real == 0 { empty + 1 } else { 0 };
                     if empty >= 3 {
                         break;
+                    }
+                }
+            }
+            24..=26 => {
+                // A live queue edit: whatever follows the current track is replaced. Stale
+                // heads are expected (the walk polls rarely) and must fail without a trace.
+                if let Some(head) = h.engine.position().map(|p| p.item) {
+                    let n = dice.below(4);
+                    let tail: Vec<_> = (0..n)
+                        .map(|_| random_track(fx, &mut dice, &mut ids))
+                        .collect();
+                    trace.push(format!(
+                        "edit after {} with {:?}",
+                        head.0,
+                        tail.iter().map(|(t, k)| (t.id.0, *k)).collect::<Vec<_>>()
+                    ));
+                    match h
+                        .engine
+                        .replace_after(head, tail.into_iter().map(|(t, _)| t).collect())
+                    {
+                        Ok(_)
+                        | Err(PlaybackError::NothingLoaded | PlaybackError::StaleQueue { .. }) => {}
+                        Err(other) => panic!("seed {seed}: edit failed unexpectedly: {other:?}"),
                     }
                 }
             }

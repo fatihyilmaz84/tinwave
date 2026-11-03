@@ -38,18 +38,52 @@
 //! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
 //! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one |
 //! | `QueueEnded` | none (silence starts) |
+//! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
+//! | `QueueEditRejected` | **nothing**; logged at `warn` and counted in [`ControllerDiagnostics::edits_refused`] |
 //! | `Underrun`, `CorruptPackets`, `TrackFailed`, `SeekFailed`, `OutputLost` | none; logged at `warn` |
 //!
 //! `Paused`, `Resumed`, `Seeked` and `VolumeChanged` with a listener's input, on a play that has not
 //! been heard yet while no session is open, open the session first (see "Sessions").
 //!
-//! Plus [`Controller::set_repeat_mode`] -> `RepeatModeChanged`, and the session pair
-//! `SessionStarted` / `SessionEnded` (catalog section 8).
+//! Plus [`Controller::set_repeat_mode`] -> `RepeatModeChanged`, [`Controller::queue_later`] ->
+//! `QueuedLater`, and the session pair `SessionStarted` / `SessionEnded` (catalog section 8).
 //!
-//! Not produced here, because the facts live in other layers: `Replayed`, `QueuedNext/Later`,
-//! `RemovedFromQueue`, `QueueReordered` (queue layer, T-0023), `Favorited`, `Rated`, playlist and
-//! metadata edits (library UI), `SystemVolumeChanged`, `MuteToggled`, `OutputDeviceChanged`
-//! (`tinwave-context`, ADR 0004), `EqChanged`, `CrossfadeChanged` (no engine feature yet).
+//! Not produced here, because the facts live in other layers: `Replayed`, `Favorited`, `Rated`,
+//! playlist and metadata edits (library UI), `SystemVolumeChanged`, `MuteToggled`,
+//! `OutputDeviceChanged` (`tinwave-context`, ADR 0004), `EqChanged`, `CrossfadeChanged` (no engine
+//! feature yet).
+//!
+//! # Queue edits
+//!
+//! [`Controller::edit_queue`] (play next, reorder, remove) and [`Controller::queue_later`] change
+//! what follows the playing track without interrupting it ([`Engine::replace_after`]). They are
+//! preferences, so they are signals: `QueuedNext` and `QueuedLater` (`from_view`, as the caller
+//! says), `QueueReordered` (`distance`, signed, as the caller says) and `RemovedFromQueue`
+//! (`was_radio_pick` is whether the removed entry's [`QueueOrigin`](tinwave_signals::QueueOrigin)
+//! is `Radio`), once per item, with the item's recording and source.
+//!
+//! - **Only an applied edit is recorded.** The engine's decoder thread has the last word (it reads
+//!   up to a second ahead, so in the last second of a track the next item can no longer be
+//!   edited). An edit built on a track that is no longer playing fails the call
+//!   ([`PlaybackError::StaleQueue`]); one the decoder refuses succeeds and is reported later
+//!   (`edits_refused`). Neither records anything. The signals of an accepted edit are emitted
+//!   when the decoder reports it applied (`ControllerDiagnostics::edits_pending` counts those
+//!   still waiting); `queue_later` has no verdict to wait for and records at once.
+//! - **A listener's act.** `Auto` (the queue layer's own refill) applies the edit and records
+//!   nothing.
+//! - **Sessions.** An edit is recorded in a session. If none is open and the playing track has not
+//!   been heard yet (restored paused at launch), a listener's edit opens one, with that play's
+//!   origin (see "Sessions"). Otherwise (nothing loaded, or the play outlived its session) the act
+//!   is applied and kept in a buffer of 64 acts (the oldest is dropped when it is full, counted in
+//!   [`ControllerDiagnostics::queue_acts_dropped`]) and reported right after the next
+//!   `SessionStarted` and after any deferred `RepeatModeChanged` / `ExclusiveModeToggled`, so a
+//!   session reads `SessionStarted`, preference changes, queue acts, then the first `PlayStarted`.
+//!   Deferred acts carry the session's start time and the recording and source captured at the
+//!   act. A kind that is switched off when the act is made buffers nothing, and one switched off
+//!   by the time the session starts constructs nothing. Acts still waiting when the controller
+//!   closes with no session are lost.
+//! - The signals carry no `InputSource` (the catalog gives these kinds no `input` field); it only
+//!   tells a listener's edit from `Auto`.
 //!
 //! # Rules the mapping follows
 //!
@@ -76,8 +110,8 @@
 //!   in between, so it is accurate to one poll (100 ms) and ignores playback rate.
 //! - **Sessions** start with the first *heard* play after 30 minutes of silence (`SessionEnded.tracks`
 //!   counts heard plays) or, if the listener acts first, with that act: pressing "previous", or a
-//!   pause, resume, seek or volume change (with a listener's input, not `Auto`) on a play that has not
-//!   been heard yet, such as a track restored paused at launch. Such a session carries the play's
+//!   pause, resume, seek, volume change or queue edit (with a listener's input, not `Auto`) on a play
+//!   that has not been heard yet, such as a track restored paused at launch. Such a session carries the play's
 //!   origin and can end with `tracks = 0` if the track then fails to open. A track that fails to
 //!   open with no listener act opens none. Sessions end after 30 minutes
 //!   of silence, measured on the injected clock: silence is the absence of audible playback
@@ -93,7 +127,8 @@
 //!   not recorded.
 //! - **Preference changes are not lost for want of a session.** `RepeatModeChanged` and
 //!   `ExclusiveModeToggled` made while no session is open are emitted right after the next
-//!   `SessionStarted`, if the value still differs from the last one reported.
+//!   `SessionStarted`, if the value still differs from the last one reported. Queue acts are
+//!   deferred the same way, from a bounded buffer (see "Queue edits").
 //! - **Disabled categories construct nothing**: payloads are built inside the bus's emit closure,
 //!   after the toggle check.
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
@@ -118,7 +153,7 @@ mod types;
 use std::sync::Arc;
 
 use tinwave_core::Clock;
-use tinwave_signals::{InputSource, RepeatMode};
+use tinwave_signals::{InputSource, RepeatMode, View};
 
 use crate::{AudioOutput, Engine, EngineConfig, PlaybackError, Position, Track};
 use mapper::{Cx, Mapper};
@@ -127,7 +162,7 @@ pub use runtime::ControllerHandle;
 pub use sink::{BoundedSink, SinkStats, CRITICAL_CAPACITY, MARK_CAPACITY};
 pub use types::{
     ControllerConfig, ControllerDiagnostics, FixedTimezone, LoadIntent, LoadRequest, PlayState,
-    PlaybackStatus, QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
+    PlaybackStatus, QueueEdit, QueueEditRequest, QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
 };
 
 /// The synchronous controller. See the module docs.
@@ -209,12 +244,26 @@ impl Controller {
             start_frame,
             intent,
             input,
+            leaving,
         } = request;
         check_durations(&entries)?;
         let tracks: Vec<Track> = entries.iter().map(|e| e.track.clone()).collect();
         // `Engine::load` polls first, and what that poll reports (a gapless hand-off that just
         // happened) is about the old queue. Map it before the queue table is replaced.
         self.poll();
+        if let (Some(expected), LoadIntent::Next | LoadIntent::Previous) = (leaving, intent) {
+            // The display was a poll behind: the track it showed has already ended and the
+            // engine moved on by itself. What the listener pressed "next" on is gone, and the
+            // track now playing is not what they meant to leave.
+            let playing = self.engine.position().map(|p| p.item);
+            if playing != Some(expected) {
+                tracing::debug!(
+                    expected = expected.0,
+                    "next/previous ignored: the track it was pressed on has already ended"
+                );
+                return Ok(());
+            }
+        }
         self.engine.load(tracks, index, start_frame)?;
         self.mapper.set_queue(&entries);
         let cx = Cx {
@@ -240,6 +289,60 @@ impl Controller {
         let tracks: Vec<Track> = entries.iter().map(|e| e.track.clone()).collect();
         self.engine.append(tracks)?;
         self.mapper.extend_queue(&entries);
+        self.drain(Cx::AUTO);
+        Ok(())
+    }
+
+    /// The listener added entries to the end of the queue ("add to queue"): `QueuedLater` for
+    /// each, from `from_view`. As [`append`](Self::append), plus the signal.
+    ///
+    /// # Errors
+    /// As [`append`](Self::append).
+    pub fn queue_later(
+        &mut self,
+        entries: Vec<QueueEntry>,
+        from_view: View,
+        input: InputSource,
+    ) -> Result<(), PlaybackError> {
+        self.append(entries.clone())?;
+        self.mapper
+            .queued_later(self.clock.now(), &entries, from_view, input);
+        Ok(())
+    }
+
+    /// Change the queue after the playing track without interrupting it: play next, reorder or
+    /// remove (see [`QueueEdit`]). The signals are emitted when the engine reports the edit
+    /// applied, never for a refused one.
+    ///
+    /// # Errors
+    /// [`PlaybackError::NothingLoaded`] with no current track; [`PlaybackError::StaleQueue`] when
+    /// `head` is not the current item (nothing changes, nothing is recorded);
+    /// [`PlaybackError::InvalidArgument`] / [`PlaybackError::UnknownItem`] when `edit` does not
+    /// match `tail`; otherwise as [`Engine::replace_after`](crate::Engine::replace_after). An edit
+    /// that only the decoder thread can refuse (the next track is already started) succeeds here
+    /// and shows up as [`ControllerDiagnostics::edits_refused`].
+    pub fn edit_queue(&mut self, request: QueueEditRequest) -> Result<(), PlaybackError> {
+        let QueueEditRequest {
+            head,
+            tail,
+            edit,
+            input,
+        } = request;
+        check_durations(&tail)?;
+        // The playing track is not part of what an edit can remove: it keeps playing, so recording
+        // it as "removed before it played" would be a rejection of a track being listened to.
+        if matches!(&edit, QueueEdit::Remove { items } if items.contains(&head)) {
+            return Err(PlaybackError::InvalidArgument(
+                "the playing track cannot be removed by a queue edit",
+            ));
+        }
+        let acts = self.mapper.plan_edit(&edit, &tail)?;
+        let tracks: Vec<Track> = tail.iter().map(|e| e.track.clone()).collect();
+        // What `Engine::replace_after` polls for is about the queue as it was: map it first.
+        self.poll();
+        let id = self.engine.replace_after(head, tracks)?;
+        self.mapper.extend_queue(&tail);
+        self.mapper.expect_edit(id, input, acts);
         self.drain(Cx::AUTO);
         Ok(())
     }
@@ -340,13 +443,16 @@ impl Controller {
         self.engine.command_pending()
     }
 
-    /// Position, pending command and sink losses in one snapshot.
+    /// Position, pending command, refused queue edits and sink losses in one snapshot.
     #[must_use]
     pub fn diagnostics(&self) -> ControllerDiagnostics {
         ControllerDiagnostics {
             position: self.position(),
             command_pending: self.command_pending(),
             sink: self.sink_stats(),
+            edits_pending: self.mapper.edits_pending(),
+            edits_refused: self.mapper.edits_refused(),
+            queue_acts_dropped: self.mapper.queue_acts_dropped(),
         }
     }
 

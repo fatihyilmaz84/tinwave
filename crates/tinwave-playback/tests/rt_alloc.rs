@@ -9,6 +9,7 @@
 mod common;
 
 use common::*;
+use tinwave_playback::QueueItemId;
 use tinwave_test_alloc::{count_allocations, CountingAlloc};
 
 #[global_allocator]
@@ -86,6 +87,17 @@ fn render_never_allocates_across_play_seek_volume_pause_and_device_change() {
     rig.settle();
     // Play.
     rig.run(30, true);
+    // Queue edits while playing: the tail is replaced twice, the callback carries on.
+    rig.h
+        .engine
+        .replace_after(QueueItemId(1), vec![track(3, &b), track(4, &a)])
+        .expect("play next");
+    rig.run(5, true);
+    rig.h
+        .engine
+        .replace_after(QueueItemId(1), vec![track(2, &b)])
+        .expect("remove");
+    rig.run(5, true);
     // Volume changes: ramp down, hold, ramp up.
     rig.h.engine.set_volume(0.25).expect("volume");
     rig.run(5, true);

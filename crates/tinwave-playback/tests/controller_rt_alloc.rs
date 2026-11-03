@@ -8,8 +8,8 @@ mod common;
 mod controller_support;
 
 use controller_support::*;
-use tinwave_playback::LoadIntent;
-use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, SignalKind};
+use tinwave_playback::{LoadIntent, QueueEdit, QueueEditRequest};
+use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, SignalKind, View};
 use tinwave_test_alloc::{count_allocations, CountingAlloc};
 
 #[global_allocator]
@@ -43,6 +43,52 @@ fn the_callback_allocates_nothing_while_the_controller_emits_signals() {
     callbacks(&mut rig, 40, &mut allocs, &mut real);
     rig.settle();
     callbacks(&mut rig, 60, &mut allocs, &mut real);
+    // Queue edits while playing: play next, add to queue, reorder, remove.
+    let c = rig.wav("c.wav", 10 * SECOND);
+    let extra = entry(3, &c, 10 * SECOND, QueueOrigin::Manual);
+    rig.ctl
+        .edit_queue(QueueEditRequest {
+            head: item(1),
+            tail: vec![extra.clone(), entries[1].clone()],
+            edit: QueueEdit::PlayNext {
+                items: vec![item(3)],
+                from_view: View::Library,
+            },
+            input: InputSource::Mouse,
+        })
+        .expect("play next");
+    callbacks(&mut rig, 6, &mut allocs, &mut real);
+    rig.ctl
+        .queue_later(
+            vec![entry(4, &c, 10 * SECOND, QueueOrigin::Album)],
+            View::Album,
+            InputSource::Keyboard,
+        )
+        .expect("queue later");
+    callbacks(&mut rig, 6, &mut allocs, &mut real);
+    rig.ctl
+        .edit_queue(QueueEditRequest {
+            head: item(1),
+            tail: vec![entries[1].clone(), extra],
+            edit: QueueEdit::Reorder {
+                item: item(3),
+                distance: 1,
+            },
+            input: InputSource::Mouse,
+        })
+        .expect("reorder");
+    callbacks(&mut rig, 6, &mut allocs, &mut real);
+    rig.ctl
+        .edit_queue(QueueEditRequest {
+            head: item(1),
+            tail: vec![entries[1].clone()],
+            edit: QueueEdit::Remove {
+                items: vec![item(3)],
+            },
+            input: InputSource::Mouse,
+        })
+        .expect("remove");
+    callbacks(&mut rig, 6, &mut allocs, &mut real);
     for step in 0..8_u8 {
         rig.ctl
             .set_volume(1.0 - f32::from(step) * 0.1, InputSource::Keyboard)
@@ -80,6 +126,10 @@ fn the_callback_allocates_nothing_while_the_controller_emits_signals() {
         SignalKind::Resumed,
         SignalKind::SeekForward,
         SignalKind::Skipped,
+        SignalKind::QueuedNext,
+        SignalKind::QueuedLater,
+        SignalKind::QueueReordered,
+        SignalKind::RemovedFromQueue,
     ] {
         assert!(
             kinds.contains(&expected),

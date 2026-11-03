@@ -1149,6 +1149,7 @@ fn play_started_reports_where_the_play_began() {
             start_frame: 2 * SECOND as u64,
             intent: LoadIntent::Select(PlayOrigin::Resume),
             input: InputSource::Auto,
+            leaving: None,
         })
         .expect("load");
     rig.hear();

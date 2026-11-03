@@ -172,6 +172,7 @@ impl Rig {
                 start_frame: 0,
                 intent: LoadIntent::Select(origin),
                 input,
+                leaving: None,
             })
             .expect("load");
     }
@@ -189,6 +190,26 @@ impl Rig {
             start_frame: 0,
             intent,
             input,
+            leaving: None,
+        })
+    }
+
+    /// "Next" or "previous" pressed on a display that showed `leaving` as playing.
+    pub fn step_from(
+        &mut self,
+        entries: Vec<QueueEntry>,
+        index: usize,
+        intent: LoadIntent,
+        leaving: QueueItemId,
+        input: InputSource,
+    ) -> Result<(), PlaybackError> {
+        self.ctl.load(LoadRequest {
+            entries,
+            index,
+            start_frame: 0,
+            intent,
+            input,
+            leaving: Some(leaving),
         })
     }
 
@@ -235,6 +256,32 @@ impl Rig {
     /// controller considers the track heard (`PlayStarted`).
     pub fn hear(&mut self) {
         self.render_exact(4_800, 480);
+    }
+
+    /// Play the current track until the controller reports it heard (a new `PlayStarted`). Unlike
+    /// a fixed count of frames this first waits for the decoder to carry out the pending command:
+    /// frames the callback returns before that still belong to the previous stream (they are
+    /// flushed), so counting them leaves the new stream short of its first 100 ms and its first
+    /// position mark, and the wait would end without the play having been heard (T-0034 round 2).
+    /// Needs the `PlayStarted` category on; on timeout the panic says where playback stands.
+    pub fn render_until_heard(&mut self) {
+        self.settle();
+        let before = self.of_kind(SignalKind::PlayStarted).len();
+        let mut block = vec![0.0f32; 480 * 2];
+        for _ in 0..1_000 {
+            self.wait_buffered(480);
+            let real = self.out.render(&mut block, 0).expect("stream open");
+            assert_eq!(real, 480, "callback was starved");
+            self.ctl.poll();
+            if self.of_kind(SignalKind::PlayStarted).len() > before {
+                return;
+            }
+        }
+        panic!(
+            "no PlayStarted after 1000 blocks; status {:?}, diagnostics {:?}",
+            self.ctl.status(),
+            self.ctl.diagnostics()
+        );
     }
 
     /// Play and poll until `done` holds, in a bounded loop.

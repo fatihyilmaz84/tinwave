@@ -5,26 +5,35 @@
 //! until it is decided here what it means for the signals (the table is in the docs of
 //! [`controller`](super)).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use tinwave_core::{IdGenerator, RecordingId, SessionId, SourceId, UtcMillis};
 use tinwave_signals::{
     CompletedPayload, ElapsedDs, EmitOutcome, EventContext, ExclusiveModePayload, Fraction,
     GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, PlayOrigin,
-    PlayStartedPayload, PositionDs, QueueOrigin, RepeatMode, RepeatModePayload, ResumedPayload,
-    Section, SeekPayload, SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent,
-    SignalKind, SignalPayload, SkipPayload, Volume, VolumePayload,
+    PlayStartedPayload, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload,
+    RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section, SeekPayload,
+    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
+    SkipPayload, View, Volume, VolumePayload,
 };
 
 use super::session::Session;
-use super::types::{PlayState, PlaybackStatus, QueueEntry, TimezoneSource};
+use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, TimezoneSource};
 use crate::event::{EventKind, LeaveCause, PlaybackEvent, StartCause};
-use crate::{QueueItemId, StreamMode};
+use crate::{EditId, PlaybackError, QueueItemId, StreamMode};
 
 /// A track that has played at least this percentage of its length when it is left counts as
 /// `Completed` (catalog: "reached end or within the last 3 %").
 const COMPLETED_FROM_PERCENT: u64 = 97;
+
+/// Queue edits whose verdict the mapper waits for. The engine's command queue (64) bounds how many
+/// can be in flight; this only guards against a decoder that never answers.
+const MAX_PENDING_EDITS: usize = 256;
+
+/// Queue acts made with no session to record them in, kept until the next session starts. When
+/// it is full the oldest is dropped and counted.
+const MAX_DEFERRED_QUEUE_ACTS: usize = 64;
 
 /// What caused the events being handled: the command in progress, or nothing (the engine's own
 /// doing, which is `Auto`).
@@ -50,7 +59,7 @@ impl Cx {
 
 /// What a signal about a queue entry says about it.
 #[derive(Debug, Clone, Copy)]
-struct Meta {
+pub(super) struct Meta {
     recording: RecordingId,
     source: SourceId,
     duration_ms: u64,
@@ -66,6 +75,57 @@ impl From<&QueueEntry> for Meta {
             origin: entry.origin,
         }
     }
+}
+
+/// One queue preference the listener expressed, ready to be turned into a signal once the engine
+/// has applied the edit. Self-contained (the queue table may be replaced before the verdict).
+#[derive(Debug, Clone, Copy)]
+pub(super) enum QueueAct {
+    Next(Meta, View),
+    Later(Meta, View),
+    Reordered(Meta, i16),
+    Removed(Meta),
+}
+
+impl QueueAct {
+    fn meta(self) -> Meta {
+        match self {
+            Self::Next(meta, _)
+            | Self::Later(meta, _)
+            | Self::Reordered(meta, _)
+            | Self::Removed(meta) => meta,
+        }
+    }
+
+    fn kind(self) -> SignalKind {
+        match self {
+            Self::Next(..) => SignalKind::QueuedNext,
+            Self::Later(..) => SignalKind::QueuedLater,
+            Self::Reordered(..) => SignalKind::QueueReordered,
+            Self::Removed(_) => SignalKind::RemovedFromQueue,
+        }
+    }
+
+    fn payload(self) -> SignalPayload {
+        match self {
+            Self::Next(_, from_view) => SignalPayload::QueuedNext(QueuedPayload { from_view }),
+            Self::Later(_, from_view) => SignalPayload::QueuedLater(QueuedPayload { from_view }),
+            Self::Reordered(_, distance) => {
+                SignalPayload::QueueReordered(QueueReorderedPayload { distance })
+            }
+            Self::Removed(meta) => SignalPayload::RemovedFromQueue(RemovedFromQueuePayload {
+                was_radio_pick: meta.origin == QueueOrigin::Radio,
+            }),
+        }
+    }
+}
+
+/// A queue edit sent to the engine whose verdict has not come back yet.
+#[derive(Debug)]
+struct PendingEdit {
+    id: EditId,
+    input: InputSource,
+    acts: Vec<QueueAct>,
 }
 
 /// What `PlayStarted` will say, kept until the first audio of the track is heard.
@@ -120,6 +180,11 @@ pub(super) struct Mapper {
     timezone: Arc<dyn TimezoneSource>,
     sample_rate: u32,
     table: HashMap<QueueItemId, Meta>,
+    edits: VecDeque<PendingEdit>,
+    edits_refused: u64,
+    /// Listener queue acts waiting for a session (pre-sized, never grows).
+    deferred_acts: VecDeque<QueueAct>,
+    acts_dropped: u64,
     session: Option<Session>,
     play: Option<Play>,
     /// The engine's pause flag as last reported (it survives a `load`).
@@ -158,6 +223,10 @@ impl Mapper {
             timezone,
             sample_rate,
             table: HashMap::new(),
+            edits: VecDeque::new(),
+            edits_refused: 0,
+            deferred_acts: VecDeque::with_capacity(MAX_DEFERRED_QUEUE_ACTS),
+            acts_dropped: 0,
             session: None,
             play: None,
             paused: false,
@@ -181,6 +250,172 @@ impl Mapper {
     pub fn extend_queue<'a>(&mut self, entries: impl IntoIterator<Item = &'a QueueEntry>) {
         self.table
             .extend(entries.into_iter().map(|e| (e.track.id, Meta::from(e))));
+    }
+
+    /// Check a queue edit against what it claims to be and work out what the listener expressed.
+    /// Nothing changes yet: the signals wait for the engine's verdict ([`expect_edit`](Self::expect_edit)).
+    ///
+    /// # Errors
+    /// [`PlaybackError::InvalidArgument`] when the claim does not match `tail`;
+    /// [`PlaybackError::UnknownItem`] for a moved or removed item the mapper has never seen.
+    pub fn plan_edit(
+        &self,
+        edit: &QueueEdit,
+        tail: &[QueueEntry],
+    ) -> Result<Vec<QueueAct>, PlaybackError> {
+        match edit {
+            QueueEdit::PlayNext { items, from_view } => {
+                let leads = !items.is_empty()
+                    && items.len() <= tail.len()
+                    && items.iter().zip(tail).all(|(id, e)| *id == e.track.id);
+                if !leads {
+                    return Err(PlaybackError::InvalidArgument(
+                        "play next items must be the first entries of the tail",
+                    ));
+                }
+                Ok(tail[..items.len()]
+                    .iter()
+                    .map(|e| QueueAct::Next(Meta::from(e), *from_view))
+                    .collect())
+            }
+            QueueEdit::Reorder { item, distance } => {
+                if *distance == 0 {
+                    return Err(PlaybackError::InvalidArgument(
+                        "a reorder moves an item by at least one place",
+                    ));
+                }
+                let entry = tail
+                    .iter()
+                    .find(|e| e.track.id == *item)
+                    .ok_or(PlaybackError::UnknownItem(*item))?;
+                Ok(vec![QueueAct::Reordered(Meta::from(entry), *distance)])
+            }
+            QueueEdit::Remove { items } => {
+                if items.is_empty() {
+                    return Err(PlaybackError::InvalidArgument("nothing was removed"));
+                }
+                items
+                    .iter()
+                    .map(|id| {
+                        if tail.iter().any(|e| e.track.id == *id) {
+                            return Err(PlaybackError::InvalidArgument(
+                                "a removed item is still in the tail",
+                            ));
+                        }
+                        self.table
+                            .get(id)
+                            .map(|meta| QueueAct::Removed(*meta))
+                            .ok_or(PlaybackError::UnknownItem(*id))
+                    })
+                    .collect()
+            }
+        }
+    }
+
+    /// A queue edit was sent to the engine: its signals are emitted when the engine reports that it
+    /// was applied, and never if it is refused.
+    pub fn expect_edit(&mut self, id: EditId, input: InputSource, acts: Vec<QueueAct>) {
+        if self.edits.len() >= MAX_PENDING_EDITS {
+            tracing::error!(
+                "the engine never answered {MAX_PENDING_EDITS} queue edits; forgetting the oldest"
+            );
+            self.edits.pop_front();
+        }
+        self.edits.push_back(PendingEdit { id, input, acts });
+    }
+
+    /// The listener added `entries` to the end of the queue (the engine has them already).
+    pub fn queued_later(
+        &mut self,
+        at: UtcMillis,
+        entries: &[QueueEntry],
+        from_view: View,
+        input: InputSource,
+    ) {
+        let acts: Vec<QueueAct> = entries
+            .iter()
+            .map(|e| QueueAct::Later(Meta::from(e), from_view))
+            .collect();
+        self.record_queue_acts(at, input, &acts);
+    }
+
+    /// Emits the signals of queue preferences. A listener's act only: `Auto` is the queue layer
+    /// refilling, not a preference. Needs a session; a play that has not been heard yet and has none
+    /// opens one, like any other act of the listener on it (`open_session_for_unheard`). With no
+    /// session and no such play (nothing loaded, or the play outlived its session) the act waits in
+    /// a bounded buffer and is reported right after the next `SessionStarted`
+    /// ([`report_queue_acts`](Self::report_queue_acts)): a preference is not lost for want of a
+    /// session. A kind that is switched off buffers nothing.
+    fn record_queue_acts(&mut self, at: UtcMillis, input: InputSource, acts: &[QueueAct]) {
+        self.expire(at);
+        if input == InputSource::Auto {
+            return;
+        }
+        let cx = Cx {
+            input,
+            play_origin: None,
+            previous: false,
+        };
+        for act in acts {
+            let kind = act.kind();
+            if !self.bus.enabled(kind) {
+                continue;
+            }
+            self.open_session_for_unheard(at, cx, kind);
+            if self.session.is_some() {
+                self.send_queue_act(at, *act);
+            } else {
+                if self.deferred_acts.len() >= MAX_DEFERRED_QUEUE_ACTS {
+                    self.deferred_acts.pop_front();
+                    self.acts_dropped = self.acts_dropped.saturating_add(1);
+                }
+                self.deferred_acts.push_back(*act);
+            }
+        }
+    }
+
+    fn send_queue_act(&self, at: UtcMillis, act: QueueAct) {
+        let meta = act.meta();
+        let scope = Scope {
+            recording: Some(meta.recording),
+            source: Some(meta.source),
+            pos_ds: None,
+        };
+        self.send(act.kind(), at, scope, || act.payload());
+    }
+
+    /// Queue acts made while there was no session are reported now, right after `SessionStarted`
+    /// and the deferred preference changes, oldest first. They carry the time the session started
+    /// (not the time of the act) and the recording and source captured at the act. A kind that has
+    /// been switched off since constructs nothing.
+    fn report_queue_acts(&mut self, at: UtcMillis) {
+        while let Some(act) = self.deferred_acts.pop_front() {
+            self.send_queue_act(at, act);
+        }
+    }
+
+    /// Queue acts dropped because more than 64 were waiting for a session.
+    pub fn queue_acts_dropped(&self) -> u64 {
+        self.acts_dropped
+    }
+
+    /// Queue edits waiting for the decoder thread's verdict.
+    pub fn edits_pending(&self) -> usize {
+        self.edits.len()
+    }
+
+    /// Queue edits the decoder thread refused after the engine call succeeded.
+    pub fn edits_refused(&self) -> u64 {
+        self.edits_refused
+    }
+
+    fn edit_applied(&mut self, at: UtcMillis, id: EditId) {
+        let Some(index) = self.edits.iter().position(|e| e.id == id) else {
+            return;
+        };
+        if let Some(edit) = self.edits.remove(index) {
+            self.record_queue_acts(at, edit.input, &edit.acts);
+        }
     }
 
     pub fn status(&self) -> PlaybackStatus {
@@ -263,6 +498,12 @@ impl Mapper {
             EventKind::SeekFailed { item, frame, error } => {
                 tracing::warn!(item = item.0, frame, %error, "seek failed; the track was skipped");
             }
+            EventKind::QueueEdited { edit, .. } => self.edit_applied(at, edit),
+            EventKind::QueueEditRejected { edit, head, error } => {
+                self.edits.retain(|e| e.id != edit);
+                self.edits_refused = self.edits_refused.saturating_add(1);
+                tracing::warn!(head = head.0, %error, "queue edit refused; the queue is unchanged");
+            }
             EventKind::CorruptPackets { item, packets } => {
                 tracing::warn!(item = item.0, packets, "decoder skipped corrupt packets");
             }
@@ -338,6 +579,7 @@ impl Mapper {
         );
         self.session = Some(session);
         self.report_preferences(at);
+        self.report_queue_acts(at);
     }
 
     /// Preference changes made while there was no session are reported now, right after

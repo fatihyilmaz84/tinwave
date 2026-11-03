@@ -3,7 +3,7 @@
 
 use tinwave_core::UtcMillis;
 
-use crate::{PlaybackError, Position, QueueItemId, StreamInfo};
+use crate::{EditId, PlaybackError, Position, QueueItemId, StreamInfo};
 
 /// One fact, stamped with the injected clock's wall time.
 ///
@@ -116,6 +116,27 @@ pub enum EventKind {
         item: QueueItemId,
         /// Requested frame.
         frame: u64,
+        /// Why.
+        error: PlaybackError,
+    },
+    /// A queue edit was applied: the entries after `head` are now the ones the edit gave. Reported
+    /// by the decoder thread, shortly after the call; nothing that was already decoded changed.
+    QueueEdited {
+        /// Which call.
+        edit: EditId,
+        /// The item the edit was built on.
+        head: QueueItemId,
+    },
+    /// A queue edit was refused by the decoder thread and changed nothing. The usual cause is a
+    /// race the call could not see: `head` was still the playing item, but the decoder had already
+    /// started the next one (it decodes up to a second ahead), so that item can no longer be
+    /// edited ([`PlaybackError::StaleQueue`]). Edits that are stale on the control side fail the
+    /// call itself instead.
+    QueueEditRejected {
+        /// Which call.
+        edit: EditId,
+        /// The item the edit was built on.
+        head: QueueItemId,
         /// Why.
         error: PlaybackError,
     },
