@@ -3,7 +3,7 @@ id: T-0051
 title: Packaging hardening and notices completeness (before any public release)
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0042]
