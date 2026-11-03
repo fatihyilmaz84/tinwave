@@ -7,12 +7,14 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{
-    burn_in_trigger, count, during_a_wipe, favorited, statements_of, write_batch_after_the_wipe,
-    write_batch_when_unlocked, Ids, TempDb, AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
+    burn_in_trigger, count, during_a_wipe, favorited, shown, statements_of,
+    write_batch_after_the_wipe, write_batch_when_unlocked, write_batch_when_unlocked_counting, Ids,
+    TempDb, AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
 };
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
@@ -1399,8 +1401,9 @@ fn a_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         }
         if large_sql.len() != expected {
             wrong.push(format!(
-                "{name}: {} statements, expected {expected}: {large_sql:#?}",
-                large_sql.len()
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
             ));
         }
         // The large database really was bigger for the wipe (the tiers and categories that change
@@ -1534,13 +1537,25 @@ fn a_batch_that_outwaits_the_busy_timeout_is_stored_by_the_retry() {
     let wipe_end = common::WipeEnd::new();
 
     let wipe_end_ref = &wipe_end;
+    let gave_up = AtomicU32::new(0);
+    let gave_up_ref = &gave_up;
     let (stored, contended) = std::thread::scope(|scope| {
         scope.spawn(move || {
-            std::thread::sleep(BUSY_TIMEOUT + Duration::from_secs(1));
+            // Release the lock once the first attempt gave up on it. A fixed time would not do:
+            // SQLite's 5 s busy timeout is the sum of its back-off sleeps, and each sleep takes
+            // longer on a loaded machine, so the first attempt may still be waiting at 6 s.
+            let waiting = Instant::now();
+            while gave_up_ref.load(Ordering::SeqCst) == 0 {
+                assert!(
+                    waiting.elapsed() < LOAD_BUDGET,
+                    "the first attempt never gave up"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
             holder.execute_batch("COMMIT").unwrap();
             wipe_end_ref.set(Instant::now()).unwrap();
         });
-        write_batch_when_unlocked(&mut store, &events[..1], &wipe_end)
+        write_batch_when_unlocked_counting(&mut store, &events[..1], &wipe_end, &gave_up)
     });
 
     let batch = stored.unwrap_or_else(|e| panic!("{contended:?}: {}", e.chain()));

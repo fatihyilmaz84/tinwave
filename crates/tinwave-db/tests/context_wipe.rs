@@ -10,7 +10,7 @@ mod common;
 use std::time::Instant;
 
 use common::{
-    burn_in_trigger, count, during_a_wipe, statements_of, write_batch_after_the_wipe,
+    burn_in_trigger, count, during_a_wipe, shown, statements_of, write_batch_after_the_wipe,
     write_batch_when_unlocked, Ids, TempDb, T0,
 };
 use rusqlite::{params, Connection};
@@ -896,8 +896,9 @@ fn a_context_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         }
         if large_sql.len() != expected {
             wrong.push(format!(
-                "{name}: {} statements, expected {expected}: {large_sql:#?}",
-                large_sql.len()
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
             ));
         }
         // The large database really had more to rewrite.

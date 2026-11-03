@@ -8,7 +8,7 @@ mod common;
 use std::error::Error;
 use std::time::Duration;
 
-use common::{count, favorited, paused, store_statements_of, Ev, Ids, TempDb, T0};
+use common::{count, favorited, paused, shown, store_statements_of, Ev, Ids, TempDb, T0};
 use tinwave_core::{DeviceId, RecordingId, SessionId, SourceId, TzOffsetMin, UtcMillis};
 use tinwave_db::{
     BatchReport, CheckpointPolicy, DbError, SignalStore, StoreConfig, SIGNALS_MIGRATIONS,
@@ -1218,15 +1218,19 @@ fn a_batch_runs_a_statement_count_set_by_the_batch_whatever_is_already_stored() 
         }
         if large_sql.len() != *expected {
             wrong.push(format!(
-                "{name}: {} statements, expected {expected}: {large_sql:#?}",
-                large_sql.len()
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
             ));
         }
         // The transaction opens and closes inside the batch, so a lock it keeps shows.
         if large_sql.first().map(String::as_str) != Some("BEGIN IMMEDIATE")
             || large_sql.last().map(String::as_str) != Some("COMMIT")
         {
-            wrong.push(format!("{name}: not one transaction: {large_sql:#?}"));
+            wrong.push(format!(
+                "{name}: not one transaction: {}",
+                shown(&large_sql)
+            ));
         }
     }
 
@@ -1247,8 +1251,9 @@ fn a_batch_runs_a_statement_count_set_by_the_batch_whatever_is_already_stored() 
         // 3 + the lookups of the device, session, source and 10 recordings + 20 ignored inserts.
         if sql.len() != 3 + 13 + 20 {
             wrong.push(format!(
-                "a replayed batch: {} statements: {sql:#?}",
-                sql.len()
+                "a replayed batch: {} statements: {}",
+                sql.len(),
+                shown(&sql)
             ));
         }
     }
@@ -1262,5 +1267,5 @@ fn an_empty_batch_runs_no_statement() {
     let mut store = SignalStore::open(&db.path).unwrap();
     let (report, sql) = store_statements_of(&mut store, |s| s.write_batch(&[], &[]));
     assert_eq!(report.unwrap(), BatchReport::default());
-    assert!(sql.is_empty(), "{sql:#?}");
+    assert!(sql.is_empty(), "{}", shown(&sql));
 }

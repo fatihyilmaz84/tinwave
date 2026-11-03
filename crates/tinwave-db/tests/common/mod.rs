@@ -5,6 +5,7 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -555,6 +556,19 @@ pub fn write_batch_when_unlocked(
     events: &[SignalEvent],
     wipe_end: &WipeEnd,
 ) -> (Result<BatchReport, DbError>, Contended) {
+    write_batch_when_unlocked_counting(store, events, wipe_end, &AtomicU32::new(0))
+}
+
+/// [write_batch_when_unlocked] that counts in usy the attempts that found the database
+/// locked, so that a test can release a lock the moment the first one has given up, not after a
+/// guessed time (the busy timeout is 5 s of SQLite's own back-off sleeps, which stretch to more
+/// than 6 s of wall time when the machine is loaded).
+pub fn write_batch_when_unlocked_counting(
+    store: &mut SignalStore,
+    events: &[SignalEvent],
+    wipe_end: &WipeEnd,
+    busy: &AtomicU32,
+) -> (Result<BatchReport, DbError>, Contended) {
     let started = Instant::now();
     let mut attempts = 0;
     loop {
@@ -570,6 +584,7 @@ pub fn write_batch_when_unlocked(
         };
         match &result {
             Err(error) if is_busy(error) => {
+                busy.fetch_add(1, Ordering::SeqCst);
                 if contended.after_wipe > AFTER_WIPE_SLACK {
                     return (result, contended);
                 }
@@ -634,4 +649,20 @@ pub fn during_a_wipe<W: Send, D>(
         let result = during(&wipe_end);
         (wipe.join().unwrap(), result, seen)
     })
+}
+
+/// The statements of a failed count for a message: the first dozen and the last four, then how
+/// many were left out. A statement per row would otherwise print hundreds of thousands of lines.
+pub fn shown(statements: &[String]) -> String {
+    const HEAD: usize = 12;
+    const TAIL: usize = 4;
+    if statements.len() <= HEAD + TAIL {
+        return format!("{statements:#?}");
+    }
+    let left_out = statements.len() - HEAD - TAIL;
+    format!(
+        "{:#?} ... {left_out} more ... {:#?}",
+        &statements[..HEAD],
+        &statements[statements.len() - TAIL..]
+    )
 }
