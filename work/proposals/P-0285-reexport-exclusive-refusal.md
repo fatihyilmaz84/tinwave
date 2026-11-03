@@ -4,6 +4,6 @@ title: Re-export exclusive_refusal from lib.rs
 from: T-0066 build-1
 date: 2026-11-03
 size: S
-outcome: accepted → lead applies on T-0066 merge
+outcome: rejected: superseded by P-0293 (ExclusiveRefused variant)
 ---
 Out-of-crate AudioOutput implementors can't return the typed refusal. Evidence: lib.rs:61, output/mod.rs.
