@@ -3,7 +3,7 @@ id: T-0043
 title: Icon pipeline — Lucide SVGs in the Qt resource file, TwIcon component, sidebar and menu glyphs
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0040]
@@ -17,7 +17,7 @@ scope:
   - THIRD-PARTY-NOTICES or the app's notices source (Lucide ISC text)
 owner: tw-builder
 branch: t/T-0043-icon-pipeline
-review_round: 1
+review_round: 2
 created_by: from T-0040 (P-0115)
 ---
 
