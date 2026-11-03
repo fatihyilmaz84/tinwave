@@ -3,7 +3,7 @@ id: T-0055
 title: Canvas — refresh stale prose in Main.dc.html and add a local render harness
 type: chore
 epic: E-01
-status: in_progress
+status: done
 priority: P2
 size: S
 depends_on: [T-0046]
@@ -35,3 +35,6 @@ them rendered; T-0046's builder wrote a ~25-line Node harness that expands `<sc-
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-03: merged f155dce (round 2 checked by the lead). Lead doc fixes P-0226..P-0228 applied on main.
