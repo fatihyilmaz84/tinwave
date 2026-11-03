@@ -45,8 +45,8 @@
 //! (`Decoder::wait_for_ack`): the listener hears a gap until the new stream starts, and a running
 //! stream acknowledges within a callback. A stream that does not (a failed device switch leaves a
 //! ring nobody plays) then gets the command flush's backoff, so it costs about 20 wakeups per
-//! second and not 1000. With nothing audible (nothing loaded, or everything has been played) there is nothing to flush and
-//! the rate is simply adopted.
+//! second and not 1000. With nothing audible (nothing loaded, or everything has been played)
+//! there is nothing to flush and the rate is simply adopted.
 //!
 //! The restart reads the track again from the audible frame. An item that fails again there is
 //! not reported twice (`State::reported`), and one that cannot be reopened at all leaves as

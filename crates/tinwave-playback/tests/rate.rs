@@ -240,9 +240,11 @@ impl Rec {
         // Audio queued for the fade-out. Then the request is sent and the decoder is waited for
         // (not the callback): commands are taken in order and a queue edit is answered when it is
         // taken, so the answer to the first edit sent behind the rate change means the rate change
-        // was taken, and the answer to a second one that the pass of the decoder's loop that
-        // raises the flush request is over. The callbacks that follow cannot drain the ring while
-        // the decoder is slow, and are big enough (256 frames) to hold the whole 240-frame
+        // was taken, and the answer to a second one almost always means that the pass of the
+        // decoder's loop that raises the flush request is over. (Not always: a decoder preempted
+        // inside its command drain can take both edits in one pass. The ring then runs low before
+        // the restart, which marks it `starved` and leaves it out of `click_free`.) The callbacks
+        // that follow are big enough (256 frames) to hold the whole 240-frame
         // fade-out, so the first one that sees the request plays it. No pacing sleeps: the only
         // wait is for the decoder's restart, which the callbacks cannot hurry.
         self.h.wait_buffered(RATE as usize / 4);
