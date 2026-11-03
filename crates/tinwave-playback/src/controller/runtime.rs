@@ -17,10 +17,9 @@ use std::time::Duration;
 
 use tinwave_signals::{InputSource, RepeatMode, View};
 
-use super::rate_session::RateSessionQueue;
 use super::types::{
     ControllerConfig, ControllerDiagnostics, LoadRequest, PlaybackStatus, QueueEditRequest,
-    QueueEntry, RateSession,
+    QueueEntry,
 };
 use super::Controller;
 use crate::{AudioOutput, PlaybackError};
@@ -67,7 +66,6 @@ pub struct ControllerHandle {
     tx: SyncSender<Message>,
     status: Arc<Mutex<PlaybackStatus>>,
     diagnostics: Arc<Mutex<ControllerDiagnostics>>,
-    rate_sessions: RateSessionQueue,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -93,7 +91,6 @@ impl ControllerHandle {
         let status = Arc::new(Mutex::new(controller.status()));
         let (tx, rx) = sync_channel(COMMAND_QUEUE);
         let diagnostics = Arc::new(Mutex::new(controller.diagnostics()));
-        let rate_sessions = controller.mapper.rate_sessions().clone();
         let shared = Shared {
             status: Arc::clone(&status),
             diagnostics: Arc::clone(&diagnostics),
@@ -110,7 +107,6 @@ impl ControllerHandle {
             tx,
             status,
             diagnostics,
-            rate_sessions,
             thread: Some(thread),
         })
     }
@@ -230,13 +226,6 @@ impl ControllerHandle {
             .diagnostics
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-    }
-
-    /// The `RateSession`s of the plays that ended since the last call, oldest first. See
-    /// [`Controller::take_rate_sessions`]. Never waits for the controller thread.
-    #[must_use]
-    pub fn take_rate_sessions(&self) -> Vec<RateSession> {
-        self.rate_sessions.take()
     }
 
     /// Stops playback, ends the session and joins the controller thread (not the decoder).

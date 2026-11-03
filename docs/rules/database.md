@@ -120,9 +120,19 @@ CREATE TABLE signal_settings (
 );
 -- The documented defaults (every category on, T0 and T1 on, T2 and T3 off). A missing row is a fault, not a first run.
 INSERT INTO signal_settings (id, mask, updated_ts) VALUES (1, 895, 0);
+
+-- Migration 0003 (T-0070): the time-weighted playback rate of the play (the derived RateSession), stored by the writer.
+ALTER TABLE play ADD COLUMN rate INTEGER;   -- u8, hundredths minus 50 (tinwave-signals Rate); NULL = not measured
 ```
 
 Migrations are append-only once merged to `main`: 0001 is frozen; new tables and changes go in the next number.
+
+`play.rate` is a **derived value** (signal catalog class D): it is never a `signal_event` row. The playback
+controller emits it on the bus (`SignalBus::emit_derived`) just before the play's outcome event, and the writer stores it
+into the `play` row of that play (`UPDATE ... WHERE device, session, recording, started_ts`) in the transaction that
+writes the outcome's row. A value that finds no row is held for one more commit and then dropped and counted
+(`WriterStats::derived_unmatched`): a stopped play, a play whose `PlayStarted` was off, a wiped play. See
+[ADR 0010](../adr/0010-derived-values-on-the-bus.md).
 
 Play records are written **live** when a play ends (not only during compaction), so the warm tier is
 always current and the taste engine can read plays without scanning raw events.

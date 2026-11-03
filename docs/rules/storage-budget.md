@@ -71,8 +71,14 @@ A **play record** compresses everything about one play into one row (~58 bytes o
 play(id, session, recording, source, started_ts, listened_ds (deciseconds), end_reason (u8),
      end_fraction (u8), flags (u16 bitset: favorited, replayed, seek_back, seek_fwd_intro,
      vol_up_early, vol_down, rate_up, rate_down, lyrics, queued, removed_after…),
-     peak_section (u8), context_key (u32 packed))
+     peak_section (u8), context_key (u32 packed), rate (u8, nullable))
 ```
+
+`rate` (T-0070) is the time-weighted playback rate of the play, the derived `RateSession`: the `u8` of hundredths
+minus 50 that rates have everywhere (1.00 is 50), `NULL` when it was not measured (Speed off, a play from before the
+column, a play that straddled the toggle). It costs about 2 bytes per play (a header byte and a value byte, ≈ 0.25 KB/day
+at ~120 plays), measured by the growth test, which gives every simulated play one. Derived values are stored with their
+play and never as events (signal-catalog class D, [ADR 0010](../adr/0010-derived-values-on-the-bus.md)).
 
 `end_reason` (T-0029, `EndReason` in crates/tinwave-db/src/play.rs): `Completed`; a skip is `SkippedEarly` under 30 s
 listened, else `SkippedLate` past 80 % of the track (`end_frac` > 204/255; this wins for a short track that is both),

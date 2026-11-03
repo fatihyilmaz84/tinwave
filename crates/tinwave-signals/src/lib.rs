@@ -14,6 +14,8 @@
 //!   priority drop policy ([`Priority`]); [`SignalSettings`] toggles are checked before an event
 //!   is constructed.
 //! - [`UiCounters`]: in-memory aggregation of the counter-class signals.
+//! - [`DerivedValue`]: a value of a derived signal (storage class `D`), carried by the bus to the
+//!   writer with [`SignalBus::emit_derived`] instead of being stored as an event.
 //! - [`GestureCoalescer`]: one event per volume / rate / system-volume gesture and per burst of
 //!   seeks.
 
@@ -24,6 +26,7 @@ mod coalesce;
 mod codec;
 mod context_key;
 mod counters;
+mod derived;
 mod enums;
 mod error;
 mod event;
@@ -43,6 +46,7 @@ pub use coalesce::{
     SEEK_MIN_TOTAL_DS, SEEK_WINDOW_MS, SYSTEM_VOLUME_WINDOW_MS, VOLUME_WINDOW_MS,
 };
 pub use counters::{CountOutcome, CounterEntity, CounterRow, LocalDay, UiCounters};
+pub use derived::{DerivedPayload, DerivedValue, PlayRef, RateSessionPayload};
 pub use priority::Priority;
 pub use settings::{SignalCategory, SignalSettings};
 

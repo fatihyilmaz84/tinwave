@@ -8,13 +8,14 @@ use std::time::{Duration, Instant};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use tinwave_core::{DeviceId, TzOffsetMin};
 use tinwave_signals::{
-    CounterRow, EntityKind, SignalEvent, SignalKind, SignalPayload, SignalSink, SignalsError,
+    CounterRow, DerivedValue, EntityKind, SignalEvent, SignalKind, SignalPayload, SignalSink,
+    SignalsError,
 };
 
 use crate::connection;
 use crate::dict::{DictCaches, Resolver, Table};
 use crate::migrate::{migrate, Migration, MigrationReport};
-use crate::play::{self, Ending, Outcome, PlayWrite};
+use crate::play::{self, DerivedWrite, Ending, Outcome, PlayWrite};
 use crate::signal_wipe;
 use crate::DbError;
 
@@ -32,6 +33,11 @@ pub const SIGNALS_MIGRATIONS: &[Migration] = &[
         version: 2,
         name: "signal_settings",
         sql: include_str!("../migrations/signals/0002_signal_settings.sql"),
+    },
+    Migration {
+        version: 3,
+        name: "play_rate",
+        sql: include_str!("../migrations/signals/0003_play_rate.sql"),
     },
 ];
 
@@ -155,6 +161,13 @@ pub struct BatchReport {
     /// Outcomes stored in this batch that wrote no `play` row because no `PlayStarted` of the
     /// same recording precedes them on the device (logged).
     pub plays_unpaired: usize,
+    /// Derived values stored into the `play` row they describe.
+    pub derived_stored: usize,
+    /// Derived values whose play has no `play` row in this batch (a play that was stopped rather
+    /// than finished or skipped, or whose start was not recorded, or that was wiped, or whose
+    /// outcome is in a later batch). They are not stored; [`SignalWriter`](crate::SignalWriter)
+    /// holds such a value for one more batch.
+    pub derived_unmatched: usize,
 }
 
 /// The signals.db writer connection: schema, dictionaries and the batch write.
@@ -266,15 +279,33 @@ impl SignalStore {
         }
     }
 
-    /// Writes one batch in one transaction: the events, the counter rows, and every session and
-    /// dictionary row they need. Either all of it is committed and this returns `Ok`, or none of
-    /// it is and this returns `Err` (the transaction rolls back when dropped).
+    /// [`write_batch_with_derived`](Self::write_batch_with_derived) with no derived values.
+    ///
+    /// # Errors
+    /// [`DbError`]; nothing was committed.
+    pub fn write_batch(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+    ) -> Result<BatchReport, DbError> {
+        self.write_batch_with_derived(events, counters, &[])
+    }
+
+    /// Writes one batch in one transaction: the events, the counter rows, the derived values, and
+    /// every session and dictionary row they need. Either all of it is committed and this returns
+    /// `Ok`, or none of it is and this returns `Err` (the transaction rolls back when dropped).
     ///
     /// - Events use `INSERT OR IGNORE` on `(device, seq)`: a duplicate is skipped and counted.
     /// - Counter rows are deltas added to `ui_counter`.
     /// - Each newly stored `Completed` or `Skipped` writes the `play` row of its play in the same
     ///   transaction (see the `play` module docs for the pairing and what is written); a duplicate
     ///   writes none.
+    /// - Each derived value is stored into the `play` row of the play it names, **after** the play
+    ///   rows of the batch are written (so a value that arrives in the batch of its play's outcome
+    ///   finds the row, whichever of the two was emitted first). A value whose play has no row is
+    ///   skipped and counted in [`BatchReport::derived_unmatched`]: it is not an error, the listener
+    ///   may have switched the play's start off, or the play was stopped, or its outcome is in a
+    ///   later batch. It never creates a session or a dictionary row.
     /// - An event whose payload cannot be encoded is skipped, counted in
     ///   [`BatchReport::events_rejected`] and logged: it cannot be fixed by retrying, and one bad
     ///   event must not block every later one.
@@ -284,13 +315,28 @@ impl SignalStore {
     ///
     /// # Errors
     /// [`DbError`]; nothing was committed.
-    pub fn write_batch(
+    pub fn write_batch_with_derived(
         &mut self,
         events: &[SignalEvent],
         counters: &[CounterRow],
+        derived: &[DerivedValue],
     ) -> Result<BatchReport, DbError> {
+        self.write_batch_collecting(events, counters, derived, &mut Vec::new())
+    }
+
+    /// [`write_batch_with_derived`](Self::write_batch_with_derived) that also says which values
+    /// found no play row: `unmatched` is cleared and receives their indices in `derived`, in
+    /// order. Meaningful only when this returns `Ok`.
+    pub(crate) fn write_batch_collecting(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+        derived: &[DerivedValue],
+        unmatched: &mut Vec<usize>,
+    ) -> Result<BatchReport, DbError> {
+        unmatched.clear();
         let mut report = BatchReport::default();
-        if events.is_empty() && counters.is_empty() {
+        if events.is_empty() && counters.is_empty() && derived.is_empty() {
             return Ok(report);
         }
         let tz = self.tz.get();
@@ -385,6 +431,16 @@ impl SignalStore {
                         "play outcome has no start of the same recording; no play record"
                     );
                     report.plays_unpaired += 1;
+                }
+            }
+        }
+
+        for (index, value) in derived.iter().enumerate() {
+            match play::write_derived(&tx, value)? {
+                DerivedWrite::Stored => report.derived_stored += 1,
+                DerivedWrite::NoPlay => {
+                    unmatched.push(index);
+                    report.derived_unmatched += 1;
                 }
             }
         }
@@ -525,7 +581,18 @@ impl SignalSink for SignalStore {
         events: &[SignalEvent],
         counters: &[CounterRow],
     ) -> Result<(), SignalsError> {
-        match self.write_batch(events, counters) {
+        self.write_with_derived(events, counters, &[])
+    }
+
+    /// One call is one transaction ([`write_batch_with_derived`](SignalStore::write_batch_with_derived)),
+    /// derived values included.
+    fn write_with_derived(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+        derived: &[DerivedValue],
+    ) -> Result<(), SignalsError> {
+        match self.write_batch_with_derived(events, counters, derived) {
             Ok(report) => {
                 self.last_error = None;
                 self.last_report = report;

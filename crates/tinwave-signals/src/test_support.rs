@@ -7,6 +7,7 @@ use tinwave_core::{DeviceId, ManualClock, RecordingId, SessionId, UtcMillis};
 use crate::bus::{BusConfig, EventStamp, SignalBus, SignalDrain, SignalSink};
 use crate::coalesce::EventContext;
 use crate::counters::CounterRow;
+use crate::derived::DerivedValue;
 use crate::{SignalEvent, SignalPayload, SignalSettings, SignalsError};
 
 /// 2026-11-02T00:00:00Z.
@@ -52,6 +53,7 @@ pub(crate) fn event(stamp: EventStamp, payload: SignalPayload) -> SignalEvent {
 pub(crate) struct VecSink {
     pub(crate) events: Vec<SignalEvent>,
     pub(crate) rows: Vec<CounterRow>,
+    pub(crate) derived: Vec<DerivedValue>,
     pub(crate) fail_next: bool,
     pub(crate) calls: usize,
 }
@@ -70,6 +72,17 @@ impl SignalSink for VecSink {
         }
         self.events.extend_from_slice(events);
         self.rows.extend_from_slice(counters);
+        Ok(())
+    }
+
+    fn write_with_derived(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+        derived: &[DerivedValue],
+    ) -> Result<(), SignalsError> {
+        self.write(events, counters)?;
+        self.derived.extend_from_slice(derived);
         Ok(())
     }
 }

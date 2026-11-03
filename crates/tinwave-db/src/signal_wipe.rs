@@ -29,11 +29,21 @@
 //! | `play.listened_ds`, `end_reason`, `end_frac` | [`OUTCOME`]: `Completed`, `Skipped`, `Paused`, `Resumed` | 0, [`EndReason::Unknown`], 0 |
 //! | `play.flags` | one flag per source signal, see [`FLAG_SOURCES`] | the bit is 0 |
 //! | `play.peak_section` | [`SECTIONED`]: the signals that carry a section | NULL |
+//! | `play.rate` | the derived `RateSession`, so also its input `RateChanged` (see "Derived kinds") | NULL |
 //! | `rollup_monthly` row | `PlayStarted` | the row is **deleted** |
 //! | `rollup_monthly.plays` | `PlayStarted` | 0 |
 //! | `completes`, `skips_early`, `skips_late`, `listened_s` | [`OUTCOME`] | 0 |
 //! | `fav_delta` | `Favorited`, `Unfavorited` | 0 |
 //! | `score_sum` | every kind (the weights of the catalog) | 0 |
+//!
+//! # Derived kinds
+//!
+//! A column that holds a **derived value** (catalog class D) is derived from the derived kind
+//! *and from the inputs that kind is computed from* (`SignalKind::derived_inputs`): a wipe of any of
+//! them clears it, whichever category or tier the wipe is of. `play.rate` (`RateSession`) is cleared
+//! by a Speed wipe and by a T0 wipe (its input `RateChanged` is T0). The same rule applies to a
+//! derived kind that has no column yet: `PerceivedLevel` (T1) is also computed from the T0 volume
+//! events, so a T0 wipe or a Volume wipe clears it, not only a T1 wipe. `wipes` is that rule.
 //!
 //! For a tier wipe the sets are small today: T0 is every kind except `WindowState`,
 //! `OutputDeviceChanged` and the derived `PerceivedLevel` (T1); T2 and T3 have no signal kind, so
@@ -161,6 +171,16 @@ struct Derived {
     from: &'static [SignalKind],
 }
 
+/// Whether wiping `kinds` clears what `source` feeds: `source` itself is wiped or, when it is a
+/// derived kind, any of the inputs it is computed from is (module docs, "Derived kinds").
+fn wipes(kinds: &[SignalKind], source: SignalKind) -> bool {
+    kinds.contains(&source)
+        || source
+            .derived_inputs()
+            .iter()
+            .any(|input| kinds.contains(input))
+}
+
 /// The derived columns of `play` (not `flags`, see [`FLAG_SOURCES`]; not `context_key`, which is
 /// context). `end_reason` is [`EndReason::Unknown`]'s code, pinned by a test.
 const PLAY_COLUMNS: &[Derived] = &[
@@ -183,6 +203,12 @@ const PLAY_COLUMNS: &[Derived] = &[
         column: "peak_section",
         cleared: "NULL",
         from: SECTIONED,
+    },
+    // The time-weighted rate: a derived value, so also cleared by the inputs it is computed from.
+    Derived {
+        column: "rate",
+        cleared: "NULL",
+        from: &[SignalKind::RateSession],
     },
 ];
 
@@ -374,7 +400,7 @@ fn kind_codes(kinds: &[SignalKind]) -> String {
 fn cleared<'a>(table: &'a [Derived], kinds: &[SignalKind]) -> Vec<&'a Derived> {
     table
         .iter()
-        .filter(|d| d.from.iter().any(|k| kinds.contains(k)))
+        .filter(|d| d.from.iter().any(|source| wipes(kinds, *source)))
         .collect()
 }
 
@@ -465,6 +491,8 @@ fn clear_rollups(tx: &Transaction<'_>, kinds: &[SignalKind]) -> Result<(usize, u
 
 #[cfg(test)]
 mod tests {
+    use tinwave_signals::StorageClass;
+
     use super::*;
     use crate::play::EndReason;
 
@@ -500,8 +528,9 @@ mod tests {
         );
     }
 
-    /// Every source is a stored kind (an event: a derived or counter kind feeds nothing here) and
-    /// the sources are in the categories the category wipe tests expect, so a category wipe clears
+    /// Every source is a stored kind (an event: a counter kind feeds nothing here) or, in a
+    /// column that holds a derived value, a derived kind whose inputs are events. The sources are
+    /// in the categories the category wipe tests expect, so a category wipe clears
     /// what it always did: the outcome signals are all seek/skip/replay, the start is queue and
     /// library, and the sectioned signals reach volume, speed and seek/skip/replay.
     #[test]
@@ -513,7 +542,14 @@ mod tests {
             .flat_map(|d| d.from.iter())
             .chain(FLAG_SOURCES.iter().flat_map(|(_, kinds)| kinds.iter()));
         for kind in all_sources {
-            assert!(kind.is_event(), "{kind}");
+            if kind.storage_class() == StorageClass::Derived {
+                assert!(
+                    kind.derived_inputs().iter().all(|input| input.is_event()),
+                    "{kind}: a derived kind is computed from events"
+                );
+            } else {
+                assert!(kind.is_event(), "{kind}");
+            }
         }
         for kind in OUTCOME {
             assert_eq!(
@@ -548,6 +584,82 @@ mod tests {
                 "{category:?} has no sectioned signal"
             );
         }
+    }
+
+    /// A column that holds a derived value is cleared by the derived kind and by each input it is
+    /// computed from, and by nothing else.
+    #[test]
+    fn a_derived_column_is_cleared_by_its_kind_and_by_every_input() {
+        let column_cleared_by = |kinds: &[SignalKind]| {
+            cleared(PLAY_COLUMNS, kinds)
+                .iter()
+                .any(|d| d.column == "rate")
+        };
+        assert!(column_cleared_by(&[SignalKind::RateSession]));
+        assert!(column_cleared_by(&[SignalKind::RateChanged]));
+        assert!(!column_cleared_by(&[
+            SignalKind::VolumeChanged,
+            SignalKind::Completed,
+            SignalKind::PerceivedLevel
+        ]));
+        // The category and the tier it is of, as the wipes compute their kinds.
+        let kinds_of = |keep: &dyn Fn(SignalKind) -> bool| -> Vec<SignalKind> {
+            SignalKind::ALL
+                .iter()
+                .copied()
+                .filter(|k| keep(*k))
+                .collect()
+        };
+        assert!(column_cleared_by(&kinds_of(&|k| {
+            SignalCategory::of(k) == SignalCategory::Speed
+        })));
+        assert!(column_cleared_by(&kinds_of(&|k| k.tier() == Tier::T0)));
+        assert!(!column_cleared_by(&kinds_of(&|k| k.tier() == Tier::T1)));
+        assert!(!column_cleared_by(&kinds_of(&|k| {
+            SignalCategory::of(k) == SignalCategory::Volume
+        })));
+    }
+
+    /// The rule for a derived kind with no column yet: `PerceivedLevel` (T1) is computed from the
+    /// T0 volume events and the T1 output device, so a wipe of any of them reaches it, a T0 wipe
+    /// and a Volume wipe included (P-0296).
+    #[test]
+    fn a_derived_kind_is_wiped_with_the_tier_and_category_of_each_input() {
+        let perceived = SignalKind::PerceivedLevel;
+        assert!(wipes(&[SignalKind::VolumeChanged], perceived));
+        assert!(wipes(&[SignalKind::SystemVolumeChanged], perceived));
+        assert!(wipes(&[SignalKind::OutputDeviceChanged], perceived));
+        assert!(wipes(&[perceived], perceived));
+        assert!(!wipes(
+            &[SignalKind::RateChanged, SignalKind::Skipped],
+            perceived
+        ));
+        let tier_kinds = |tier: Tier| -> Vec<SignalKind> {
+            SignalKind::ALL
+                .iter()
+                .copied()
+                .filter(|k| k.tier() == tier)
+                .collect()
+        };
+        assert!(
+            !tier_kinds(Tier::T0).contains(&perceived),
+            "it is a T1 kind, so the tier of its own is not what reaches it from T0"
+        );
+        assert!(wipes(&tier_kinds(Tier::T0), perceived), "T0 wipe");
+        assert!(wipes(&tier_kinds(Tier::T1), perceived), "T1 wipe");
+        let category_kinds = |category: SignalCategory| -> Vec<SignalKind> {
+            SignalKind::ALL
+                .iter()
+                .copied()
+                .filter(|k| SignalCategory::of(*k) == category)
+                .collect()
+        };
+        assert!(wipes(&category_kinds(SignalCategory::Volume), perceived));
+        assert!(wipes(
+            &category_kinds(SignalCategory::OutputSound),
+            perceived
+        ));
+        assert!(!wipes(&category_kinds(SignalCategory::Speed), perceived));
     }
 
     #[test]

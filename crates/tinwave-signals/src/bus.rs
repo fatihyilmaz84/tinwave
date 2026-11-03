@@ -73,8 +73,9 @@ use tinwave_core::{Clock, DeviceId, SignalEventId, TzOffsetMin, UtcMillis};
 
 use crate::coalesce::EventContext;
 use crate::counters::{CounterRow, UiCounters};
+use crate::derived::DerivedValue;
 use crate::priority::Priority;
-use crate::{SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalsError};
+use crate::{SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalsError, StorageClass};
 
 /// Where drained signals go. Implemented by the signals.db writer (T-0006).
 ///
@@ -114,6 +115,35 @@ pub trait SignalSink {
         events: &[SignalEvent],
         counters: &[CounterRow],
     ) -> Result<(), SignalsError>;
+
+    /// Persists a batch that may also hold derived values. This is the method the drain calls;
+    /// everything said about [`write`](Self::write) holds for it, with `derived` part of the one
+    /// transaction.
+    ///
+    /// - `derived` are in ascending `seq` order and, merged with `events` by `seq`, never put a
+    ///   value before an event that was emitted before it, or after one emitted after it: a batch
+    ///   is a prefix of the merged order. A value emitted just before the event that ends its play
+    ///   arrives in the same batch as that event or in the one before. Store the events first and
+    ///   the values after them, so a value finds the record its batch's outcome makes.
+    /// - A value that finds nothing to attach to (its play has no record) is **not** an error: the
+    ///   play may be one the listener did not allow to be recorded. A sink counts it.
+    ///
+    /// The default forwards to [`write`](Self::write) and discards `derived`, for sinks that have
+    /// nowhere to keep a derived value (a test collector, a probe). A sink that stores plays must
+    /// override it: the writer's store does.
+    ///
+    /// # Errors
+    /// As [`write`](Self::write): on `Err` nothing has been committed, and the bus offers the same
+    /// events, counter rows and values again.
+    fn write_with_derived(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+        derived: &[DerivedValue],
+    ) -> Result<(), SignalsError> {
+        let _ = derived;
+        self.write(events, counters)
+    }
 }
 
 /// Sizes and identity of a bus.
@@ -131,8 +161,11 @@ pub struct BusConfig {
     pub low_capacity: usize,
     /// Distinct `(day, kind, entity_kind, entity)` rows the counters hold between drains.
     pub max_counter_keys: usize,
-    /// Most events handed to the sink in one call.
+    /// Most events plus derived values handed to the sink in one call.
     pub max_batch: usize,
+    /// Slots in the derived-value queue. One value per heard play, so this is two orders of
+    /// magnitude above the reference user's rate (about 120 a day).
+    pub derived_capacity: usize,
 }
 
 impl BusConfig {
@@ -148,6 +181,7 @@ impl BusConfig {
             low_capacity: 512,
             max_counter_keys: 16_384,
             max_batch: 256,
+            derived_capacity: 256,
         }
     }
 
@@ -160,6 +194,7 @@ impl BusConfig {
             (self.low_capacity, "low_capacity must be at least 1"),
             (self.max_counter_keys, "max_counter_keys must be at least 1"),
             (self.max_batch, "max_batch must be at least 1"),
+            (self.derived_capacity, "derived_capacity must be at least 1"),
         ];
         for (value, what) in positive {
             if value == 0 {
@@ -206,6 +241,12 @@ struct Shared {
     drops: [AtomicU64; 256],
     reserved_overflows: AtomicU64,
     queued: AtomicU64,
+    /// Derived values accepted into their queue. Not part of `queued`: a consumer that waits for
+    /// `queued` events to be stored would wait for values that are not events.
+    derived_queued: AtomicU64,
+    /// Derived values that were queued while their kind was collected and dropped when it left
+    /// the queue because it no longer was.
+    derived_withdrawn: AtomicU64,
 }
 
 struct Inner {
@@ -214,6 +255,7 @@ struct Inner {
     next_seq: AtomicU64,
     reserved_tx: Sender<SignalEvent>,
     low_tx: Sender<SignalEvent>,
+    derived_tx: Sender<DerivedValue>,
     /// A consumer handle on the low queue, used only to evict its oldest event.
     low_evict: Receiver<SignalEvent>,
 }
@@ -263,9 +305,12 @@ impl SignalBus {
             drops: std::array::from_fn(|_| AtomicU64::new(0)),
             reserved_overflows: AtomicU64::new(0),
             queued: AtomicU64::new(0),
+            derived_queued: AtomicU64::new(0),
+            derived_withdrawn: AtomicU64::new(0),
         });
         let (reserved_tx, reserved_rx) = crossbeam_channel::bounded(config.reserved_capacity);
         let (low_tx, low_rx) = crossbeam_channel::bounded(config.low_capacity);
+        let (derived_tx, derived_rx) = crossbeam_channel::bounded(config.derived_capacity);
         let bus = Self {
             inner: Arc::new(Inner {
                 shared: shared.clone(),
@@ -273,6 +318,7 @@ impl SignalBus {
                 next_seq: AtomicU64::new(config.first_seq),
                 reserved_tx,
                 low_tx,
+                derived_tx,
                 low_evict: low_rx.clone(),
             }),
         };
@@ -280,8 +326,10 @@ impl SignalBus {
             shared,
             reserved: Lane::new(reserved_rx),
             low: Lane::new(low_rx),
+            derived_lane: Lane::new(derived_rx),
             max_batch: config.max_batch,
             events: Vec::with_capacity(config.max_batch),
+            derived: Vec::new(),
             counter_rows: Vec::new(),
         };
         Ok((bus, drain))
@@ -361,6 +409,64 @@ impl SignalBus {
             });
         }
         Ok(self.enqueue(event))
+    }
+
+    /// Emits a derived value of `kind`, building it only if the kind is collected.
+    ///
+    /// The way a derived signal (storage class `D`) reaches the writer: it is not a
+    /// `signal_event`, so [`emit_with`](Self::emit_with) refuses it. `build` receives the stamp
+    /// (the `seq` that orders the value among the events, and the time) and is **not called** when
+    /// the kind is off. A derived kind is enabled only while its own category and tier **and the
+    /// category and tier of every input** are on ([`SignalSettings::enabled`]). Never blocks.
+    ///
+    /// **Emit the value just before the event that ends the play it describes**: the value takes
+    /// the next `seq`, and the drain hands values and events over in `seq` order, so the two are
+    /// in one batch (see the module docs of `derived`) and the writer stores both in the
+    /// transaction of the play-end event.
+    ///
+    /// A full queue (the writer has stalled for a very long time) loses the new value, which is
+    /// counted in [`dropped`](Self::dropped) under its kind and returns [`EmitOutcome::Dropped`].
+    ///
+    /// # Errors
+    /// - [`SignalsError::NotDerived`] if `kind` is a raw event or a counter.
+    /// - [`SignalsError::KindMismatch`] if `build` returned a value of another kind. The value is
+    ///   discarded: it was checked against the wrong toggle.
+    pub fn emit_derived(
+        &self,
+        kind: SignalKind,
+        build: impl FnOnce(EventStamp) -> DerivedValue,
+    ) -> Result<EmitOutcome, SignalsError> {
+        if kind.storage_class() != StorageClass::Derived {
+            return Err(SignalsError::NotDerived(kind));
+        }
+        let shared = &self.inner.shared;
+        if !shared.settings.enabled(kind) {
+            return Ok(EmitOutcome::Disabled);
+        }
+        let stamp = EventStamp {
+            id: SignalEventId::new(
+                self.inner.device,
+                self.inner.next_seq.fetch_add(1, Ordering::Relaxed),
+            ),
+            ts: shared.clock.now(),
+        };
+        let value = build(stamp);
+        if value.kind() != kind {
+            return Err(SignalsError::KindMismatch {
+                expected: kind,
+                actual: value.kind(),
+            });
+        }
+        match self.inner.derived_tx.try_send(value) {
+            Ok(()) => {
+                shared.derived_queued.fetch_add(1, Ordering::Relaxed);
+                Ok(EmitOutcome::Queued)
+            }
+            Err(TrySendError::Full(lost) | TrySendError::Disconnected(lost)) => {
+                self.count_drop(lost.kind());
+                Ok(EmitOutcome::Dropped)
+            }
+        }
     }
 
     /// Emits a finished payload (used by the coalescer): infallible because the kind is the
@@ -478,10 +584,24 @@ impl SignalBus {
         self.inner.shared.reserved_overflows.load(Ordering::Relaxed)
     }
 
-    /// Events accepted into a queue since the bus was created.
+    /// Events accepted into a queue since the bus was created. Derived values are not events and
+    /// are counted by [`derived_queued_total`](Self::derived_queued_total).
     #[must_use]
     pub fn queued_total(&self) -> u64 {
         self.inner.shared.queued.load(Ordering::Relaxed)
+    }
+
+    /// Derived values accepted into their queue since the bus was created.
+    #[must_use]
+    pub fn derived_queued_total(&self) -> u64 {
+        self.inner.shared.derived_queued.load(Ordering::Relaxed)
+    }
+
+    /// Derived values dropped on leaving the queue because their kind was no longer collected
+    /// (the listener switched the category or tier off after they were queued).
+    #[must_use]
+    pub fn derived_withdrawn(&self) -> u64 {
+        self.inner.shared.derived_withdrawn.load(Ordering::Relaxed)
     }
 }
 
@@ -492,25 +612,44 @@ pub struct PumpReport {
     pub events: usize,
     /// Counter rows written to the sink.
     pub counter_rows: usize,
+    /// Derived values written to the sink.
+    pub derived: usize,
     /// More events were already waiting: call `pump` again without waiting.
     pub more: bool,
-    /// Every producer handle is gone and both queues are empty: the writer can stop.
+    /// Every producer handle is gone and all queues are empty: the writer can stop.
     pub closed: bool,
 }
 
-/// One of the two queues, with the event pulled from it but not yet handed out.
+/// What a lane holds: something with a place in the `seq` order of the bus.
+trait Sequenced {
+    fn seq(&self) -> u64;
+}
+
+impl Sequenced for SignalEvent {
+    fn seq(&self) -> u64 {
+        self.id.seq
+    }
+}
+
+impl Sequenced for DerivedValue {
+    fn seq(&self) -> u64 {
+        self.id.seq
+    }
+}
+
+/// One of the queues, with the item pulled from it but not yet handed out.
 ///
-/// A channel cannot be peeked, so merging the two queues in `seq` order needs a one-event
-/// look-ahead per queue.
-struct Lane {
-    rx: Receiver<SignalEvent>,
-    head: Option<SignalEvent>,
+/// A channel cannot be peeked, so merging the queues in `seq` order needs a one-item look-ahead
+/// per queue.
+struct Lane<T> {
+    rx: Receiver<T>,
+    head: Option<T>,
     /// `false` once the channel reported `Disconnected` (all producers gone, queue empty).
     open: bool,
 }
 
-impl Lane {
-    fn new(rx: Receiver<SignalEvent>) -> Self {
+impl<T: Sequenced> Lane<T> {
+    fn new(rx: Receiver<T>) -> Self {
         Self {
             rx,
             head: None,
@@ -518,16 +657,16 @@ impl Lane {
         }
     }
 
-    /// The `seq` of the next event, pulling it from the channel if needed.
+    /// The `seq` of the next item, pulling it from the channel if needed.
     fn peek_seq(&mut self) -> Option<u64> {
         if self.head.is_none() && self.open {
             match self.rx.try_recv() {
-                Ok(event) => self.head = Some(event),
+                Ok(item) => self.head = Some(item),
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => self.open = false,
             }
         }
-        self.head.as_ref().map(|e| e.id.seq)
+        self.head.as_ref().map(Sequenced::seq)
     }
 
     fn has_work(&self) -> bool {
@@ -542,11 +681,13 @@ impl Lane {
 /// The consumer end of the bus, owned by the writer thread.
 pub struct SignalDrain {
     shared: Arc<Shared>,
-    reserved: Lane,
-    low: Lane,
+    reserved: Lane<SignalEvent>,
+    low: Lane<SignalEvent>,
+    derived_lane: Lane<DerivedValue>,
     max_batch: usize,
     /// The batch taken from the queues and not yet written (kept across a failed write).
     events: Vec<SignalEvent>,
+    derived: Vec<DerivedValue>,
     counter_rows: Vec<CounterRow>,
 }
 
@@ -555,6 +696,7 @@ impl fmt::Debug for SignalDrain {
         f.debug_struct("SignalDrain")
             .field("max_batch", &self.max_batch)
             .field("retained_events", &self.events.len())
+            .field("retained_derived", &self.derived.len())
             .field("retained_counter_rows", &self.counter_rows.len())
             .finish_non_exhaustive()
     }
@@ -584,29 +726,46 @@ impl SignalDrain {
             std::thread::sleep(timeout);
             return true;
         }
-        if self.reserved.has_work() || self.low.has_work() {
+        if self.has_queued_work() {
             return true;
         }
         let mut select = Select::new();
         select.recv(&self.reserved.rx);
         select.recv(&self.low.rx);
+        select.recv(&self.derived_lane.rx);
         select.ready_timeout(timeout).is_ok()
     }
 
-    /// Whether a batch (events and/or counter rows) is waiting for a retry after a failed write.
+    /// Whether a batch (events, derived values and/or counter rows) is waiting for a retry after
+    /// a failed write.
     fn has_retained_batch(&self) -> bool {
-        !self.events.is_empty() || !self.counter_rows.is_empty()
+        !self.events.is_empty() || !self.derived.is_empty() || !self.counter_rows.is_empty()
     }
 
-    /// Events waiting in the queues (not counting a retained batch).
+    fn has_queued_work(&self) -> bool {
+        self.reserved.has_work() || self.low.has_work() || self.derived_lane.has_work()
+    }
+
+    /// Events and derived values waiting in the queues (not counting a retained batch).
     #[must_use]
     pub fn queued(&self) -> usize {
-        self.reserved.queued() + self.low.queued()
+        self.reserved.queued() + self.low.queued() + self.derived_lane.queued()
     }
 
-    /// Moves up to `max_batch` events plus all aggregated counter rows to `sink`.
+    /// Whether `kind` is collected right now: the check the drain makes on a derived value as it
+    /// leaves the queue, for a consumer that holds values longer (the writer's stage) and has to
+    /// make it again before it stores them.
+    #[must_use]
+    pub fn enabled(&self, kind: SignalKind) -> bool {
+        self.shared.settings.enabled(kind)
+    }
+
+    /// Moves up to `max_batch` events and derived values plus all aggregated counter rows to
+    /// `sink`.
     ///
-    /// Events leave in `seq` order across both queues. Does nothing (and does not call the
+    /// Events and derived values leave in `seq` order across all queues. A derived value whose
+    /// kind is no longer collected is dropped as it leaves the queue
+    /// ([`SignalBus::derived_withdrawn`]). Does nothing (and does not call the
     /// sink) when there is nothing to write. If the sink fails the batch is retained and
     /// offered again by the next call, so a transient database error loses nothing; meanwhile
     /// the queues keep applying their drop policy, so memory stays bounded.
@@ -617,48 +776,88 @@ impl SignalDrain {
         &mut self,
         sink: &mut S,
     ) -> Result<PumpReport, SignalsError> {
-        if self.events.is_empty() {
-            self.fill_events();
+        if self.events.is_empty() && self.derived.is_empty() {
+            self.fill();
         }
         if self.counter_rows.is_empty() {
             self.shared.counters.drain_into(&mut self.counter_rows);
         }
-        let more = self.reserved.has_work() || self.low.has_work();
-        let closed = !more && !self.reserved.open && !self.low.open;
-        if self.events.is_empty() && self.counter_rows.is_empty() {
+        let more = self.has_queued_work();
+        let closed = !more && !self.reserved.open && !self.low.open && !self.derived_lane.open;
+        if !self.has_retained_batch() {
             return Ok(PumpReport {
                 events: 0,
                 counter_rows: 0,
+                derived: 0,
                 more,
                 closed,
             });
         }
-        sink.write(&self.events, &self.counter_rows)?;
+        sink.write_with_derived(&self.events, &self.counter_rows, &self.derived)?;
         let report = PumpReport {
             events: self.events.len(),
             counter_rows: self.counter_rows.len(),
+            derived: self.derived.len(),
             more,
             closed,
         };
         self.events.clear();
+        self.derived.clear();
         self.counter_rows.clear();
         Ok(report)
     }
 
-    /// Merges the two queues into `events` by `seq`, up to `max_batch`.
-    fn fill_events(&mut self) {
-        while self.events.len() < self.max_batch {
-            let lane = match (self.reserved.peek_seq(), self.low.peek_seq()) {
-                (Some(r), Some(l)) if r <= l => &mut self.reserved,
-                (Some(_), None) => &mut self.reserved,
-                (_, Some(_)) => &mut self.low,
-                (None, None) => break,
+    /// Merges the queues into `events` and `derived` by `seq`, up to `max_batch` items in all.
+    ///
+    /// The derived lane is looked at **before** the event lanes in every round. A producer sends
+    /// the event that ends a play before it sends that play's derived value, so once the value has
+    /// been received the event is visible to the peeks that follow: a value is never taken while
+    /// an event with a lower `seq` is still on its way, and the batch is a prefix of the merged
+    /// order. A value taken is dropped, and counted, if its kind is no longer collected.
+    fn fill(&mut self) {
+        while self.events.len() + self.derived.len() < self.max_batch {
+            let next_derived = self.derived_lane.peek_seq();
+            let next_event = match (self.reserved.peek_seq(), self.low.peek_seq()) {
+                (Some(r), Some(l)) => Some(r.min(l)),
+                (r, l) => r.or(l),
             };
-            self.events.extend(lane.head.take());
+            match (next_derived, next_event) {
+                (Some(d), Some(e)) if d < e => self.take_derived(),
+                (Some(_), None) => self.take_derived(),
+                (_, Some(_)) => self.take_event(),
+                (None, None) => break,
+            }
         }
         // Producers on different threads can enqueue slightly out of `seq` order; this keeps a
         // batch ordered whatever the interleaving.
         self.events.sort_unstable_by_key(|e| e.id.seq);
+        self.derived.sort_unstable_by_key(|d| d.id.seq);
+    }
+
+    /// Moves the head of the lower-`seq` event lane into the batch.
+    fn take_event(&mut self) {
+        let lane = match (self.reserved.peek_seq(), self.low.peek_seq()) {
+            (Some(r), Some(l)) if r <= l => &mut self.reserved,
+            (Some(_), None) => &mut self.reserved,
+            (_, Some(_)) => &mut self.low,
+            (None, None) => return,
+        };
+        self.events.extend(lane.head.take());
+    }
+
+    /// Moves the head of the derived lane into the batch, or drops it when it is no longer
+    /// collected.
+    fn take_derived(&mut self) {
+        let Some(value) = self.derived_lane.head.take() else {
+            return;
+        };
+        if self.shared.settings.enabled(value.kind()) {
+            self.derived.push(value);
+        } else {
+            self.shared
+                .derived_withdrawn
+                .fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -667,11 +866,12 @@ mod tests {
     use tinwave_core::ManualClock;
 
     use super::*;
-    use crate::test_support::{bus_with as bus, device, event, VecSink, T0};
+    use crate::test_support::{bus_with as bus, device, event, recording, session, VecSink, T0};
     use crate::{
-        CounterEntity, EntityKind, InputSource, PausedPayload, SignalCategory, SignalPayload, View,
-        ViewOpenedPayload,
+        CounterEntity, DerivedPayload, EntityKind, InputSource, PausedPayload, PlayRef, Rate,
+        RateSessionPayload, SignalCategory, SignalPayload, View, ViewOpenedPayload,
     };
+    use tinwave_core::Tier;
 
     fn track(n: u8) -> CounterEntity {
         CounterEntity::new(EntityKind::Track, [n; 16])
@@ -779,6 +979,7 @@ mod tests {
             |c| c.low_capacity = 0,
             |c| c.max_counter_keys = 0,
             |c| c.max_batch = 0,
+            |c| c.derived_capacity = 0,
         ] {
             let mut cfg = BusConfig::new(device());
             tweak(&mut cfg);
@@ -1074,6 +1275,246 @@ mod tests {
         seqs.sort_unstable();
         seqs.dedup();
         assert_eq!(seqs.len(), before, "seq is unique");
+    }
+
+    // --- derived values ---------------------------------------------------------------------
+
+    fn rate_value(stamp: EventStamp, raw: u8) -> DerivedValue {
+        DerivedValue {
+            id: stamp.id,
+            ts: stamp.ts,
+            play: PlayRef {
+                session: session(),
+                recording: recording(3),
+                started: UtcMillis::new(T0),
+            },
+            payload: DerivedPayload::RateSession(RateSessionPayload {
+                rate: Rate::from_raw(raw),
+            }),
+        }
+    }
+
+    fn emit_rate(bus: &SignalBus, raw: u8) -> Result<EmitOutcome, SignalsError> {
+        bus.emit_derived(SignalKind::RateSession, |s| rate_value(s, raw))
+    }
+
+    fn emit_pause(bus: &SignalBus) {
+        let _ = bus.emit_with(SignalKind::Paused, |s| event(s, paused()));
+    }
+
+    fn rates(sink: &VecSink) -> Vec<u8> {
+        sink.derived
+            .iter()
+            .map(|d| match d.payload {
+                DerivedPayload::RateSession(p) => p.rate.raw(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_derived_value_reaches_the_sink_in_seq_order_with_the_events() {
+        let (bus, mut drain, _) = bus(|_| {});
+        emit_pause(&bus);
+        assert_eq!(emit_rate(&bus, 60), Ok(EmitOutcome::Queued));
+        emit_pause(&bus);
+        let mut sink = VecSink::default();
+        let report = drain.pump(&mut sink).unwrap();
+        assert_eq!((report.events, report.derived), (2, 1));
+        let event_seqs: Vec<_> = sink.events.iter().map(|e| e.id.seq).collect();
+        assert_eq!(event_seqs, [0, 2]);
+        assert_eq!(sink.derived[0].id.seq, 1, "it spent a seq between the two");
+        assert_eq!(sink.derived[0].id.device, device());
+        assert_eq!(rates(&sink), [60]);
+        assert_eq!(bus.queued_total(), 2, "a value is not an event");
+        assert_eq!(bus.derived_queued_total(), 1);
+        assert_eq!(drain.queued(), 0);
+    }
+
+    #[test]
+    fn a_batch_cut_never_puts_a_value_before_an_event_emitted_before_it() {
+        for (order, per_batch) in [
+            // event, event, value: the value waits for the next batch.
+            ([true, true, false], [(2, 0), (0, 1)]),
+            // event, value, event: the value is in the first batch, the last event in the second.
+            ([true, false, true], [(1, 1), (1, 0)]),
+        ] {
+            let (bus, mut drain, _) = bus(|c| c.max_batch = 2);
+            for is_event in order {
+                if is_event {
+                    emit_pause(&bus);
+                } else {
+                    let _ = emit_rate(&bus, 50).unwrap();
+                }
+            }
+            let mut sink = VecSink::default();
+            for want in per_batch {
+                let r = drain.pump(&mut sink).unwrap();
+                assert_eq!((r.events, r.derived), want, "{order:?}");
+            }
+            assert_eq!(sink.events.len() + sink.derived.len(), 3);
+        }
+    }
+
+    #[test]
+    fn only_a_derived_kind_can_be_emitted_as_a_derived_value() {
+        let (bus, mut drain, _) = bus(|_| {});
+        for kind in [
+            SignalKind::Paused,
+            SignalKind::VolumeChanged,
+            SignalKind::Impression,
+            SignalKind::PageDwell,
+        ] {
+            let r = bus.emit_derived(kind, |_| unreachable!("must not build"));
+            assert_eq!(r, Err(SignalsError::NotDerived(kind)));
+        }
+        assert_eq!(drain.queued(), 0);
+        let mut sink = VecSink::default();
+        assert_eq!(drain.pump(&mut sink).unwrap().derived, 0);
+    }
+
+    #[test]
+    fn a_value_of_another_derived_kind_than_announced_is_rejected() {
+        let (bus, mut drain, _) = bus(|_| {});
+        let r = bus.emit_derived(SignalKind::PerceivedLevel, |s| rate_value(s, 50));
+        assert_eq!(
+            r,
+            Err(SignalsError::KindMismatch {
+                expected: SignalKind::PerceivedLevel,
+                actual: SignalKind::RateSession
+            })
+        );
+        assert_eq!(drain.queued(), 0);
+        let mut sink = VecSink::default();
+        assert_eq!(drain.pump(&mut sink).unwrap().derived, 0);
+    }
+
+    #[test]
+    fn a_derived_kind_that_is_off_is_not_built_and_consumes_no_seq() {
+        let (bus, mut drain, _) = bus(|_| {});
+        // The category of its input, and the tier of its input.
+        for turn_off in [
+            (|b: &SignalBus| b.settings().set_category(SignalCategory::Speed, false))
+                as fn(&SignalBus),
+            |b| b.settings().set_tier(Tier::T0, false),
+        ] {
+            turn_off(&bus);
+            let built = std::cell::Cell::new(0);
+            let outcome = bus.emit_derived(SignalKind::RateSession, |s| {
+                built.set(built.get() + 1);
+                rate_value(s, 50)
+            });
+            assert_eq!(outcome, Ok(EmitOutcome::Disabled));
+            assert_eq!(built.get(), 0);
+            bus.settings().set_category(SignalCategory::Speed, true);
+            bus.settings().set_tier(Tier::T0, true);
+        }
+        emit_pause(&bus);
+        let mut sink = VecSink::default();
+        let _ = drain.pump(&mut sink).unwrap();
+        assert_eq!(sink.events[0].id.seq, 0, "no seq burned");
+        assert_eq!(bus.derived_queued_total(), 0);
+        assert_eq!(bus.derived_withdrawn(), 0);
+    }
+
+    #[test]
+    fn a_derived_kind_follows_the_tier_of_its_inputs() {
+        let (bus, _drain, _) = bus(|_| {});
+        bus.settings().set_tier(Tier::T1, false);
+        // `PerceivedLevel` takes the highest tier of its inputs (T1): off with T1 off.
+        let r = bus.emit_derived(SignalKind::PerceivedLevel, |_| unreachable!("T1 is off"));
+        assert_eq!(r, Ok(EmitOutcome::Disabled));
+        assert!(bus.enabled(SignalKind::RateSession), "its inputs are T0");
+    }
+
+    #[test]
+    fn a_value_queued_before_its_kind_was_switched_off_is_dropped_not_delivered() {
+        let (bus, mut drain, _) = bus(|_| {});
+        assert_eq!(emit_rate(&bus, 70), Ok(EmitOutcome::Queued));
+        bus.settings().set_category(SignalCategory::Speed, false);
+        let mut sink = VecSink::default();
+        let r = drain.pump(&mut sink).unwrap();
+        assert_eq!(r.derived, 0);
+        assert!(sink.derived.is_empty());
+        assert_eq!(bus.derived_withdrawn(), 1);
+        // Collection that is back on delivers again.
+        bus.settings().set_category(SignalCategory::Speed, true);
+        assert_eq!(emit_rate(&bus, 71), Ok(EmitOutcome::Queued));
+        let _ = drain.pump(&mut sink).unwrap();
+        assert_eq!(rates(&sink), [71]);
+        assert_eq!(bus.derived_withdrawn(), 1);
+    }
+
+    #[test]
+    fn the_drain_can_say_whether_a_kind_is_still_collected() {
+        let (bus, drain, _) = bus(|_| {});
+        assert!(drain.enabled(SignalKind::RateSession));
+        bus.settings().set_category(SignalCategory::Speed, false);
+        assert!(!drain.enabled(SignalKind::RateSession));
+    }
+
+    #[test]
+    fn a_full_derived_queue_loses_the_new_value_and_counts_it_under_its_kind() {
+        let (bus, mut drain, _) = bus(|c| c.derived_capacity = 2);
+        let results: Vec<_> = (0..3).map(|i| emit_rate(&bus, 50 + i)).collect();
+        assert_eq!(
+            results,
+            [
+                Ok(EmitOutcome::Queued),
+                Ok(EmitOutcome::Queued),
+                Ok(EmitOutcome::Dropped)
+            ]
+        );
+        assert_eq!(bus.dropped(SignalKind::RateSession), 1);
+        assert_eq!(bus.reserved_overflows(), 0, "not a playback event");
+        let mut sink = VecSink::default();
+        let _ = drain.pump(&mut sink).unwrap();
+        assert_eq!(rates(&sink), [50, 51], "the accepted values are intact");
+    }
+
+    #[test]
+    fn a_failed_write_is_retried_with_the_same_values() {
+        let (bus, mut drain, _) = bus(|_| {});
+        emit_pause(&bus);
+        assert_eq!(emit_rate(&bus, 62), Ok(EmitOutcome::Queued));
+        let mut sink = VecSink {
+            fail_next: true,
+            ..VecSink::default()
+        };
+        drain.pump(&mut sink).unwrap_err();
+        assert!(sink.derived.is_empty());
+        // A newer value arrives while the sink is down.
+        assert_eq!(emit_rate(&bus, 63), Ok(EmitOutcome::Queued));
+        assert!(drain.wait(Duration::ZERO), "a retained batch is work");
+        let r = drain.pump(&mut sink).unwrap();
+        assert_eq!((r.events, r.derived), (1, 1));
+        let _ = drain.pump(&mut sink).unwrap();
+        assert_eq!(rates(&sink), [62, 63], "no loss, no duplicate");
+    }
+
+    #[test]
+    fn wait_returns_when_only_a_derived_value_arrives() {
+        let (bus, drain, _) = bus(|_| {});
+        let producer = {
+            let bus = bus.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(20));
+                let _ = emit_rate(&bus, 50);
+            })
+        };
+        assert!(drain.wait(Duration::from_secs(10)));
+        producer.join().unwrap();
+        assert_eq!(drain.queued(), 1);
+    }
+
+    #[test]
+    fn the_drain_is_not_closed_while_a_derived_value_is_waiting() {
+        let (bus, mut drain, _) = bus(|_| {});
+        assert_eq!(emit_rate(&bus, 50), Ok(EmitOutcome::Queued));
+        drop(bus);
+        let mut sink = VecSink::default();
+        let r = drain.pump(&mut sink).unwrap();
+        assert_eq!(r.derived, 1, "queued before the drop, still delivered");
+        assert!(r.closed);
     }
 
     #[test]
