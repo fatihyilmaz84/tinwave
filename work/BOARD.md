@@ -35,7 +35,6 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 |---|---|---|
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | tw-reviewer r1 (build-1: allocation-free, deterministic, pitch err < 0.001 cents) | `t/T-0026-signalsmith-wrapper` @ 9e713f1 · `D:\dev\Tinwave-worktrees\T-0026-signalsmith-wrapper` |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck + TwIcon probe as committed tests (P2) | APPROVED — builder adding the Rust-side ratio re-check (P-0208) before merge | `t/T-0045-contrast-selfcheck-test` @ 8f454c6 · `D:\dev\Tinwave-worktrees\T-0045-contrast-selfcheck-test` |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-reviewer r2 (build-2: head removal refused, last-opened base) | `t/T-0023-live-queue-edits` @ ffe9748 · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -43,8 +42,8 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (P2) | chore | S | desktop src/platform, platform_bridge.rs, cpp shim | free |
 | [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | chore | S | desktop tools/capture.ps1 | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
-| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | after T-0023 |
-| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | after T-0023 |
+| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | free (T-0026 merges first if it lands) |
+| [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
 overlap (work/README.md); the branch merging second merges main first.
@@ -98,6 +97,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals, deferred no-session acts | 5d4742b | build-1/1b/2, review-1 (changes), review-2 (approve); 569 tests |
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness | d6407a7 | build-1, review-1 (approve); 31 packaging cases |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus, --accent) | 6d12d44 | build-1, review-1 (approve); 543 tests |
 | [T-0050](tickets/T-0050-nav-focus-ring.md) Sidebar keyboard ring follows the current row; Home/End/Page | fc1bfc8 | build-1/2, review-1/2 (changes); round-3 fix by lead 3b60319 |

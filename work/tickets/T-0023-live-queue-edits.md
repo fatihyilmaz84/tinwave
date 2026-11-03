@@ -3,7 +3,7 @@ id: T-0023
 title: Live queue edits in the playback engine (play next, reorder, remove) without a flush
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0016]
@@ -47,3 +47,6 @@ Next/Previous commands carry the queue item they expect to leave; if the engine 
   frames (the stale-frame hazard T-0034 round 2 root-caused); use it instead of fixed-count `hear()` where it matters.
 - Random-walk property (P-0147): no `SessionEnded.minutes` exceeds the audible time between its `SessionStarted`
   and its last audible event.
+
+## Outcome
+2026-11-03: merged 5d4742b after review-2 APPROVE (2025 stress passes). Gates on main green: 569 passed / 6 skipped. Lead completed the `last_opened` doc comment. Unblocks T-0019, T-0025, T-0027.

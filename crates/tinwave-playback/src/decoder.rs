@@ -93,7 +93,8 @@ struct State {
     cur: usize,
     /// Index of the last item that was opened (its mark is published), so that an item whose
     /// successors all failed to open is still the one a queue edit must name. `None` until a
-    /// stream has started.
+    /// stream has started, and after a restart in which nothing opened (an edit is then refused
+    /// as stale while nothing is audible).
     last_opened: Option<usize>,
     reader: Option<TrackReader>,
     pending: Vec<f32>,
