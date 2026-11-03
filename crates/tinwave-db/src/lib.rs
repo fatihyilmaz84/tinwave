@@ -10,8 +10,9 @@
 //!   ends in the batch (`Completed` or `Skipped`, paired with its `PlayStarted` per device).
 //! - [`PersistentSettings`]: the Signal Center toggles (`SignalSettings`) and their row in
 //!   `signals.db`; loaded before the bus exists, saved on every change.
-//! - [`SignalWiper`]: the user wipe of context data; clears the fields of a context category from
-//!   `context_snapshot.key` and `play.context_key` in one transaction.
+//! - [`SignalWiper`]: the user wipes of `signals.db`, each one transaction: a context category
+//!   (clears its fields from `context_snapshot.key` and `play.context_key`), a signal category
+//!   (its events and counters, and what is derived from them), and everything.
 //! - [`SignalWriter`]: the thread that drains a [`SignalDrain`](tinwave_signals::SignalDrain)
 //!   into the store every 2 s or 256 events, at once on a play end, and on shutdown.
 //!
@@ -44,6 +45,7 @@ mod lru;
 mod migrate;
 mod play;
 mod settings;
+mod signal_wipe;
 mod store;
 mod wipe;
 mod writer;
@@ -52,6 +54,7 @@ pub use error::DbError;
 pub use migrate::{migrate, Migration, MigrationReport};
 pub use play::{EndReason, PlayFlags};
 pub use settings::{PersistentSettings, SettingsLoad, SettingsProblem};
+pub use signal_wipe::SignalWipeReport;
 pub use store::{
     ends_a_play, BatchReport, CheckpointPolicy, SessionTz, SignalStore, StoreConfig,
     SIGNALS_MIGRATIONS,
