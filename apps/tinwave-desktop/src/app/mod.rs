@@ -5,5 +5,11 @@
 // the allow sits on the `mod` item. Bridge modules are the only place in this crate where it may appear (ADR 0008).
 #[allow(unsafe_code)]
 pub mod app_info;
+// The artwork provider's C++ shim binding and its `extern "C"` callbacks: same rule as above. `ProviderHandle` is an
+// opaque C++ type declared in the bridge, which cannot implement `Debug`, and the bridge macro drops the `# Safety`
+// doc section of `tw_provider_handle_new` that clippy would look for.
+#[allow(unsafe_code, missing_debug_implementations, clippy::missing_safety_doc)]
+pub mod artwork_bridge;
 pub mod style;
+pub mod ui_owner;
 pub mod wiring;

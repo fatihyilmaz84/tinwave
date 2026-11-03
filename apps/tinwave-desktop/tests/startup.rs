@@ -4,8 +4,9 @@
 // Referenced so the test binary links the crate (and with it the Rust half of the CXX-Qt bridge); it never calls into it.
 use tinwave_desktop as _;
 
+mod common;
+
 use std::io::Read;
-use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -29,18 +30,7 @@ fn command() -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
-    // Qt is linked dynamically (ADR 0008): its DLLs live next to `qmake`, which the build already needs (`QMAKE`).
-    if let Some(qmake) = std::env::var_os("QMAKE").map(PathBuf::from) {
-        if let Some(bin) = qmake.parent() {
-            let mut paths = vec![bin.to_path_buf()];
-            paths.extend(std::env::split_paths(
-                &std::env::var_os("PATH").unwrap_or_default(),
-            ));
-            if let Ok(joined) = std::env::join_paths(paths) {
-                cmd.env("PATH", joined);
-            }
-        }
-    }
+    common::add_qt_to_path(&mut cmd);
     cmd
 }
 
