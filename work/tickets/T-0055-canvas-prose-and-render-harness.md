@@ -3,16 +3,17 @@ id: T-0055
 title: Canvas — refresh stale prose in Main.dc.html and add a local render harness
 type: chore
 epic: E-01
-status: in_review
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0046]
 scope:
   - docs/design/canvas/Main.dc.html
+  - docs/design/canvas/Radio-Linux.dc.html   # round 2: drop the remote font link only (P-0229)
   - docs/design/tools/            # new: the render harness and a short README
 owner: tw-builder
 branch: t/T-0055-canvas-prose-and-render-harness
-review_round: 1
+review_round: 2
 created_by: from P-0213, P-0214 (T-0046 build-1)
 ---
 
