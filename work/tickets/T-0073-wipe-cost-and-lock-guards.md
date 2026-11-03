@@ -3,7 +3,7 @@ id: T-0073
 title: Wipe tests pin the statement count and catch a lock left open; SECTIONED check set-equal
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0064]
@@ -33,6 +33,10 @@ but do not bound the wipe's own cost, and the after-wipe bound can almost never 
 ## Acceptance criteria
 - [ ] Mutations: a per-row loop in a wipe, and a lock left open after a wipe, each fail a test.
 - [ ] fmt, clippy, nextest, deny pass.
+
+## Lead decisions on build-1 (2026-11-03)
+- Out-of-scope edits accepted: rusqlite `trace` dev-feature, `connection_for_tests` (removal tracked in T-0074),
+  checkpoint doc comment.
 
 ## Signals & storage
 None.
