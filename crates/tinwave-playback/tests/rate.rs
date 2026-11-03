@@ -158,9 +158,9 @@ impl Rec {
     fn change_rate(&mut self, rate: f64) {
         // Clear of the previous flush's throttle interval, so this one is immediate.
         std::thread::sleep(Duration::from_millis(130));
-        // Audio queued for the fade-out, and a callback that does not outrun the decoder while it
-        // answers (a device takes 10 ms for what this loop takes 0.1 ms for): with an empty ring
-        // the fade-out would be short, and that is not what is being tested.
+        // Audio queued for the fade-out, and callbacks no faster than a device's while the
+        // decoder answers (64 frames per millisecond is a little over real time): with an empty
+        // ring the fade-out would be short, and that is not what is being tested.
         self.h.wait_buffered(RATE as usize / 2);
         let before = self.flushes;
         self.h.engine.set_rate(rate).expect("set_rate");
@@ -169,7 +169,7 @@ impl Rec {
             if self.flushes > before && self.h.engine.rate_stats().applied_rate == rate {
                 return;
             }
-            std::thread::sleep(Duration::from_micros(if real == 0 { 100 } else { 200 }));
+            std::thread::sleep(Duration::from_micros(if real == 0 { 100 } else { 1_000 }));
         }
         panic!("the decoder never applied rate {rate}");
     }
@@ -343,7 +343,12 @@ fn no_click_at_a_rate_step_the_largest_sample_step_is_the_steady_signals() {
     }
     assert_eq!(rec.restarts.len(), 4);
 
-    // Everything the callback produced, fades included, joined at the (zero) ends of the silent gaps.
+    // Everything the callback produced, fades included, joined at the (zero) ends of the silent
+    // gaps. The steady sine's largest step is `0.5 * 2 pi * 440 / rate`. A stretched sine is not
+    // quite a sine (the phase vocoder's ripple makes its steepest step up to 2 % larger, measured
+    // over many start phases), so the bound is 3 %: a hard cut at this level would be a step
+    // of 0.5, seventeen times the signal's, and a fade-out that is too short shows up in the
+    // renderer's own tests.
     let steady = 0.5 * 2.0 * std::f64::consts::PI * 440.0 / f64::from(RATE);
     let (at, largest) = rec
         .left
@@ -352,7 +357,7 @@ fn no_click_at_a_rate_step_the_largest_sample_step_is_the_steady_signals() {
         .map(|(i, w)| (i, f64::from((w[1] - w[0]).abs())))
         .fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
     assert!(
-        largest <= steady * 1.01,
+        largest <= steady * 1.03,
         "largest sample step {largest:.5} at frame {at} against the steady sine's {steady:.5}"
     );
     // The fades really dipped: the callback played something quiet at each of the four steps.
@@ -916,4 +921,61 @@ fn rate_stats_give_the_time_weighted_rate_between_two_snapshots() {
         None,
         "snapshots out of order"
     );
+}
+
+#[test]
+fn a_seek_past_the_end_while_stretched_is_reported_and_the_queue_moves_on() {
+    let dir = TempDir::new("rate-seek-past-end");
+    let (l, r) = sweep(RATE, TOTAL);
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    write_wav(&a, RATE, 16, &l[..SPLIT], &r[..SPLIT]);
+    write_wav(&b, RATE, 16, &l[SPLIT..], &r[SPLIT..]);
+
+    let mut h = Harness::new();
+    h.engine.set_rate(1.25).expect("set_rate");
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.render_exact(480, 480);
+    h.sink.take();
+    h.engine.seek(10_000_000).expect("seek is accepted");
+    h.settle();
+    assert!(
+        h.saw(|k| matches!(
+            k,
+            EventKind::SeekFailed {
+                item: QueueItemId(1),
+                ..
+            }
+        )),
+        "{:?}",
+        h.sink.kinds()
+    );
+    // B plays from its start, at 1.25.
+    h.render_exact(1_000, 500);
+    let position = h.engine.position().expect("playing");
+    assert_eq!(position.item, QueueItemId(2));
+    assert!(position.frame.abs_diff(1_250) <= 2, "{}", position.frame);
+    assert_eq!(h.engine.rate_stats().applied_rate, 1.25);
+}
+
+#[test]
+fn a_seek_to_the_exact_end_while_stretched_finishes_the_track() {
+    let dir = TempDir::new("rate-seek-end");
+    let (l, r) = sweep(RATE, TOTAL);
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    write_wav(&a, RATE, 16, &l[..SPLIT], &r[..SPLIT]);
+    write_wav(&b, RATE, 16, &l[SPLIT..], &r[SPLIT..]);
+
+    let mut h = Harness::new();
+    h.engine.set_rate(0.75).expect("set_rate");
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.render_exact(480, 480);
+    h.engine.seek(SPLIT as u64).expect("seek");
+    h.settle();
+    h.render_exact(1_000, 500);
+    assert_eq!(h.engine.position().expect("playing").item, QueueItemId(2));
+    assert!(!h.saw(|k| matches!(k, EventKind::SeekFailed { .. })));
 }

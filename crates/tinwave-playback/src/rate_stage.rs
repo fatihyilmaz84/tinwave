@@ -297,4 +297,68 @@ mod tests {
     fn a_rate_the_stretcher_cannot_be_built_for_is_an_error() {
         assert!(StretchStage::new(1_000).is_err());
     }
+
+    /// The loudest sample among the first 20,000 frames of the output, when a steady 440 Hz sine
+    /// of amplitude 0.5 is stretched from frame `at` of it with `preroll` frames of history.
+    fn startup_peak(rate: f64, at: usize, preroll: usize) -> f32 {
+        let source: Vec<f32> = (at - preroll..at + 30_000)
+            .flat_map(|n| {
+                let t = n as f64 / f64::from(SR);
+                let s = (0.5 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()) as f32;
+                [s, s]
+            })
+            .collect();
+        let mut stage = StretchStage::new(SR).expect("stage");
+        stage.begin(rate, preroll).expect("begin");
+        let mut out = Vec::new();
+        stage.push(&source, &mut out).expect("push");
+        out.chunks_exact(CHANNELS)
+            .take(20_000)
+            .fold(0.0, |peak, frame| f32::max(peak, frame[0].abs()))
+    }
+
+    #[test]
+    fn history_before_the_start_removes_the_startup_overshoot() {
+        let stage = StretchStage::new(SR).expect("stage");
+        let preroll = stage.preroll_frames();
+        for rate in [0.75, 1.25, 1.5] {
+            // Cold: half an analysis window of silence behind the first frame, and the output
+            // overshoots by several percent while it settles (up to 4 % at 0.75).
+            let cold = startup_peak(rate, 50_000, 0);
+            // Warm: within a fifth of a percent of the true level.
+            let warm = startup_peak(rate, 50_000, preroll);
+            assert!(
+                warm < 0.5 * 1.004,
+                "rate {rate}: warm start peaks at {warm}"
+            );
+            if rate == 0.75 {
+                assert!(cold > 0.5 * 1.03, "rate {rate}: cold start peaks at {cold}");
+            }
+        }
+    }
+
+    #[test]
+    fn with_history_the_first_frame_kept_is_the_one_at_the_start_position() {
+        // A tone that starts at frame 50,000 of the file; the stream starts there too. With 5,292
+        // frames of silence as history, the first loud output frame is the first one kept.
+        let stage = StretchStage::new(SR).expect("stage");
+        let preroll = stage.preroll_frames();
+        for rate in [0.75, 1.25, 1.5] {
+            let mut source = vec![0.0f32; preroll * CHANNELS];
+            source.extend(tone(20_000));
+            let mut stage = StretchStage::new(SR).expect("stage");
+            stage.begin(rate, preroll).expect("begin");
+            let mut out = Vec::new();
+            stage.push(&source, &mut out).expect("push");
+            let first = out
+                .chunks_exact(CHANNELS)
+                .position(|f| f[0].abs() > 0.25)
+                .expect("the tone");
+            // The 1 kHz tone reaches 0.25 within a few tens of frames of its start.
+            assert!(
+                first < 400,
+                "rate {rate}: the tone starts {first} frames late"
+            );
+        }
+    }
 }
