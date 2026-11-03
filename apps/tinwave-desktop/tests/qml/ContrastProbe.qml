@@ -1,4 +1,4 @@
-// Test-only root (loaded through TINWAVE_MAIN_QML in debug builds by tests/contrast_qml.rs): runs the contrast gate of
+// Test-only root (loaded through TINWAVE_MAIN_QML in debug builds by tests/qml_probes.rs): runs the contrast gate of
 // design-system.md 3.1 on the real Theme and prints its result as `PROBE name=value` lines, then quits. No window is made.
 import QtQuick
 import Tinwave.Desktop

@@ -1,4 +1,4 @@
-// Test-only root (loaded through TINWAVE_MAIN_QML in debug builds by tests/icon_qml.rs): shows a TwIcon in a real (offscreen)
+// Test-only root (loaded through TINWAVE_MAIN_QML in debug builds by tests/qml_probes.rs): shows a TwIcon in a real (offscreen)
 // window and prints what its image did, then quits. Icon names here are not scanned by the build's icon check (it reads qml/
 // only), so the file may name any vendored icon.
 import QtQuick

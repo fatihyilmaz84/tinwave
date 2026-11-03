@@ -40,6 +40,42 @@ fn every_check_accent_keeps_every_token_readable_in_both_schemes() {
         failing.join("\n")
     );
     assert_eq!(run.get("failures"), "0", "rows: {rows:#?}");
+
+    // Do not trust the check's own verdict (a threshold loosened inside Theme.qml would still say "ok"): read the ratios it
+    // printed and hold them to the WCAG bars here. Text, `accentText`, `onAccent` and the style's fixed label on `accentFill`
+    // need 4.5:1. `accentText` also carries accent glyphs and focus rings (3:1 bar, design-system.md 3.1), which 4.5 covers;
+    // the rows print no separate glyph ratio.
+    let mut weak = Vec::new();
+    for row in &rows {
+        for (key, bar) in [
+            ("text>=", 4.5),
+            ("accentText>=", 4.5),
+            ("onAccent>=", 4.5),
+            ("fixedLabel/accentFill=", 4.5),
+        ] {
+            let ratio = printed_ratio(row, key);
+            // The rows print two decimals, so 4.496 shows as "4.50"; anything that shows lower is really lower.
+            if ratio < bar - 0.005 {
+                weak.push(format!("{key}{ratio:.2} < {bar} in: {row}"));
+            }
+        }
+    }
+    assert!(
+        weak.is_empty(),
+        "ratios below the WCAG bar, whatever the check said:\n{}",
+        weak.join("\n")
+    );
+}
+
+/// The number printed right after `key` in a row (`key` starts a whitespace-separated word of the row).
+fn printed_ratio(row: &str, key: &str) -> f64 {
+    let word = row
+        .split_whitespace()
+        .find(|word| word.starts_with(key))
+        .unwrap_or_else(|| panic!("no {key} in row: {row}"));
+    word[key.len()..]
+        .parse()
+        .unwrap_or_else(|_| panic!("{key} is not a number in row: {row}"))
 }
 
 #[test]
