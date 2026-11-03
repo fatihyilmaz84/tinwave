@@ -21,11 +21,15 @@ pub mod ffi {
         /// Creates the shared state. `rust_ctx` is an `Arc<ProviderCore>` strong count (`Arc::into_raw`, typed as bytes
         /// because cxx has no `c_void`) that the new state owns and gives back through `tw_provider_ctx_release`.
         ///
+        /// `max_edge` is the largest thumbnail edge in pixels that requests may ask for (`ProviderCore::max_edge`, the
+        /// only place the number is defined); the shim refuses larger requests as `Image.Error`.
+        ///
         /// # Safety
         /// `rust_ctx` must come from `Arc::into_raw` of an `Arc<ProviderCore>` and not be used by the caller again.
         unsafe fn tw_provider_handle_new(
             rust_ctx: *const u8,
             pool_threads: i32,
+            max_edge: i32,
         ) -> UniquePtr<ProviderHandle>;
         /// Creates the C++ provider; ownership passes to whoever receives the pointer (the QML engine).
         fn tw_provider_make(handle: &ProviderHandle) -> *mut QQmlImageProviderBase;
@@ -47,7 +51,7 @@ use cxx::UniquePtr;
 use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QQmlApplicationEngine, QQmlEngine, QString};
 
-use crate::image::{ArtworkSource, CoreStats, ProviderCore};
+use crate::image::{ArtworkSource, CoreStats, ProviderCore, THUMBNAIL_CACHE_BYTES};
 
 /// Counters of the C++ shim (see `cpp/thumb_task.h`), plus those of the Rust core.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -86,7 +90,15 @@ impl fmt::Debug for ArtworkProvider {
 
 impl ArtworkProvider {
     /// Registers an async image provider named `name` (`image://<name>/<key>`) on `engine`, backed by `source`, with
-    /// a pool of `pool_threads` workers (at least 1; the thread count is the bound on concurrent decodes).
+    /// a pool of `pool_threads` workers (at least 1; the thread count is the bound on concurrent decodes). Requests
+    /// for an edge above `max_edge` pixels (production: [`MAX_THUMBNAIL_EDGE`](crate::image::MAX_THUMBNAIL_EDGE)) are
+    /// refused: QML sees `Image.Error`, nothing is allocated and no task runs. The shim gets the limit from the Rust
+    /// core, so there is one definition.
+    ///
+    /// What QML sees per outcome: a served thumbnail is `Image.Ready`; a refused size and a key the source has no
+    /// artwork for are `Image.Error` (with a message); a request QML cancelled, or one still pending at shutdown,
+    /// completes silently with an empty image. A `sourceSize` with one dimension set (`64x0`, `0x64`) is a square of
+    /// that edge, none set is 128 x 128.
     ///
     /// The engine takes ownership of the provider object. The caller must keep the returned handle and call
     /// [`quiesce`](Self::quiesce) after the event loop ended and before the engine is dropped (the UI owner does).
@@ -95,12 +107,19 @@ impl ArtworkProvider {
         name: &str,
         source: Arc<dyn ArtworkSource>,
         pool_threads: i32,
+        max_edge: u32,
     ) -> Self {
-        let core = Arc::new(ProviderCore::new(source));
+        let core = Arc::new(ProviderCore::with_limits(
+            source,
+            THUMBNAIL_CACHE_BYTES,
+            max_edge,
+        ));
+        // `with_limits` keeps the limit within 1..=i32::MAX, so the conversion cannot fail.
+        let edge = i32::try_from(core.max_edge()).unwrap_or(i32::MAX);
         let ctx = Arc::into_raw(Arc::clone(&core)).cast::<u8>();
         // SAFETY: `ctx` is the strong count just leaked by `Arc::into_raw`; the C++ state now owns it and returns it
         // exactly once through `tw_provider_ctx_release`, when its last user is gone.
-        let handle = unsafe { ffi::tw_provider_handle_new(ctx, pool_threads) };
+        let handle = unsafe { ffi::tw_provider_handle_new(ctx, pool_threads, edge) };
         let provider = ffi::tw_provider_make(&handle);
         let qml_engine: Pin<&mut QQmlEngine> = engine.upcast_pin();
         // SAFETY: `provider` is a freshly allocated provider that nothing else owns; the engine takes ownership and

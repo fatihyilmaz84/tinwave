@@ -149,8 +149,41 @@ fn every_response_gets_exactly_one_finished_and_the_cache_serves_repeats() {
     assert_eq!(c["misses"], 8, "{c:?}");
 }
 
+/// Runs `Storm.qml` once in `mode`, quitting after `exit_ms`, and checks what every such run must show.
+fn storm_run(mode: &str, exit_ms: u32) -> HashMap<String, u64> {
+    let run = run_stress(&[
+        format!("--qml={}", scene("Storm.qml")),
+        format!("--mode={mode}"),
+        format!("--exit-ms={exit_ms}"),
+        "--pool=1".to_owned(),
+    ]);
+    let c = run.expect_clean_exit();
+    assert!(
+        c["responses"] > 0,
+        "{mode} {exit_ms} ms: no requests at all: {c:?}"
+    );
+    assert!(
+        c["cancels"] > 0,
+        "{mode} {exit_ms} ms: nothing was cancelled: {c:?}"
+    );
+    assert!(
+        c["finished"] <= c["responses"],
+        "{mode} {exit_ms} ms: more finished() than responses: {c:?}"
+    );
+    c
+}
+
 #[test]
 fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
+    // What this proves: quitting while requests are queued, running or being cancelled tears down cleanly (exit 0, the
+    // engine is destroyed, no second finished()). It only proves that if a run really quit with requests in flight, so
+    // each mode must produce at least one such run.
+    //
+    // "In flight" is measured at the instant the event loop ended (`in_flight_at_quit`, before the quiesce), not by
+    // comparing the final counters: once the providers are quiesced the queued tasks drain within microseconds, and
+    // how many of them the reader thread has already delivered by the time the counters are read depends on CPU load
+    // (this test failed 2 of 14 runs under a loaded full-workspace run when it compared the final counters).
+    //
     // (mode, ms until Qt.quit()): the quit lands while hundreds of requests are queued, running or being cancelled.
     let cases = [
         ("storm", 150),
@@ -161,44 +194,173 @@ fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
         ("scroll", 450),
         ("scroll", 700),
     ];
+    // A mode with no qualifying run yet gets this many more attempts (bounded, never open-ended) before failing.
+    const EXTRA_ATTEMPTS: u32 = 6;
+
     let mut tasks_run = 0;
-    // Runs, per mode, that quit with requests still unfinished (their finished() never arrived: in flight at quit).
-    let (mut storm_unfinished, mut scroll_unfinished) = (0, 0);
+    let mut qualifying: HashMap<&str, u32> = HashMap::from([("storm", 0), ("scroll", 0)]);
     for (mode, exit_ms) in cases {
-        let run = run_stress(&[
-            format!("--qml={}", scene("Storm.qml")),
-            format!("--mode={mode}"),
-            format!("--exit-ms={exit_ms}"),
-            "--pool=1".to_owned(),
-        ]);
-        let c = run.expect_clean_exit();
-        assert!(
-            c["responses"] > 0,
-            "{mode} {exit_ms} ms: no requests at all: {c:?}"
-        );
-        assert!(
-            c["cancels"] > 0,
-            "{mode} {exit_ms} ms: nothing was cancelled: {c:?}"
-        );
-        assert!(
-            c["finished"] <= c["responses"],
-            "{mode} {exit_ms} ms: more finished() than responses: {c:?}"
-        );
+        let c = storm_run(mode, exit_ms);
         tasks_run += c["tasks_run"];
-        if c["finished"] < c["responses"] {
-            if mode == "storm" {
-                storm_unfinished += 1;
-            } else {
-                scroll_unfinished += 1;
+        if c["in_flight_at_quit"] > 0 {
+            *qualifying.entry(mode).or_default() += 1;
+        }
+    }
+    for (mode, exit_ms) in [("storm", 500), ("scroll", 450)] {
+        for _ in 0..EXTRA_ATTEMPTS {
+            if qualifying[mode] > 0 {
+                break;
+            }
+            let c = storm_run(mode, exit_ms);
+            tasks_run += c["tasks_run"];
+            if c["in_flight_at_quit"] > 0 {
+                *qualifying.entry(mode).or_default() += 1;
             }
         }
     }
     assert!(
-        storm_unfinished > 0 && scroll_unfinished > 0,
-        "no run quit with requests still in flight (storm {storm_unfinished}, scroll {scroll_unfinished})"
+        qualifying["storm"] > 0 && qualifying["scroll"] > 0,
+        "no run quit with requests still in flight (storm {}, scroll {}) even after {EXTRA_ATTEMPTS} extra attempts",
+        qualifying["storm"],
+        qualifying["scroll"]
     );
     assert!(
         tasks_run > 0,
         "the workers never ran a task, so nothing was in flight"
     );
+}
+
+/// One `SIZE` line of `Sizes.qml`.
+#[derive(Debug, PartialEq, Eq)]
+struct Shown {
+    ready: bool,
+    width: u32,
+    height: u32,
+}
+
+/// Parses `index label status=Ready|Error w=<n> h=<n>` (the text after `SIZE `).
+fn parse_size_line(rest: &str) -> Option<(usize, Shown)> {
+    let mut parts = rest.split_whitespace();
+    let index: usize = parts.next()?.parse().ok()?;
+    let _label = parts.next()?;
+    let mut field = |name: &str| -> Option<String> {
+        parts
+            .next()?
+            .strip_prefix(name)?
+            .strip_prefix('=')
+            .map(str::to_owned)
+    };
+    let ready = field("status")? == "Ready";
+    let width = field("w")?.parse().ok()?;
+    let height = field("h")?.parse().ok()?;
+    Some((
+        index,
+        Shown {
+            ready,
+            width,
+            height,
+        },
+    ))
+}
+
+/// Runs `Sizes.qml` with `images` (`key@WxH,...`) and the extra stress arguments; returns one entry per image, in
+/// order, plus the run (for its counters and the QML warnings in stderr).
+fn sizes_run(images: &str, extra: &[&str]) -> (Vec<Shown>, Run) {
+    let mut args = vec![
+        format!("--qml={}", scene("Sizes.qml")),
+        format!("--images={images}"),
+    ];
+    args.extend(extra.iter().map(|a| (*a).to_owned()));
+    let run = run_stress(&args);
+    run.expect_clean_exit();
+    let log = format!("{}\n{}", run.stdout, run.stderr);
+    assert!(
+        log.contains("SIZES_DONE"),
+        "the scene did not settle\n{log}"
+    );
+    let mut shown: Vec<(usize, Shown)> = log
+        .lines()
+        .filter_map(|l| parse_size_line(l.split_once("SIZE ")?.1))
+        .collect();
+    shown.sort_by_key(|(index, _)| *index);
+    let count = images.split(',').filter(|e| !e.is_empty()).count();
+    assert_eq!(shown.len(), count, "one SIZE line per image\n{log}");
+    (shown.into_iter().map(|(_, s)| s).collect(), run)
+}
+
+fn ready(width: u32, height: u32) -> Shown {
+    Shown {
+        ready: true,
+        width,
+        height,
+    }
+}
+
+#[test]
+fn refused_and_missing_artwork_are_image_error_and_served_sizes_are_image_ready() {
+    let (shown, run) = sizes_run(
+        "a@48x48,b@1024x8,c@2000x2000,d@1025x10,e@10x1025,missing-1@48x48",
+        &[],
+    );
+    let c = run.counters();
+    // In range (the limit itself included) is served at exactly the size asked for.
+    assert_eq!(shown[0], ready(48, 48), "{shown:?}");
+    assert_eq!(shown[1], ready(1024, 8), "{shown:?}");
+    // Above the limit in either dimension, and a key without artwork: Image.Error.
+    for (i, what) in [
+        (2, "2000x2000"),
+        (3, "1025x10"),
+        (4, "10x1025"),
+        (5, "no artwork"),
+    ] {
+        assert!(!shown[i].ready, "{what} must be Image.Error: {shown:?}");
+    }
+    // Every response completed once; the refused ones ran no task and asked Rust for nothing.
+    assert_eq!((c["responses"], c["finished"]), (6, 6), "{c:?}");
+    assert_eq!(c["tasks_run"], 3, "{c:?}");
+    assert_eq!(c["requests"], 3, "{c:?}");
+    assert_eq!(c["misses"], 1, "{c:?}");
+    // Image.Error carries a message (Qt logs it as a QML warning).
+    let log = &run.stderr;
+    assert!(
+        log.contains("2000x2000 is above the limit of 1024 px per edge"),
+        "{log}"
+    );
+    assert!(log.contains("no artwork for \"missing-1\""), "{log}");
+}
+
+#[test]
+fn the_edge_limit_comes_from_rust_not_from_a_second_literal_in_the_shim() {
+    let images = "a@48x48,b@32x32,c@1500x8";
+    // Lowered to 32: 48 is refused, 32 still served.
+    let (low, run) = sizes_run(images, &["--max-edge=32"]);
+    assert!(!low[0].ready, "48 above a limit of 32: {low:?}");
+    assert_eq!(low[1], ready(32, 32), "{low:?}");
+    assert!(!low[2].ready, "{low:?}");
+    assert!(
+        run.stderr.contains("48x48 is above the limit of 32 px"),
+        "{}",
+        run.stderr
+    );
+    assert_eq!(run.counters()["tasks_run"], 1);
+    // Default: 1500 is above the production limit (1024).
+    let (default, _) = sizes_run(images, &[]);
+    assert!(default[0].ready && default[1].ready, "{default:?}");
+    assert!(!default[2].ready, "{default:?}");
+    // Raised to 2048: the same request is served. Only the Rust-side value changed.
+    let (high, run) = sizes_run(images, &["--max-edge=2048"]);
+    assert_eq!(high[2], ready(1500, 8), "{high:?}");
+    assert_eq!(run.counters()["tasks_run"], 3);
+}
+
+#[test]
+fn a_one_edge_source_size_keeps_that_edge() {
+    // 64x0 and 0x64 (the other dimension unset): a 64 px square, the source's aspect being unknown; neither set: the
+    // 128 px default; both set: as asked.
+    let (shown, run) = sizes_run("a@64x0,b@0x64,c@0x0,d@64x32", &[]);
+    assert_eq!(shown[0], ready(64, 64), "{shown:?}");
+    assert_eq!(shown[1], ready(64, 64), "{shown:?}");
+    assert_eq!(shown[2], ready(128, 128), "{shown:?}");
+    assert_eq!(shown[3], ready(64, 32), "{shown:?}");
+    assert_eq!(run.counters()["tasks_run"], 4);
 }

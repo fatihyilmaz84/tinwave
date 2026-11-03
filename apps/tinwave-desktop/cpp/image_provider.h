@@ -22,8 +22,10 @@ struct ProviderHandle
 };
 
 // Creates the shared state. `rustCtx` is an Arc::into_raw pointer owned by the new state (released with
-// tw_provider_ctx_release when the last user is gone). `poolThreads` is clamped to at least 1.
-std::unique_ptr<ProviderHandle> tw_provider_handle_new(const uint8_t* rustCtx, int32_t poolThreads);
+// tw_provider_ctx_release when the last user is gone). `poolThreads` is clamped to at least 1. `maxEdge` is the
+// largest thumbnail edge in pixels a request may ask for; Rust owns the value (ProviderCore::max_edge) and larger
+// requests are refused as Image.Error before anything is allocated. There is no default on this side.
+std::unique_ptr<ProviderHandle> tw_provider_handle_new(const uint8_t* rustCtx, int32_t poolThreads, int32_t maxEdge);
 
 // Creates the QQuickAsyncImageProvider sharing the handle's state. The QML engine owns the result.
 QQmlImageProviderBase* tw_provider_make(const ProviderHandle& handle);

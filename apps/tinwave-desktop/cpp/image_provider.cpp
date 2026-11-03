@@ -21,6 +21,10 @@
 //     the event loop ended and BEFORE the engine is destroyed: it sets `closing` and waits until no worker is running.
 //     After that nothing outside Qt's own threads touches responses, and requests arriving late complete empty
 //     without starting a task. The provider destructor repeats the quiesce; it is not relied upon (2/300 hangs).
+//
+// What QML sees (T-0049): a served thumbnail is Image.Ready; a refused size and a key without artwork are
+// Image.Error (the response reports errorString(), so the Image can show its placeholder by status); a cancelled or
+// shutdown-time response stays silent (empty image, no error string: QML has already moved on).
 #include "image_provider.h"
 #include "thumb_task.h"
 
@@ -41,12 +45,28 @@ namespace {
 // Edge of the square thumbnail when the Image gave no usable sourceSize (QML should always set it: logical pixels, Qt
 // multiplies by the device pixel ratio itself).
 constexpr int kDefaultEdge = 128;
-// Largest accepted edge in pixels; the same limit as MAX_THUMBNAIL_EDGE in src/image/provider_core.rs. Checked here
-// as well so a QML property cannot make us allocate a huge QImage before Rust gets to refuse the size.
-constexpr int kMaxEdge = 1024;
+
+// The size a request asks for, resolved from the sourceSize the Image gave (logical size times device pixel ratio, in
+// pixels; Qt reports 0 or -1 for a dimension QML left unset):
+//  * both dimensions set: used as is;
+//  * one dimension set: that edge is kept and the other one equals it. Qt itself would derive the other edge from the
+//    image's aspect ratio, but the provider cannot know the aspect here: this runs on the reader thread, which must
+//    not wait for Rust, the DB or a decode, and the source returns pixels at exactly the size asked for. A square is
+//    right for album covers; a source serving other aspects needs an "aspect of key" query first (not built, nothing
+//    needs it yet);
+//  * neither set: the default square.
+QSize resolveSize(const QSize& requested)
+{
+    const int w = requested.width();
+    const int h = requested.height();
+    if (w > 0 && h > 0) return requested;
+    if (w > 0) return QSize(w, w);
+    if (h > 0) return QSize(h, h);
+    return QSize(kDefaultEdge, kDefaultEdge);
+}
 } // namespace
 
-ProviderShared::ProviderShared(const void* ctx, int poolThreads) : rustCtx(ctx)
+ProviderShared::ProviderShared(const void* ctx, int poolThreads, int maxEdgePx) : rustCtx(ctx), maxEdge(maxEdgePx)
 {
     pool.setMaxThreadCount(poolThreads < 1 ? 1 : poolThreads);
 }
@@ -80,19 +100,25 @@ ThumbTask::ThumbTask(const QString& id, const QSize& size, std::shared_ptr<std::
 void ThumbTask::run()
 {
     QImage img;
+    QString error; // empty with an empty image = cancelled or shutting down: the response completes silently
     if (!m_cancelled->load() && !m_shared->closing.load()) {
         m_shared->tasksRun.fetch_add(1, std::memory_order_relaxed);
-        img = QImage(m_size, QImage::Format_RGB32); // m_size is within 1..kMaxEdge (the response checked)
+        img = QImage(m_size, QImage::Format_RGB32); // m_size is within 1..maxEdge (the response checked)
         if (!img.isNull()) { // allocation can fail; never hand Rust a null buffer
             const QByteArray utf8 = m_id.toUtf8();
             const int32_t ok = tw_render_thumbnail(m_shared->rustCtx, reinterpret_cast<const unsigned char*>(utf8.constData()),
                                                    size_t(utf8.size()), m_size.width(), m_size.height(), img.bits());
-            if (!ok) img = QImage();
+            if (!ok) {
+                img = QImage();
+                error = QStringLiteral("no artwork for \"%1\" at %2x%3").arg(m_id).arg(m_size.width()).arg(m_size.height());
+            }
+        } else {
+            error = QStringLiteral("out of memory for a %1x%2 thumbnail").arg(m_size.width()).arg(m_size.height());
         }
     } else {
         m_shared->tasksSkipped.fetch_add(1, std::memory_order_relaxed);
     }
-    emit done(img); // last statement: after this the response may run (and be deleted) on the reader thread
+    emit done(img, error); // last statement: after this the response may run (and be deleted) on the reader thread
 }
 
 namespace {
@@ -105,15 +131,18 @@ public:
     {
         m_shared->responses.fetch_add(1, std::memory_order_relaxed);
         // Size-specific thumbnail = whatever the Image asked for (logical sourceSize * devicePixelRatio).
-        const bool usable = requested.width() > 0 && requested.height() > 0;
-        const QSize size = usable ? requested : QSize(kDefaultEdge, kDefaultEdge);
-        if (size.width() > kMaxEdge || size.height() > kMaxEdge) { // refuse: complete empty, allocate nothing
+        const QSize size = resolveSize(requested);
+        const int maxEdge = m_shared->maxEdge; // the limit comes from Rust (ProviderCore), see ProviderShared
+        if (size.width() > maxEdge || size.height() > maxEdge) { // refuse: Image.Error, allocate nothing, run nothing
+            m_error = QStringLiteral("thumbnail size %1x%2 is above the limit of %3 px per edge")
+                          .arg(size.width()).arg(size.height()).arg(maxEdge);
             QMetaObject::invokeMethod(this, [this] { complete(); }, Qt::QueuedConnection);
             return;
         }
         auto task = std::make_unique<ThumbTask>(id, size, m_cancelled, m_shared);
-        connect(task.get(), &ThumbTask::done, this, [this](const QImage& img) {
+        connect(task.get(), &ThumbTask::done, this, [this](const QImage& img, const QString& error) {
             m_image = img;
+            m_error = error;
             complete();
         }, Qt::QueuedConnection);
         {
@@ -137,6 +166,8 @@ public:
         return QQuickTextureFactory::textureFactoryForImage(m_image);
     }
 
+    QString errorString() const override { return m_error; }
+
     void cancel() override
     {
         m_shared->cancels.fetch_add(1, std::memory_order_relaxed);
@@ -157,6 +188,7 @@ private:
     }
 
     QImage m_image;
+    QString m_error;
     bool m_completed = false;
     std::shared_ptr<std::atomic_bool> m_cancelled;
     std::shared_ptr<ProviderShared> m_shared;
@@ -178,9 +210,9 @@ private:
 
 } // namespace
 
-std::unique_ptr<ProviderHandle> tw_provider_handle_new(const uint8_t* rustCtx, int32_t poolThreads)
+std::unique_ptr<ProviderHandle> tw_provider_handle_new(const uint8_t* rustCtx, int32_t poolThreads, int32_t maxEdge)
 {
-    return std::make_unique<ProviderHandle>(std::make_shared<ProviderShared>(rustCtx, int(poolThreads)));
+    return std::make_unique<ProviderHandle>(std::make_shared<ProviderShared>(rustCtx, int(poolThreads), int(maxEdge)));
 }
 
 QQmlImageProviderBase* tw_provider_make(const ProviderHandle& handle) { return new ThumbProvider(handle.shared); }

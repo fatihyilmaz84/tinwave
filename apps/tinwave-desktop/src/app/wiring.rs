@@ -54,6 +54,8 @@ pub struct ShellConfig {
     pub artwork: Arc<dyn ArtworkSource>,
     /// Worker threads of the artwork provider.
     pub artwork_pool_threads: i32,
+    /// Largest thumbnail edge in pixels the artwork provider serves (production: `image::MAX_THUMBNAIL_EDGE`).
+    pub artwork_max_edge: u32,
     /// Whether to select the platform controls style (the stress tool does not need one).
     pub select_style: bool,
 }
@@ -63,6 +65,7 @@ impl std::fmt::Debug for ShellConfig {
         f.debug_struct("ShellConfig")
             .field("qml_url", &self.qml_url)
             .field("artwork_pool_threads", &self.artwork_pool_threads)
+            .field("artwork_max_edge", &self.artwork_max_edge)
             .field("select_style", &self.select_style)
             .finish_non_exhaustive()
     }
@@ -75,6 +78,7 @@ impl ShellConfig {
             qml_url: main_qml_url(),
             artwork: Arc::new(NoArtwork),
             artwork_pool_threads: image::POOL_THREADS,
+            artwork_max_edge: image::MAX_THUMBNAIL_EDGE,
             select_style: true,
         }
     }
@@ -125,6 +129,7 @@ impl Shell {
             image::PROVIDER_NAME,
             config.artwork,
             config.artwork_pool_threads,
+            config.artwork_max_edge,
         ));
         ui.add_provider(Rc::<ArtworkProvider>::clone(&artwork));
 

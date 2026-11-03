@@ -5,15 +5,19 @@
 //! thumbnail so requests really are in flight when the scene quits. Not packaged with the app.
 //!
 //! ```text
-//! image-stress [--qml=<path>] [--pool=<threads>] [--delay-ms=<ms>] [--exit-ms=<ms>] [--mode=<name>]
+//! image-stress [--qml=<path>] [--pool=<threads>] [--delay-ms=<ms>] [--max-edge=<px>] [--exit-ms=<ms>] [--mode=<name>]
 //! ```
 //!
 //! `--qml` defaults to `Storm.qml` next to this file; `--pool` (default 1, the setting that exposed the T-0041 crash
-//! most) and `--delay-ms` (default 3) configure the provider and the source; the remaining arguments are read by the
-//! scene itself (`Qt.application.arguments`). On success it prints, in this order:
+//! most), `--delay-ms` (default 3) and `--max-edge` (default: the production limit) configure the provider and the
+//! source; the remaining arguments are read by the scene itself (`Qt.application.arguments`). On success it prints, in
+//! this order:
 //!
 //! 1. `STRESS_DONE exit=<code> responses=<n> finished=<n> ...` after the event loop ended and the providers were
-//!    quiesced, with the provider's counters;
+//!    quiesced, with the provider's counters. `in_flight_at_quit` (last field) is `responses - finished` read the
+//!    moment `exec()` returned, before the quiesce: requests that were still pending when the scene quit. After the
+//!    quiesce the queued tasks drain within microseconds, so the final `finished` says nothing about what was in
+//!    flight; this field does;
 //! 2. `STRESS_TEARDOWN_COMPLETE` after the engine was destroyed.
 //!
 //! `tools/stress/run-stress.ps1` runs it many times with random quit times and counts crashes and hangs.
@@ -24,7 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tinwave_desktop::app::wiring::{Shell, ShellConfig};
-use tinwave_desktop::image::ArtworkSource;
+use tinwave_desktop::image::{ArtworkSource, MAX_THUMBNAIL_EDGE};
 
 /// Gradient thumbnails after a fixed delay (the stand-in for reading and decoding a cover). Keys starting with
 /// `missing` have no artwork, to exercise the error path.
@@ -79,6 +83,10 @@ fn main() -> ExitCode {
             .unwrap_or(3),
     );
 
+    let max_edge = arg_value("max-edge")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MAX_THUMBNAIL_EDGE);
+
     let config = ShellConfig {
         qml_url: format!(
             "file:///{}",
@@ -86,6 +94,7 @@ fn main() -> ExitCode {
         ),
         artwork: Arc::new(SyntheticArtwork { delay }),
         artwork_pool_threads: pool,
+        artwork_max_edge: max_edge,
         select_style: false,
     };
     let mut shell = match Shell::start(config) {
@@ -93,12 +102,16 @@ fn main() -> ExitCode {
         Err(code) => return code,
     };
     let code = shell.exec();
+    // The counters are read one after the other while the reader thread may still run, so this can under-report what
+    // was pending (never over-report: `finished` is read after `responses` and only grows).
+    let at_quit = shell.artwork().stats();
+    let in_flight_at_quit = at_quit.responses.saturating_sub(at_quit.finished);
     shell.shutdown();
 
     let s = shell.artwork().stats();
     println!(
         "STRESS_DONE exit={code} responses={} finished={} duplicate_finishes={} cancels={} tasks_run={} \
-         tasks_skipped={} requests={} cache_hits={} source_calls={} misses={}",
+         tasks_skipped={} requests={} cache_hits={} source_calls={} misses={} in_flight_at_quit={}",
         s.responses,
         s.finished,
         s.duplicate_finishes,
@@ -109,6 +122,7 @@ fn main() -> ExitCode {
         s.core.cache_hits,
         s.core.source_calls,
         s.core.misses,
+        in_flight_at_quit,
     );
     drop(shell);
     println!("STRESS_TEARDOWN_COMPLETE");
