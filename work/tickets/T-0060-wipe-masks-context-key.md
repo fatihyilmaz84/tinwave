@@ -3,7 +3,7 @@ id: T-0060
 title: Wiping a context category also masks its fields in play.context_key
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0029]
@@ -13,7 +13,7 @@ scope:
   - docs/rules/privacy-and-signals.md           # the wipe paragraph only
 owner: tw-builder
 branch: t/T-0060-wipe-masks-context-key
-review_round: 1
+review_round: 2
 created_by: from P-0240 (T-0029 review-1)
 ---
 

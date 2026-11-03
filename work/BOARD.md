@@ -37,7 +37,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
-| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-reviewer r1 (build-1b: own SignalWiper, derived-field rule) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
+| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-builder r2 (review-1: one-scan rewrite, wipe vs writer timing) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
 
 ## Recently done
 - [T-0058](tickets/T-0058-switch-to-gpl.md) Tinwave is GPL-3.0-only in Cargo, cargo-deny and packaging — merged 211d9fe (review r1 APPROVE; hardening → T-0054).
