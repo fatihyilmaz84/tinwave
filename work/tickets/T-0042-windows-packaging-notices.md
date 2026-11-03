@@ -3,7 +3,7 @@ id: T-0042
 title: Windows packaging — windeployqt recipe, THIRD-PARTY-NOTICES (Qt LGPL-3), installer check
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0040]
@@ -36,3 +36,9 @@ None.
   apps/tinwave-desktop/icons/) by path, do not edit them.
 - Do not install new tools without saying so first: if cargo-about (or similar) is not installed, use what is
   (`cargo deny`, `cargo metadata`, Qt's qtattributionsscanner) and propose the tool in the handoff.
+
+## Outcome
+2026-11-03: merged 7ae748f after review-1 APPROVE and a post-approval notices regeneration (Lucide section).
+Gates on main: fmt, clippy, deny green; nextest 494/495 — the one failure is the known cancel_storm timing flake
+(also 1 of 3 isolated reruns), unrelated (no Rust change in this ticket), being fixed in T-0049 (P1). Docs pointers
+(P-0164) applied by the lead. Follow-ups: T-0051 (before release), D-0007 (PO).

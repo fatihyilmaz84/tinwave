@@ -20,6 +20,11 @@ Qt 6 Quick/QML window shell over thin CXX-Qt view models. Cargo-driven build, Qt
 | `src/app/app_info.rs` | First view model (QML singleton `AppInfo`); bridge files must all sit in `src/app/` (cxx-qt-build, QTBUG-93443) |
 | `qml/Theme/Theme.qml` | Design tokens (the only place raw colours/sizes may appear) |
 | `qml/Main.qml`, `qml/Sidebar.qml` | Window shell |
+| `qml/Tw/` | `Tw*` components (`TwIcon`) and the `TwIcons` URL helper (singleton) |
+| `icons/` | Vendored Lucide SVGs (only the used ones; `check_icon_usage` in build.rs enforces it), `VERSION`, ISC licence |
+| `tools/vendor-icons.ps1` | Dev-only: fetch and pin Lucide SVGs at stroke 1.75 (network, run by hand only) |
+| `tools/capture.ps1` | Dev-only: UI screenshots cropped to the DWM frame, keyboard steps with the window active |
+| `packaging/` | Windows package: `package.ps1` (build + windeployqt + legal files + checks), `test-packaging.ps1`, generated `THIRD-PARTY-NOTICES.txt` |
 | `tests/startup.rs` | Headless start-up tests (offscreen platform, software rendering) |
 | `tests/image_provider.rs` | Headless provider tests: exactly one `finished()` per response, cache, cancel storm + quit with requests in flight |
 
@@ -39,6 +44,11 @@ Developer switches:
 - `--color-scheme=light|dark|system` switches the app's own colour scheme in-process (the OS setting is untouched).
 - `TINWAVE_MAIN_QML=<url>` loads another root QML file (**debug builds only**; used by the load-failure test).
 - Exit codes: `2` the root QML could not be loaded, `3` Qt could not be initialised.
+
+Packaging (Windows): `pwsh packaging\package.ps1` with the Qt env set produces a self-contained folder under
+`target\package\` that runs with Qt off PATH, then checks it (licences, no GPL-only or static Qt, only
+`tinwave-desktop.exe`). It needs the Qt kit's Documentation, Licenses and SBOM components and the Visual Studio C++
+redistributable DLLs; see `packaging/README.md`. Run `packaging\test-packaging.ps1` after any change to the recipe.
 
 ## Artwork provider and the teardown stress target
 

@@ -28,6 +28,9 @@ Rust–Qt bridge: CXX-Qt 0.10, Cargo-driven, Qt linked dynamically (ADR 0008). A
   Machine-specific paths are not committed to `.cargo/config.toml` (P-0118).
 - The desktop crate's headless startup tests (offscreen platform, no display, no audio) run in the default test run.
 - To see Qt's log in a piped stderr (tests, scripts), set `QT_FORCE_STDERR_LOGGING=1` (Qt 6.12).
+- Packaging (apps/tinwave-desktop/packaging/package.ps1) additionally needs the Qt kit's **Documentation**,
+  **Licenses** and **SBOM** components (Qt Maintenance Tool) for THIRD-PARTY-NOTICES, and the MSVC redistributable
+  DLLs (found via VCToolsRedistDir or vswhere).
 
 ## macOS
 

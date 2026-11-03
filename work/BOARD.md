@@ -32,14 +32,12 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + THIRD-PARTY-NOTICES | APPROVED — builder merging main + regenerating notices (Lucide) before merge | `t/T-0042-windows-packaging-notices` @ b8c1a3a · `D:\dev\Tinwave-worktrees\T-0042-windows-packaging-notices` |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | chore | M | desktop packaging/ | after T-0042 |
+| [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | chore | M | desktop packaging/ | free |
 | [T-0050](tickets/T-0050-nav-focus-ring.md) Nav list focus ring follows the current item | bug | S | desktop Sidebar.qml, tools/capture.ps1 | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | free |
@@ -99,6 +97,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + THIRD-PARTY-NOTICES | 7ae748f | build-1, review-1 (approve), notices regenerated; 57.7 MiB bundle |
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | 59a03f8 | build-1/2, review-1 (changes), review-2 (approve) |
 | [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness: no spin, per-profile CPU budget, hang backstop | 3a87d77 | build-1, review-1 (approve); 495 tests |
 | [T-0044](tickets/T-0044-artwork-image-provider.md) Artwork image provider: T-0041 pattern, RAII UI owner | 1486177 | build-1/2, review-1 (changes), review-2 (approve); 1,960 stress runs, 0 crashes |
