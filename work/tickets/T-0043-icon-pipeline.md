@@ -52,4 +52,4 @@ Add a small screenshot capture helper (apps/tinwave-desktop/tools/) that crops t
 ## Added from P-0131 (T-0035 build-1)
 Drive keyboard steps with the window active (the focus ring is not drawn in an inactive window under PrintWindow).
 Starting point: the T-0035 builder's scratch scripts cap.ps1 / cap2.ps1 in the lead session scratchpad
-(C:\Users\FSYY\AppData\Local\Temp\claude\D--dev-Tinwave+bf9027-c019-4dd4-82f1-5a72c6705b0c\scratchpad\).
+(C:\Users\FSYY\AppData\Local\Temp\claude\D--dev-Tinwave\53bf9027-c019-4dd4-82f1-5a72c6705b0c\scratchpad\).
