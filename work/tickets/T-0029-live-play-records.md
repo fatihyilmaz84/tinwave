@@ -3,7 +3,7 @@ id: T-0029
 title: Write play records live when a play ends (warm tier)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0006, T-0024]
@@ -15,6 +15,7 @@ scope:
 owner: tw-builder
 branch: t/T-0029-live-play-records
 review_round: 1
+merge: 14105bf
 created_by: from P-0071
 ---
 

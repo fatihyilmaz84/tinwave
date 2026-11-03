@@ -61,10 +61,11 @@ Target: **≤ 60 bytes per raw event on disk including index.**
 | Tier | Granularity | Default kept | Approx. size (reference user) |
 |---|---|---|---|
 | **Hot** | Raw events + context snapshots | 90 days | ~6 MB |
-| **Warm** | One **play record** per play (see below) | 3 years | ~2 MB / year |
+| **Warm** | One **play record** per play (see below) | 3 years | ~2.5 MB / year (measured, T-0029) |
 | **Cold** | Monthly rollup per recording | Forever | ~0.5 MB / year |
 
-A **play record** compresses everything about one play into one row (~40–50 bytes):
+A **play record** compresses everything about one play into one row (~58 bytes on disk including the
+`play_rec_ts` index, measured by the storage growth test in T-0029):
 
 ```
 play(id, session, recording, source, started_ts, listened_ds (deciseconds), end_reason (u8),
@@ -72,6 +73,17 @@ play(id, session, recording, source, started_ts, listened_ds (deciseconds), end_
      vol_up_early, vol_down, rate_up, rate_down, lyrics, queued, removed_after…),
      peak_section (u8), context_key (u32 packed))
 ```
+
+`end_reason` (T-0029, `EndReason` in crates/tinwave-db/src/play.rs): `Completed`; a skip is `SkippedEarly` under 30 s
+listened, else `SkippedLate` past 80 % of the track (`end_frac` > 204/255; this wins for a short track that is both),
+else `SkippedMid` (so Mid holds both the catalog's 30 s–50 % bucket and the unscored 50–80 % band). `Stopped` and
+`Quit` need the play-end signal of T-0059. A failed track writes no row. `listened_ds` is wall time from start to end
+minus paused time. **Score from `listened_ds` and `end_frac`, not from `end_reason` alone:** the catalog's skip
+buckets (signal-catalog §2) are finer than the end reasons, and both columns are stored so they can be recomputed.
+
+`flags` bits follow the list order above: bit 0 favorited, 1 replayed, 2 seek_back, 3 seek_fwd_intro, 4 vol_up_early,
+5 vol_down, 6 rate_up, 7 rate_down, 8 lyrics, 9 queued, 10 removed_after. T-0029 derives bits 0 and 2; the others stay 0
+until their sources exist (P-0235).
 
 `context_key` is the packed taste-engine bucket (daypart, weekday type, weather bucket, device class,
 activity, place) — 32 bits instead of a full snapshot. The bit layout is versioned and frozen, see

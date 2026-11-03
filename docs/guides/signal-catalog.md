@@ -179,5 +179,5 @@ Session boundaries (T-0024):
 | **Total** | | | **~70 KB/day upper bound; measured ~49 KB/day ≈ 4.4 MB per 90-day hot window (T-0007)** |
 
 Measured by the storage growth test (T-0007, real pipeline, seed 2026): events average ~39 B on disk (29–47 by kind),
-so the event-group rows above are conservative upper bounds. After 90 days raw events are deleted; only play records (~2 MB/year) and monthly rollups (~0.5 MB/year)
+so the event-group rows above are conservative upper bounds. After 90 days raw events are deleted; only play records (~2.5 MB/year measured, T-0029) and monthly rollups (~0.5 MB/year)
 remain. Every new signal must add its estimate to this table.

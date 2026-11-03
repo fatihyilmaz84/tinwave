@@ -37,15 +37,16 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
-| [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | tw-reviewer r1 (build-1 partial: Stopped/Quit split to T-0059) | `t/T-0029-live-play-records` @ 420dd6e · `D:\dev\Tinwave-worktrees\T-0029-live-play-records` |
 | [T-0058](tickets/T-0058-switch-to-gpl.md) Switch Tinwave's licence to GPL-3.0-only (ADR 0009) | tw-reviewer r1 | `t/T-0058-switch-to-gpl` @ 13e46ef · `D:\dev\Tinwave-worktrees\T-0058-switch-to-gpl` |
 
 ## Recently done
+- [T-0029](tickets/T-0029-live-play-records.md) Live play records, ContextKey v1 — merged 14105bf (review r1 APPROVE; Stopped/Quit → T-0059, wipe masking → T-0060).
 - [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither — merged 2e83776 (review r2 APPROVE; P-0223 docs applied).
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
+| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (P1, privacy) | feature | S | tinwave-db | free: no overlap with playback/packaging |
 | [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 (same crate) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
