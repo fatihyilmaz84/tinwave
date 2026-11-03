@@ -28,14 +28,15 @@ _Maintained by the lead. Last updated: 2026-11-02._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck + TwIcon probe as committed tests (P2) | tw-builder r1 | `t/T-0045-contrast-selfcheck-test` · `D:\dev\Tinwave-worktrees\T-0045-contrast-selfcheck-test` |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r2 — CHANGES_REQUESTED: Remove of the playing head recorded | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | tw-builder r1 | `t/T-0026-signalsmith-wrapper` · `D:\dev\Tinwave-worktrees\T-0026-signalsmith-wrapper` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-reviewer r2 (build-2: head removal refused, last-opened base) | `t/T-0023-live-queue-edits` @ ffe9748 · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
