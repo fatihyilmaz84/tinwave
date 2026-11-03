@@ -3,7 +3,7 @@ id: T-0061
 title: Wipe signal history per signal category and "wipe everything"
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: M
 depends_on: [T-0060]
@@ -33,6 +33,11 @@ privacy-and-signals.md promises the listener can wipe collected data per categor
 - [ ] Wipe everything leaves empty signal tables and a working writer — test, including a batch in flight.
 - [ ] Atomic under failure injection — test.
 - [ ] fmt, clippy, nextest, deny; storage growth test passes.
+
+## Added from T-0060 review-2
+- tests/context_wipe.rs `a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved`: assert (or record) that the
+  probe observed the wipe's lock at least once, so a fast machine cannot silently skip the contention. Reuse the same
+  contention pattern for the new wipes.
 
 ## Signals & storage
 No new signal.
