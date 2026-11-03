@@ -3,15 +3,15 @@ id: T-0074
 title: Test-only connection access behind a feature; pin write_batch statement count
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0073]
 scope:
   - crates/tinwave-db/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0074-test-only-connection-access
+review_round: 1
 created_by: from P-0298, P-0299 (T-0073 build-1)
 ---
 
