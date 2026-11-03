@@ -64,6 +64,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | Ticket | Depends on |
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
+| [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (P1, privacy) | T-0060 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
