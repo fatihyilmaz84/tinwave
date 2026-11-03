@@ -68,7 +68,58 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
             currentIndex: 0
-            keyNavigationEnabled: true
+            // The list handles its navigation keys itself (ListView's own key navigation only knows Up/Down and does not
+            // follow with the keyboard ring): keyboard focus moves with the selection, design-system section 7 (the ring
+            // is always visible). The list is one tab stop and the focused row is the current row. The native ItemDelegate
+            // draws its ring only for `visualFocus` (Tab/Backtab/Shortcut), so the target row takes focus with the Tab
+            // reason, before `currentIndex` changes: ListView then finds the current row already focused, so there is one
+            // focus change per key press. A mouse click changes `currentIndex` without passing through here, so a click
+            // shows no ring (native behaviour). No state is kept between key events.
+            keyNavigationEnabled: false
+
+            function moveTo(target) {
+                const last = count - 1
+                const to = Math.max(0, Math.min(last, target))
+                if (to === currentIndex)
+                    return
+                positionViewAtIndex(to, ListView.Contain)
+                const row = itemAtIndex(to)
+                if (row)
+                    row.forceActiveFocus(Qt.TabFocusReason)
+                currentIndex = to
+            }
+
+            Keys.onPressed: event => {
+                // Leave Shift/Ctrl/Alt/Meta combinations alone; KeypadModifier is not a modifier the user
+                // holds: numpad arrows carry it on Windows, and every arrow key carries it on macOS.
+                if (event.modifiers & ~Qt.KeypadModifier)
+                    return
+                // About one screenful, less one row of context (Windows list convention).
+                const page = Math.max(1, Math.floor(height / Theme.sidebarRowHeight) - 1)
+                switch (event.key) {
+                case Qt.Key_Up:
+                    moveTo(currentIndex - 1)
+                    break
+                case Qt.Key_Down:
+                    moveTo(currentIndex + 1)
+                    break
+                case Qt.Key_PageUp:
+                    moveTo(currentIndex - page)
+                    break
+                case Qt.Key_PageDown:
+                    moveTo(currentIndex + page)
+                    break
+                case Qt.Key_Home:
+                    moveTo(0)
+                    break
+                case Qt.Key_End:
+                    moveTo(count - 1)
+                    break
+                default:
+                    return
+                }
+                event.accepted = true
+            }
 
             model: ListModel {
                 ListElement { group: "Library"; key: "songs"; label: "Songs"; iconName: "eighth-notes" }
@@ -114,8 +165,9 @@ Rectangle {
                 icon.height: Theme.iconSize
                 icon.color: Theme.text
                 spacing: Theme.m
-                // One tab stop for the whole list (the current item); Up/Down move the selection.
-                focusPolicy: ListView.isCurrentItem ? Qt.StrongFocus : Qt.ClickFocus
+                // One tab stop for the whole list (the current item); Up/Down move the selection. A row keeps Tab focus
+                // while it still holds focus: Qt refuses to drop the tab policy of the active focus item.
+                focusPolicy: ListView.isCurrentItem || activeFocus ? Qt.StrongFocus : Qt.ClickFocus
                 highlighted: ListView.isCurrentItem
                 Accessible.name: label
                 onClicked: nav.currentIndex = index

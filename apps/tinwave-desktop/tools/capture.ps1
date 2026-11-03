@@ -6,7 +6,12 @@
 # - The capture is cropped to DWMWA_EXTENDED_FRAME_BOUNDS, i.e. the visible window. GetWindowRect also covers Windows 11's
 #   invisible resize border, which PrintWindow paints black (a strip on the left, right and bottom edge); the 1 px outline DWM
 #   draws itself is trimmed as well.
+# - The mouse pointer is parked in a screen corner outside the window (no hover fill in the capture).
 # - Keys are sent with the window in the foreground: an inactive window does not draw its focus ring under PrintWindow.
+#   The foreground is verified before every key and before the grab (retried 5 times; the Alt tap that lifts the
+#   foreground lock is skipped when the window is already in front); if it cannot be taken the script saves nothing and
+#   exits 1 with a message. The very first key after activation is occasionally still lost (the window
+#   is active, Qt has not routed focus yet), so look at a keyboard capture before using it as evidence.
 #   Keep the keyboard free while the script runs. Keys use SendKeys syntax, comma separated, one step each.
 # - The colour scheme is the app's own (`--color-scheme=`); the OS theme, accent and scaling are never changed. The image
 #   has the physical size of the window at the current scaling (e.g. 150 %).
@@ -37,6 +42,7 @@ public static class TwCapture {
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
   [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
   [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr h, int attr, out RECT r, int size);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
 }
@@ -59,24 +65,48 @@ try {
 
     # Foreground: Windows only lets a process that owns the foreground (or shares its input queue) take it, so attach to the
     # current foreground window's input queue for the call. The Alt tap lifts the foreground lock for this process too.
-    [TwCapture]::ShowWindow($h, 9) | Out-Null
-    [TwCapture]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-    [TwCapture]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-    $fg = [TwCapture]::GetForegroundWindow()
-    $fgPid = [uint32]0
-    $fgThread = [TwCapture]::GetWindowThreadProcessId($fg, [ref]$fgPid)
-    $me = [TwCapture]::GetCurrentThreadId()
-    if ($fgThread -ne 0 -and $fgThread -ne $me) { [TwCapture]::AttachThreadInput($me, $fgThread, $true) | Out-Null }
-    [TwCapture]::BringWindowToTop($h) | Out-Null
-    [TwCapture]::SetForegroundWindow($h) | Out-Null
-    if ($fgThread -ne 0 -and $fgThread -ne $me) { [TwCapture]::AttachThreadInput($me, $fgThread, $false) | Out-Null }
-    Start-Sleep -Milliseconds 500
-    if ([TwCapture]::GetForegroundWindow() -ne $h) { Write-Warning 'the window is not in the foreground (focus ring may be missing)' }
+    # The grab is sometimes flaky, so it is verified, retried a few times, and then fails loudly: a capture of an inactive
+    # window has no focus ring and must never be saved as evidence.
+    function Get-Foreground($handle, $attempts) {
+        for ($try = 1; $try -le $attempts; $try++) {
+            if ([TwCapture]::GetForegroundWindow() -eq $handle) { return }   # already in front: no Alt tap, no extra key events
+            [TwCapture]::ShowWindow($handle, 9) | Out-Null
+            [TwCapture]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+            [TwCapture]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+            $fg = [TwCapture]::GetForegroundWindow()
+            $fgPid = [uint32]0
+            $fgThread = [TwCapture]::GetWindowThreadProcessId($fg, [ref]$fgPid)
+            $me = [TwCapture]::GetCurrentThreadId()
+            if ($fgThread -ne 0 -and $fgThread -ne $me) { [TwCapture]::AttachThreadInput($me, $fgThread, $true) | Out-Null }
+            [TwCapture]::BringWindowToTop($handle) | Out-Null
+            [TwCapture]::SetForegroundWindow($handle) | Out-Null
+            if ($fgThread -ne 0 -and $fgThread -ne $me) { [TwCapture]::AttachThreadInput($me, $fgThread, $false) | Out-Null }
+            Start-Sleep -Milliseconds 300
+            if ([TwCapture]::GetForegroundWindow() -eq $handle) { Start-Sleep -Milliseconds 500; return }   # let Qt finish activating
+            Write-Warning "the window is not in the foreground (attempt $try of $attempts), retrying"
+            Start-Sleep -Milliseconds 500
+        }
+        throw "capture aborted: Tinwave could not be brought to the foreground after $attempts attempts, so the capture would show an inactive window (no focus ring). Nothing was saved; close what is stealing focus and run again."
+    }
 
+    # Park the mouse pointer in a screen corner outside the window: a pointer over the sidebar paints a hover fill on a row
+    # that looks like a second selection in keyboard evidence.
+    $rc = New-Object TwCapture+RECT; [TwCapture]::GetWindowRect($h, [ref]$rc) | Out-Null
+    $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+    $corners = @(@(($scr.Right - 1), $scr.Top), @($scr.Left, $scr.Top), @($scr.Left, ($scr.Bottom - 1)), @(($scr.Right - 1), ($scr.Bottom - 1)))
+    foreach ($c in $corners) {
+        if ($c[0] -lt $rc.L -or $c[0] -ge $rc.R -or $c[1] -lt $rc.T -or $c[1] -ge $rc.B) { [TwCapture]::SetCursorPos($c[0], $c[1]) | Out-Null; break }
+    }
+
+    Get-Foreground $h 5
     if ($Keys) {
-        foreach ($k in $Keys.Split(',')) { [System.Windows.Forms.SendKeys]::SendWait($k.Trim()); Start-Sleep -Milliseconds 400 }
+        foreach ($k in $Keys.Split(',')) {
+            Get-Foreground $h 5   # checked before every key, not only once at the start
+            [System.Windows.Forms.SendKeys]::SendWait($k.Trim()); Start-Sleep -Milliseconds 400
+        }
         Start-Sleep -Milliseconds 500
     }
+    Get-Foreground $h 5   # and once more right before the grab
 
     $win = New-Object TwCapture+RECT; [TwCapture]::GetWindowRect($h, [ref]$win) | Out-Null
     $vis = New-Object TwCapture+RECT
@@ -106,6 +136,11 @@ try {
     $bmp.Dispose()
     "saved $Out $($crop.Width)x$($crop.Height)"
 }
+catch {
+    [Console]::Error.WriteLine("capture.ps1: $($_.Exception.Message)")
+    $failed = $true
+}
 finally {
     Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 }
+if ($failed) { exit 1 }
