@@ -3,7 +3,7 @@ id: T-0045
 title: Run Theme.selfCheck() as a committed test (15 accents × 2 schemes)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0035]
