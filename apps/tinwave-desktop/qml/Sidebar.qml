@@ -90,7 +90,9 @@ Rectangle {
             }
 
             Keys.onPressed: event => {
-                if (event.modifiers !== Qt.NoModifier)
+                // Leave Shift/Ctrl/Alt/Meta combinations alone; KeypadModifier is not a modifier the user
+                // holds: numpad arrows carry it on Windows, and every arrow key carries it on macOS.
+                if (event.modifiers & ~Qt.KeypadModifier)
                     return
                 // About one screenful, less one row of context (Windows list convention).
                 const page = Math.max(1, Math.floor(height / Theme.sidebarRowHeight) - 1)
