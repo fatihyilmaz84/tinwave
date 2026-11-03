@@ -45,7 +45,7 @@ coalesced gesture (T-0027); `RateSession` is derived from the engine's `RateStat
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
 | `RateChanged` | T0 | Rate gesture ends | `from`, `to`, `input`, `section` | > 1.0 ⇒ impatience with this track (−0.2) unless context is Workout-like. < 1.0 ⇒ studying/learning (neutral, flags "practice track"). |
-| `RateSession` | derived | Per play | `time_weighted_rate` | Tracks always played fast ⇒ candidates for "radio edit" starts (skip intro). |
+| `RateSession` | derived | Once per heard play, when it ends (finished, skipped or stopped). None for a play never heard or one that failed, none while the Speed category is off, none for a play that straddles the toggle. A play spent entirely at 1.0 still has one (1.0), so "not rushed" differs from "not measured". | `time_weighted_rate` | Tracks always played fast ⇒ candidates for "radio edit" starts (skip intro). Source frames advanced per frame played, from the engine's counters (T-0062); accurate to about one device latency plus one poll at a play's edges (ADR 0006), exact when the rate did not change. Class D: never a `signal_event` row (the bus refuses derived kinds), so 0 B/day in the event table. The controller hands each value over (`Controller::take_rate_sessions`); keeping it in a play record would cost about one byte per play (≈ 0.1 KB/day at ~120 plays) and is added to §9 by the ticket that stores it. Toggled with `RateChanged`, by the Speed category. |
 
 ## 3. Seek, skip, replay — "where is the good part?"
 
