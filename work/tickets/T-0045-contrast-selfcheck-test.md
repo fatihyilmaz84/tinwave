@@ -3,7 +3,7 @@ id: T-0045
 title: Run Theme.selfCheck() as a committed test (15 accents × 2 schemes)
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0035]
@@ -11,9 +11,9 @@ scope:
   - apps/tinwave-desktop/tests/
   - apps/tinwave-desktop/tests/qml/          # harness QML, if needed
   - docs/design/design-system.md             # §3.1 "The check": point at the test
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0045-contrast-selfcheck-test
+review_round: 1
 created_by: from P-0129
 ---
 

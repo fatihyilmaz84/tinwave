@@ -27,6 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck + TwIcon probe as committed tests (P2) | tw-builder r1 | `t/T-0045-contrast-selfcheck-test` · `D:\dev\Tinwave-worktrees\T-0045-contrast-selfcheck-test` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r2 — CHANGES_REQUESTED: Remove of the playing head recorded | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | tw-builder r1 | `t/T-0026-signalsmith-wrapper` · `D:\dev\Tinwave-worktrees\T-0026-signalsmith-wrapper` |
 
@@ -42,7 +43,6 @@ _none_
 | [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (P2) | chore | S | desktop src/platform, platform_bridge.rs, cpp shim | free |
 | [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | chore | S | desktop tools/capture.ps1 | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
-| [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | free |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler + dither | feature | M | tinwave-playback | after T-0023 |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | after T-0023 |
 
