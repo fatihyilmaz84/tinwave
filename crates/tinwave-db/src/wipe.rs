@@ -11,25 +11,30 @@
 //! `rollup_monthly` carries no context and is not touched. Turning a category or tier **off**
 //! (`PersistentSettings`) only stops new values; existing rows change only through a wipe here.
 //!
-//! # Which fields a category owns
+//! # Which fields a category clears
 //!
 //! A [`ContextCategory`] is a provider group of the context engine
-//! (`docs/guides/context-engine.md`) with the tier of `signal-catalog.md` section 7. Wiping it
-//! sets the `ContextKey` fields below to unknown, and nothing else:
+//! (`docs/guides/context-engine.md`) with the tier of `signal-catalog.md` section 7. Every
+//! `ContextKey` field has **exactly one owning category**, the provider the value is read from.
+//! A field that is derived from other categories' data also lists them as *derived from*: **a wipe
+//! of any category clears the fields it owns and the fields derived from it**, because a wipe
+//! removes everything derived from the wiped data (`privacy-and-signals.md`). Nothing else changes.
 //!
-//! | category | tier | fields |
-//! |---|---|---|
-//! | [`Clock`](ContextCategory::Clock) | T1 | daypart, weekday type |
-//! | [`OutputDevice`](ContextCategory::OutputDevice) | T1 | device class |
-//! | [`ForegroundApp`](ContextCategory::ForegroundApp) | T2 | activity |
-//! | [`NetworkPlace`](ContextCategory::NetworkPlace) | T2 | place slot |
-//! | [`Weather`](ContextCategory::Weather) | T3 | weather condition, temperature band |
+//! | category | tier | owns | also clears (derived from it) |
+//! |---|---|---|---|
+//! | [`Clock`](ContextCategory::Clock) | T1 | daypart, weekday type | activity |
+//! | [`OutputDevice`](ContextCategory::OutputDevice) | T1 | device class | |
+//! | [`ForegroundApp`](ContextCategory::ForegroundApp) | T2 | activity | |
+//! | [`NetworkPlace`](ContextCategory::NetworkPlace) | T2 | place slot | activity |
+//! | [`Weather`](ContextCategory::Weather) | T3 | weather condition, temperature band | |
 //!
-//! The activity guess is derived from several providers (app category, idle, fullscreen, power,
-//! place, clock). It is owned by the foreground-app category, the T2 input its sensitive values
-//! (`Focus`, `Gaming`, `Call`) come from; wiping a different category does not clear it, and
-//! wiping the tier T2 does. Calendar (T2) has no `ContextKey` field. T0 has none either, so
-//! wiping T0 context is a no-op.
+//! The activity guess is derived (`context-engine.md`, "Derived context"): `Focus`, `Gaming` and
+//! `Call` from the app category, `OnTheMove` from the place, `Leisure` from the weekend or the
+//! evening. It is owned by the foreground-app category (its sensitive values come from there) and
+//! derived from the network place and the clock too, so wiping any of the three clears it.
+//! Idle, fullscreen and power (T1) also feed it but are not a modeled category, so they clear
+//! nothing. Calendar (T2) has no `ContextKey` field. T0 has none either, so wiping T0 context is
+//! a no-op. Wiping a tier clears the fields of all its categories.
 //!
 //! # Not yet covered
 //!
@@ -87,9 +92,16 @@ impl ContextCategory {
         }
     }
 
-    /// The `ContextKey` fields a wipe of this category clears.
+    /// The `ContextKey` fields a wipe of this category clears: the ones it
+    /// [owns](Self::owned_fields) and the ones [derived from it](Self::derived_fields).
     #[must_use]
     pub const fn fields(self) -> ContextFieldSet {
+        self.owned_fields().union(self.derived_fields())
+    }
+
+    /// The fields this category is the one owner of: its provider's values.
+    #[must_use]
+    pub const fn owned_fields(self) -> ContextFieldSet {
         match self {
             Self::Clock => ContextFieldSet::EMPTY
                 .with(ContextField::Daypart)
@@ -100,6 +112,17 @@ impl ContextCategory {
             Self::Weather => ContextFieldSet::EMPTY
                 .with(ContextField::Condition)
                 .with(ContextField::Temperature),
+        }
+    }
+
+    /// Fields owned by another category but derived from this one's data, so a wipe of this
+    /// category clears them too (see the module docs).
+    #[must_use]
+    pub const fn derived_fields(self) -> ContextFieldSet {
+        match self {
+            // `Leisure` is the guess for a weekend or an evening; `OnTheMove` uses the place.
+            Self::Clock | Self::NetworkPlace => ContextFieldSet::EMPTY.with(ContextField::Activity),
+            Self::OutputDevice | Self::ForegroundApp | Self::Weather => ContextFieldSet::EMPTY,
         }
     }
 
@@ -247,9 +270,19 @@ mod tests {
         for field in ContextField::ALL {
             let owners: Vec<_> = ContextCategory::ALL
                 .iter()
-                .filter(|c| c.fields().contains(field))
+                .filter(|c| c.owned_fields().contains(field))
                 .collect();
             assert_eq!(owners.len(), 1, "{field:?} is owned by {owners:?}");
+        }
+        // A derived field is never also the category's own: it has another owner.
+        for category in ContextCategory::ALL {
+            for field in ContextField::ALL {
+                assert!(
+                    !(category.owned_fields().contains(field)
+                        && category.derived_fields().contains(field)),
+                    "{category:?} lists {field:?} as owned and derived"
+                );
+            }
         }
         assert_eq!(ContextCategory::Weather.tier(), Tier::T3);
         assert_eq!(ContextCategory::NetworkPlace.tier(), Tier::T2);
@@ -258,8 +291,43 @@ mod tests {
         assert_eq!(ContextCategory::OutputDevice.tier(), Tier::T1);
     }
 
+    /// Activity is owned by the foreground-app category and derived from the place and the clock:
+    /// wiping any of the three clears it, and nothing else of the others (the device class stays).
     #[test]
-    fn a_tier_owns_the_fields_of_its_categories() {
+    fn activity_is_cleared_by_the_categories_it_is_derived_from() {
+        for category in [
+            ContextCategory::ForegroundApp,
+            ContextCategory::NetworkPlace,
+            ContextCategory::Clock,
+        ] {
+            assert!(
+                category.fields().contains(ContextField::Activity),
+                "{category:?}"
+            );
+        }
+        for category in [ContextCategory::OutputDevice, ContextCategory::Weather] {
+            assert!(
+                !category.fields().contains(ContextField::Activity),
+                "{category:?}"
+            );
+        }
+        for category in ContextCategory::ALL {
+            assert_eq!(
+                category.fields().contains(ContextField::DeviceClass),
+                category == ContextCategory::OutputDevice,
+                "{category:?}"
+            );
+        }
+        assert_eq!(
+            ContextCategory::NetworkPlace.fields(),
+            ContextFieldSet::EMPTY
+                .with(ContextField::Place)
+                .with(ContextField::Activity)
+        );
+    }
+
+    #[test]
+    fn a_tier_clears_the_fields_of_its_categories() {
         assert!(ContextCategory::tier_fields(Tier::T0).is_empty());
         assert_eq!(
             ContextCategory::tier_fields(Tier::T2),

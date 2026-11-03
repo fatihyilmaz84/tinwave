@@ -73,13 +73,14 @@ fn full_without(without: &[FieldName]) -> ContextKey {
     key_of(&kept)
 }
 
-/// The fields each category owns, written out here (see the table in `wipe.rs`).
+/// The fields a wipe of each category clears (the ones it owns plus those derived from it),
+/// written out here (see the table in `wipe.rs`).
 fn owned(category: ContextCategory) -> &'static [FieldName] {
     match category {
-        ContextCategory::Clock => &[FieldName::Daypart, FieldName::Weekday],
+        ContextCategory::Clock => &[FieldName::Daypart, FieldName::Weekday, FieldName::Activity],
         ContextCategory::OutputDevice => &[FieldName::Device],
         ContextCategory::ForegroundApp => &[FieldName::Activity],
-        ContextCategory::NetworkPlace => &[FieldName::Place],
+        ContextCategory::NetworkPlace => &[FieldName::Place, FieldName::Activity],
         ContextCategory::Weather => &[FieldName::Condition, FieldName::Temperature],
     }
 }
@@ -232,7 +233,12 @@ fn wiping_a_tier_clears_the_fields_of_its_categories() {
         (Tier::T0, &[]),
         (
             Tier::T1,
-            &[FieldName::Daypart, FieldName::Weekday, FieldName::Device],
+            &[
+                FieldName::Daypart,
+                FieldName::Weekday,
+                FieldName::Device,
+                FieldName::Activity,
+            ],
         ),
         (Tier::T2, &[FieldName::Activity, FieldName::Place]),
         (Tier::T3, &[FieldName::Condition, FieldName::Temperature]),
@@ -251,6 +257,43 @@ fn wiping_a_tier_clears_the_fields_of_its_categories() {
     }
 }
 
+/// The activity guess is derived from the place and the clock, so wiping the network place or the
+/// clock clears it as well as the foreground app that owns it; the device class is not derived from
+/// any of them and stays.
+#[test]
+fn wiping_the_place_or_the_clock_also_clears_the_derived_activity() {
+    let cases: [(ContextCategory, &[FieldName]); 3] = [
+        (ContextCategory::NetworkPlace, &[FieldName::Place]),
+        (
+            ContextCategory::Clock,
+            &[FieldName::Daypart, FieldName::Weekday],
+        ),
+        (ContextCategory::ForegroundApp, &[]),
+    ];
+    for (category, owned_fields) in cases {
+        let mut fx = Fixture::new(&[full().raw()], &[full().raw()]);
+        fx.wiper.wipe_context(&[category]).unwrap();
+        let mut cleared = owned_fields.to_vec();
+        cleared.push(FieldName::Activity);
+        let key = ContextKey::from_raw(fx.play_keys()[0]).unwrap();
+        assert_eq!(key, full_without(&cleared), "{category:?}");
+        assert_eq!(key.activity(), None, "{category:?}");
+        assert_eq!(
+            key.device_class(),
+            Some(OutputClass::Bluetooth),
+            "{category:?}: the device class is untouched"
+        );
+        assert_eq!(fx.snapshot_keys(), fx.play_keys(), "{category:?}");
+    }
+    // The output device and weather wipes never touch activity.
+    for category in [ContextCategory::OutputDevice, ContextCategory::Weather] {
+        let mut fx = Fixture::new(&[full().raw()], &[]);
+        fx.wiper.wipe_context(&[category]).unwrap();
+        let key = ContextKey::from_raw(fx.play_keys()[0]).unwrap();
+        assert_eq!(key.activity(), Some(ActivityGuess::Leisure), "{category:?}");
+    }
+}
+
 /// Several categories in one call, and a repeated wipe, which finds nothing more to change.
 #[test]
 fn several_categories_at_once_and_a_second_wipe_changes_nothing() {
@@ -261,6 +304,7 @@ fn several_categories_at_once_and_a_second_wipe_changes_nothing() {
         fx.play_keys(),
         [full_without(&[
             FieldName::Place,
+            FieldName::Activity,
             FieldName::Condition,
             FieldName::Temperature
         ])
@@ -276,7 +320,7 @@ fn several_categories_at_once_and_a_second_wipe_changes_nothing() {
 #[test]
 fn many_rows_with_the_same_key_are_all_rewritten() {
     let with = full().raw();
-    let without = full_without(&[FieldName::Place]).raw();
+    let without = full_without(&[FieldName::Place, FieldName::Activity]).raw();
     let keys: Vec<u32> = (0..50)
         .map(|i| if i % 5 == 0 { without } else { with })
         .collect();
@@ -335,7 +379,7 @@ fn a_failure_after_the_play_rows_were_rewritten_changes_nothing() {
     assert_eq!(
         fx.play_keys(),
         [
-            full_without(&[FieldName::Place]).raw(),
+            full_without(&[FieldName::Place, FieldName::Activity]).raw(),
             key_of(&[FieldName::Daypart]).raw()
         ]
     );
