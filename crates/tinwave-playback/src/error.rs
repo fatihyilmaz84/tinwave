@@ -45,6 +45,12 @@ pub enum PlaybackError {
     /// The output backend failed.
     #[error("audio output: {0}")]
     Output(String),
+    /// An `OpenRequest::exclusive_only` open that the device would not take: the rate or format
+    /// is not available exclusively, or another application holds the endpoint. The engine
+    /// treats exactly this error as a refusal of the rate (it opens again at its own rate); every
+    /// other output error is a failure of the device.
+    #[error("exclusive mode refused: {0}")]
+    ExclusiveRefused(String),
     /// A call argument is invalid.
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),

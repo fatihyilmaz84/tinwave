@@ -218,15 +218,28 @@ impl Harness {
     /// the engine opens the stream at each file's rate. `device_rates` are the rates the fake
     /// device accepts exclusively (`None`: all of them).
     pub fn exclusive(device_rates: Option<&[u32]>) -> Self {
+        Self::exclusive_through(device_rates, |output| Box::new(output))
+    }
+
+    /// [`exclusive`](Self::exclusive) with the fake output behind a wrapper (an output that ignores
+    /// part of the request, say). The wrapper is given the `ManualOutput` already in exclusive mode.
+    pub fn exclusive_through(
+        device_rates: Option<&[u32]>,
+        wrap: impl FnOnce(ManualOutput) -> Box<dyn AudioOutput>,
+    ) -> Self {
         let (output, out) = ManualOutput::new();
         out.set_exclusive(true);
         if let Some(rates) = device_rates {
             out.set_device_rates(rates);
         }
-        Self::with_output(Arc::new(FsOpener), output, out)
+        Self::with_output(Arc::new(FsOpener), wrap(output), out)
     }
 
-    fn with_output(opener: Arc<dyn SourceOpener>, output: ManualOutput, out: ManualHandle) -> Self {
+    fn with_output(
+        opener: Arc<dyn SourceOpener>,
+        output: Box<dyn AudioOutput>,
+        out: ManualHandle,
+    ) -> Self {
         let sink = Arc::new(CollectingSink::default());
         let clock = ManualClock::new(UtcMillis::new(1_000_000));
         let engine = Engine::start(
@@ -237,7 +250,7 @@ impl Harness {
                 sink: sink.clone(),
                 clock: Arc::new(clock.clone()),
             },
-            Box::new(output),
+            output,
         )
         .expect("engine starts");
         assert!(
@@ -253,8 +266,8 @@ impl Harness {
         }
     }
 
-    /// Like [`settle`](Self::settle), and polls: a command that starts a track of another sample
-    /// rate in exclusive mode is carried out only after a poll has reopened the output.
+    /// Like [`settle`](Self::settle), and polls on every round: a poll also announces the tracks
+    /// that start meanwhile, which the exclusive-mode tests want.
     pub fn settle_polling(&mut self) {
         for _ in 0..30_000 {
             self.engine.poll();
@@ -310,8 +323,18 @@ impl Harness {
     ///
     /// The acknowledgement is an empty callback: it runs the flush handshake but cannot take any
     /// frame of the new stream, so nothing real is ever discarded here.
+    ///
+    /// It also polls the engine while the decoder waits for that: in exclusive mode a command that
+    /// starts a track of another sample rate is carried out only after a poll has reopened the
+    /// output, so without the poll this would wait for ever. It polls **only then**, unlike
+    /// [`settle_polling`](Self::settle_polling), which polls on every round: a poll also announces
+    /// tracks and emits events, and the shared-mode tests that settle depend on none of that having
+    /// happened yet.
     pub fn settle(&mut self) {
         for _ in 0..30_000 {
+            if self.engine.reopen_pending() {
+                self.engine.poll();
+            }
             if !self.engine.command_pending() {
                 return;
             }
@@ -649,7 +672,9 @@ fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 /// An `AudioOutput` whose "audio callback" is the real `Pump` (render, convert, write) driven by
-/// the test thread against a [`FakeDevice`].
+/// the test thread against a [`FakeDevice`]. Like an output written before `exclusive_only`
+/// (T-0066) it ignores that flag and answers a refused rate with a shared stream, which keeps the
+/// engine's handling of that answer under test.
 pub struct FakeDeviceOutput {
     shared: Arc<FakeShared>,
     format: SampleFormat,

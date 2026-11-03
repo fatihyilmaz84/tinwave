@@ -32,7 +32,7 @@ pub use stream_thread::{run_render_thread, DeviceSetup, OpenState};
 #[cfg(windows)]
 pub use windows::{WasapiControl, WasapiOutput};
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::{PlaybackError, Renderer};
@@ -46,9 +46,18 @@ pub struct OpenRequest<'a> {
     /// the engine resamples files of other rates to it (decoder thread, T-0019), so the callback
     /// only ever sees this rate; a backend that has to convert to the device mix rate does so
     /// itself. When [`AudioOutput::wants_exclusive`] is true the engine asks for the rate of the
-    /// file that is about to play (T-0057): an exclusive stream that does not come back as
-    /// [`StreamMode::Exclusive`] is a refusal, and the engine opens again at its configured rate.
+    /// file that is about to play (T-0057): a rate the device does not open exclusively is a
+    /// refusal, and the engine opens again at its configured rate.
     pub sample_rate: u32,
+    /// Open exclusively or not at all (T-0066). The engine sets it for a rate that is not its
+    /// own, where a shared stream would be thrown away at once: an output with an exclusive mode
+    /// then returns an error instead of falling back to shared, so a refusal costs no shared
+    /// open. It is false for the engine's own rate, where shared is the right fallback.
+    /// The error for a refusal is [`PlaybackError::ExclusiveRefused`]; any other error is a
+    /// failure of the device and ends the open as it always did. Outputs that are not in exclusive mode ignore
+    /// the flag; an output that ignores it altogether still works, the engine also recognises a
+    /// shared stream as the refusal.
+    pub exclusive_only: bool,
 }
 
 /// An audio backend: WASAPI, cpal, or the in-memory [`ManualOutput`].
@@ -107,6 +116,8 @@ struct ManualShared {
     opens: Mutex<Vec<(Option<String>, u32)>>,
     fail_next_open: AtomicBool,
     exclusive: AtomicBool,
+    /// Exclusive-only opens that failed because the fake device refused the rate.
+    refused: AtomicUsize,
     /// Rates the fake device accepts in exclusive mode; `None` accepts every rate.
     device_rates: Mutex<Option<Vec<u32>>>,
 }
@@ -140,6 +151,15 @@ impl AudioOutput for ManualOutput {
         }
         lock(&self.shared.opens).push((request.device.map(str::to_owned), request.sample_rate));
         let info = self.stream_info(request);
+        if request.exclusive_only && self.wants_exclusive() && info.mode != StreamMode::Exclusive {
+            // As the WASAPI output does: no shared stream in place of the refused exclusive one.
+            // The open is counted (the device was asked), nothing is left open.
+            self.shared.refused.fetch_add(1, Ordering::AcqRel);
+            return Err(PlaybackError::ExclusiveRefused(format!(
+                "the device does not accept {} Hz",
+                request.sample_rate
+            )));
+        }
         self.shared.lost.store(false, Ordering::Release);
         *lock(&self.shared.renderer) = Some(renderer);
         Ok(Box::new(ManualStream {
@@ -254,8 +274,15 @@ impl ManualHandle {
         *lock(&self.shared.device_rates) = Some(rates.to_vec());
     }
 
+    /// How many exclusive-only opens failed because the fake device does not take the rate. Each is
+    /// also in [`opens`](Self::opens); the others in it produced a stream.
+    #[must_use]
+    pub fn refused_opens(&self) -> usize {
+        self.shared.refused.load(Ordering::Acquire)
+    }
+
     /// Every `(device, sample_rate)` the output was opened with, in order, including opens the
-    /// device then refused.
+    /// device then refused (as a shared stream, or as an error for an exclusive-only request).
     #[must_use]
     pub fn opens(&self) -> Vec<(Option<String>, u32)> {
         lock(&self.shared.opens).clone()
