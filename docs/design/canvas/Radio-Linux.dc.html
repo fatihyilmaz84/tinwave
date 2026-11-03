@@ -161,7 +161,7 @@ signals: 'M3 12h4l3-8 4 16 3-8h4',
 settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4'
 };
 const it = (t, d, sel) => ({ t, d, bg: sel ? '#0B6E78' : 'transparent', fg: sel ? '#FFFFFF' : '#1B1B1F' });
-const row = (t, a, why, d, c, cur, open) => ({ t, a, why, d, c, bg: cur ? '#E6F1F2' : 'transparent', w: cur ? '600' : '400', chipBd: open ? '#0B6E78' : '#D9D9DE', chipBg: open ? '#E6F1F2' : '#FFFFFF' });
+const row = (t, a, why, d, c, cur, open) => ({ t, a, why, d, c, bg: cur ? '#E7F1F2' : 'transparent', w: cur ? '600' : '400', chipBd: open ? '#0B6E78' : '#D9D9DE', chipBg: open ? '#E7F1F2' : '#FFFFFF' });
 return {
 nav: [
 { label: 'Library', items: [it('Songs', I.songs), it('Albums', I.album), it('Artists', I.artist)] },

@@ -36,7 +36,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 24px">
 <sc-for list="{{principles}}" as="p" hint-placeholder-count="5">
 <div style="display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 2px solid #1B1B1F">
-<span style="font-size: 13px; color: #6E6E77; font-variant-numeric: tabular-nums">{{p.n}}</span>
+<span style="font-size: 13px; color: #64646D; font-variant-numeric: tabular-nums">{{p.n}}</span>
 <span style="font-size: 17px; font-weight: 600; line-height: 1.3">{{p.t}}</span>
 <span style="font-size: 14px; line-height: 1.5; color: #5D5D66">{{p.d}}</span>
 </div>
@@ -47,7 +47,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <section style="display: flex; flex-direction: column; gap: 24px">
 <div style="display: flex; justify-content: space-between; align-items: baseline">
 <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Color tokens · semantic only, never raw hex in QML</h2>
-<span style="font-size: 13px; color: #6E6E77">All text pairs ≥ 4.5:1 on their surface</span>
+<span style="font-size: 13px; color: #64646D">All text pairs ≥ 4.5:1 on their surface</span>
 </div>
 <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px">
 <div style="background: #F3F3F5; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
@@ -196,16 +196,16 @@ principles: [
 ],
 light: [
 { name: 'window', hex: '#F3F3F5' }, { name: 'sidebar', hex: '#ECECEF' }, { name: 'content', hex: '#FFFFFF' },
-{ name: 'raised', hex: '#FFFFFF' }, { name: 'hover', hex: '#0000000A' }, { name: 'selected', hex: '#E6F1F2' },
+{ name: 'raised', hex: '#FFFFFF' }, { name: 'hover', hex: '#0000000A' }, { name: 'selected', hex: '#E7F1F2' },
 { name: 'separator', hex: '#0000001A' }, { name: 'text', hex: '#1B1B1F' }, { name: 'textMuted', hex: '#5D5D66' },
-{ name: 'textFaint', hex: '#6E6E77' }, { name: 'accent', hex: '#0B6E78' }, { name: 'onAccent', hex: '#FFFFFF' },
-{ name: 'srcServer', hex: '#1F5FA8' }, { name: 'srcDownload', hex: '#2E7D46' }, { name: 'warning', hex: '#9A5B00' }
+{ name: 'textFaint', hex: '#64646D' }, { name: 'accent', hex: '#0B6E78' }, { name: 'onAccent', hex: '#FFFFFF' },
+{ name: 'srcServer', hex: '#1F5FA8' }, { name: 'srcDownload', hex: '#2A7240' }, { name: 'warning', hex: '#925700' }
 ],
 dark: [
 { name: 'window', hex: '#161618' }, { name: 'sidebar', hex: '#1D1D20' }, { name: 'content', hex: '#161618' },
-{ name: 'raised', hex: '#202023' }, { name: 'hover', hex: '#FFFFFF0F' }, { name: 'selected', hex: '#1B2B2D' },
+{ name: 'raised', hex: '#202023' }, { name: 'hover', hex: '#FFFFFF0F' }, { name: 'selected', hex: '#1E2B2E' },
 { name: 'separator', hex: '#FFFFFF14' }, { name: 'text', hex: '#F2F2F4' }, { name: 'textMuted', hex: '#A6A6AF' },
-{ name: 'textFaint', hex: '#8C8C95' }, { name: 'accent', hex: '#5CC6CF' }, { name: 'onAccent', hex: '#0F2F33' },
+{ name: 'textFaint', hex: '#94949C' }, { name: 'accent', hex: '#5CC6CF' }, { name: 'onAccent', hex: '#0F2F33' },
 { name: 'srcServer', hex: '#7BB0EE' }, { name: 'srcDownload', hex: '#76C48E' }, { name: 'warning', hex: '#E0A453' }
 ],
 type: [
