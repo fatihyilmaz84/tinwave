@@ -3,7 +3,7 @@ id: T-0074
 title: Test-only connection access behind a feature; pin write_batch statement count
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0073]
