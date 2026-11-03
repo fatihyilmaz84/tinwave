@@ -3,6 +3,8 @@
 _Maintained by the lead. Last updated: 2026-11-02._
 
 ## Needs the PO
+- [D-0007](decisions/D-0007-licence-holder-and-source-offer.md): who is the copyright holder in Tinwave's own MIT/Apache
+  texts, and what contact goes in the Qt source offer? Blocks a public release only.
 - **Check your system volume.** T-0008 left master volume at 2 % unmuted; T-0003 later found the default output
   muted at 6 %. Set it the way you want before any listening test.
 - Runbooks, when convenient (they gate acceptance, not current work):
@@ -22,7 +24,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + THIRD-PARTY-NOTICES | tw-builder r1 | `t/T-0042-windows-packaging-notices` · `D:\dev\Tinwave-worktrees\T-0042-windows-packaging-notices` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 (sent back before review: defer no-session queue acts, P-0160) | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -31,6 +32,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + THIRD-PARTY-NOTICES | tw-reviewer r1 (build-1: 57.7 MiB bundle runs with Qt off PATH; 13 negative checks) | `t/T-0042-windows-packaging-notices` @ b8c1a3a · `D:\dev\Tinwave-worktrees\T-0042-windows-packaging-notices` |
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | tw-reviewer r2 (build-2: canvas glyphs, qrc_resources, text tint + 12 px gap) | `t/T-0043-icon-pipeline` @ bd4f333 · `D:\dev\Tinwave-worktrees\T-0043-icon-pipeline` |
 
 ## Ready (dispatch order)
@@ -117,5 +119,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0163 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror).
+Proposals P-0001..P-0168 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI).
