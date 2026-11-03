@@ -23,7 +23,7 @@ windows = { workspace = true, features = ["Win32_Foundation", "Win32_Media_Audio
 
 [build-dependencies]
 # Compiles the C ABI over the vendored Signalsmith Stretch headers (src/stretch/, ADR 0006). MIT OR Apache-2.0.
-cc = "1"
+cc = { workspace = true }
 
 [dev-dependencies]
 tinwave-test-alloc = { workspace = true }

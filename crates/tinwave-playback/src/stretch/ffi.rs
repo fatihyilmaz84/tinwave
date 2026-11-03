@@ -1,4 +1,4 @@
-//! Raw declarations of the C ABI in `tw_stretch.h`. Keep the two in step by hand; `tests.rs`
+//! Raw declarations of the C ABI in `tw_stretch.h`. Keep the two in step by hand; `tests/stretch.rs`
 //! exercises every function, so a mismatch shows up as a failing test, not as silent corruption.
 
 use std::marker::{PhantomData, PhantomPinned};

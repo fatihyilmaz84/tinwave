@@ -1,7 +1,7 @@
 //! Tests for the Signalsmith wrapper (T-0026). No audio device, no clock, no randomness: every
 //! signal is generated and the stretcher is deterministic.
 //!
-//! An integration test, not a unit test, because the C++ allocation probe (lloc_probe.cpp)
+//! An integration test, not a unit test, because the C++ allocation probe (alloc_probe.cpp)
 //! reaches the linker through `rustc-link-arg-tests`, which cargo applies to `tests/` targets only.
 // The probe's one extern function needs unsafe; the lib's deny applies to test targets too.
 #![allow(unsafe_code)]

@@ -3,7 +3,7 @@ id: T-0026
 title: Vendored Signalsmith Stretch with a thin cc wrapper (no libclang)
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0016]
@@ -38,3 +38,6 @@ ADR 0006 (spike T-0009). The `signalsmith-stretch` crate needs libclang via bind
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-03: merged 26d5319 after review-1 APPROVE. Lead moved `cc` to [workspace.dependencies] and fixed two comment typos. Follow-ups: T-0027 (onset test, rate driver), T-0054 (vendored licences in notices).

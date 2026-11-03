@@ -3,7 +3,7 @@ id: T-0027
 title: Pitch-preserving rate control in the playback engine (bypass at 1.0, flush-and-restart, rate counters)
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: M
 depends_on: [T-0026]
@@ -38,3 +38,6 @@ Enables `RateChanged` / `RateSession`; no new kinds.
 ## Added from P-0206 (T-0026 build-1)
 - Turn the ADR 0006 decision-3 rate arithmetic (fixed output block, `floor(out*rate + carry)` input) from the
   `drive()` helper in crates/tinwave-playback/tests/stretch.rs into a tested production helper.
+- (P-0209, T-0026 review-1) Tighten tests/stretch.rs onset check first: a source with leading silence
+  (< 2 x blockSamples = 10584 frames, so the silence bypass does not kick in) and the onset within about ±128 frames
+  of `S/rate` (two-sided), so over- and under-discarding the ADR 0006 lag both fail.

@@ -19,6 +19,8 @@ tinwave-test-alloc = { path = "crates/tinwave-test-alloc", version = "0.1.0" }
 arc-swap = "1"
 # Pure-Rust build: no C compiler step for a hash that runs once per device change.
 blake3 = { version = "1", default-features = false, features = ["pure"] }
+# Build-time C/C++ compiler driver for the vendored Signalsmith Stretch shim (tinwave-playback). MIT OR Apache-2.0.
+cc = "1"
 crossbeam-channel = "0.5"
 # Generic audio output (macOS/Linux, Windows fallback). Apache-2.0.
 cpal = "0.18"

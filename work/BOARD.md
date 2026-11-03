@@ -34,13 +34,12 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | tw-reviewer r1 (build-1: allocation-free, deterministic, pitch err < 0.001 cents) | `t/T-0026-signalsmith-wrapper` @ 9e713f1 · `D:\dev\Tinwave-worktrees\T-0026-signalsmith-wrapper` |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
+| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | after T-0019 (same engine paths) |
 | [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | chore | S | desktop tools/capture.ps1 | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
@@ -60,7 +59,6 @@ overlap (work/README.md); the branch merging second merges main first.
 | Ticket | Depends on |
 |---|---|
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
-| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | T-0026 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |
 
@@ -97,6 +95,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith Stretch wrapper | 26d5319 | build-1, review-1 (approve) |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck + TwIcon probe as committed tests | c5667c4 | build-1/1b, review-1 (approve); 571 tests |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals, deferred no-session acts | 5d4742b | build-1/1b/2, review-1 (changes), review-2 (approve); 569 tests |
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness | d6407a7 | build-1, review-1 (approve); 31 packaging cases |
@@ -126,5 +125,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0208 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0210 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query), P-0184 (image-stress relink), P-0185 (visible-rows paging), P-0187 (Settings-driven appearance), P-0188 (other-OS probes), P-0192 (XSVG round-trip), P-0193 (installer manifest).
