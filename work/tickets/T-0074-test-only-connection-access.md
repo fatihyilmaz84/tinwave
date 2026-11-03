@@ -3,7 +3,7 @@ id: T-0074
 title: Test-only connection access behind a feature; pin write_batch statement count
 type: chore
 epic: E-01
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0073]
@@ -25,6 +25,9 @@ rule that the UI never touches SQLite.
   move the counting into an in-crate `#[cfg(test)]` module); the default build exposes no raw connection.
 - Count the statements of `SignalStore::write_batch` and pin them per batch size (fixed count independent of rows
   already stored; linear only where the batch itself requires).
+
+- (P-0301) Make the statement-count fixtures cheap: `populate()` in one transaction, or build the small/large
+  databases once and copy them. Keep BEGIN/COMMIT/checkpoint statements in the counts (they catch a leaked lock).
 
 ## Acceptance criteria
 - [ ] `cargo build -p tinwave-desktop` (default features) cannot reach a raw Connection through tinwave-db — shown.

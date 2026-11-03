@@ -3,7 +3,7 @@ id: T-0073
 title: Wipe tests pin the statement count and catch a lock left open; SECTIONED check set-equal
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0064]
@@ -16,6 +16,7 @@ scope:
 owner: tw-builder
 branch: t/T-0073-wipe-cost-and-lock-guards
 review_round: 1
+merge: fc84f02
 created_by: from P-0295, P-0297 (T-0064 review-1)
 ---
 
