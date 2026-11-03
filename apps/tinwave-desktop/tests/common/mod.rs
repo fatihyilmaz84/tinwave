@@ -18,3 +18,8 @@ pub fn add_qt_to_path(cmd: &mut Command) {
         }
     }
 }
+
+// Only the QML-probe tests (debug builds) use it; the other test binaries compile this module too.
+#[cfg(debug_assertions)]
+#[allow(dead_code)]
+pub mod probe;
