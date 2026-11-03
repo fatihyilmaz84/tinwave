@@ -3,7 +3,7 @@ id: T-0044
 title: Artwork image provider in apps/tinwave-desktop — T-0041 lifetime pattern, RAII UI owner, teardown stress check
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P0
 size: M
 depends_on: [T-0040]
@@ -42,3 +42,6 @@ injected `ArtworkSource` trait (a fake source in tests; the library-backed sourc
 
 ## Signals & storage
 None (artwork display is not a preference interaction).
+
+## Outcome
+2026-11-03: merged 1486177 after review-2 APPROVE (1,960 Release stress runs in total, 0 crashes, 0 hangs). ADR 0008 rules 4-6 and bridge build notes updated (P-0140, P-0141, P-0146); qml-ui.md updated. Follow-ups T-0049 (P-0150, P-0151).

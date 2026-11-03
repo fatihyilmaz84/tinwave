@@ -14,6 +14,8 @@
   app's RAII UI owner — never rely on destructors alone.
 - `#[allow(unsafe_code)]` for a bridge goes on its `mod name;` declaration, not on the `#[cxx_qt::bridge]` module
   (CXX-Qt rejects other attributes there; ADR 0008).
+- All `#[cxx_qt::bridge]` files of one QML module live in one directory (`src/app/` today); cxx-qt-build refuses more.
+- Never `process::exit` from the app: every exit path goes through the UI owner's teardown (ADR 0008, rule 5).
 - Controls with a text mnemonic (`ItemDelegate`, `Button`, `MenuItem`…) treat `&` as a shortcut marker: write a literal
   ampersand as `&&` ("Sources && devices").
 - Developer-only switches (e.g. `TINWAVE_MAIN_QML`) are read under `#[cfg(debug_assertions)]` only; a release build never

@@ -299,9 +299,22 @@ Report: work/reports/T-0041/spike-1.md; harness and results: spikes/T-0002-cxx-q
 3. Exactly one `finished()` per response; `cancel()` only sets an atomic flag; a cancelled task still emits `done()`
    with an empty image.
 4. A bounded `QThreadPool` in shared state held by provider, responses and tasks, newest-request-first, with a closing
-   flag checked before work.
+   flag checked before work. *(T-0044)* The check and `pool.start()` are atomic with respect to setting the flag: one
+   mutex, held by `quiesce()` while it sets `closing` (not across `waitForDone()`) and by the response constructor
+   around "check `closing` + `pool.start()`". Otherwise a task can start after `waitForDone()` returned.
 5. Teardown: set closing + `waitForDone()` on the GUI thread after `exec()` returns and before the engine is dropped.
    In the app this is enforced by an RAII owner (engine + providers, Drop runs every provider shutdown first) — lead
-   decision; the provider destructor repeats it.
+   decision; the provider destructor repeats it. *(T-0044)* The Rust-side handle must outlive every task: quiesce,
+   then drop the handle. If a task were ever the last holder of the shared state, its destructor (and the pool's)
+   would run on a pool thread and wait on that same pool. No exit path may skip the quiesce: no `process::exit` —
+   a QML load failure sets a flag, calls `engine.exit(2)` and returns through normal teardown.
 6. The stress target (crash-T-0041/run-batch.ps1: random exit 200–900 ms, 1 pool thread, ~300 Release runs) is re-run
-   on any change to a provider.
+   on any change to a provider. In the app: `apps/tinwave-desktop/tools/stress/run-stress.ps1` (dev-only
+   `image-stress` binary; never packaged).
+
+Bridge build notes (T-0044):
+- cxx-qt-build 0.10 needs every `#[cxx_qt::bridge]` file of one QML module in the same directory ("Only one directory
+  is supported per QmlModule"); keep logic elsewhere and the bridge files together (`src/app/`).
+- cxx has no `c_void`: pass an opaque Rust context as `*const u8`. The bridge macro drops `# Safety` docs on bridged
+  `unsafe fn`s, so `clippy::missing_safety_doc` is allowed on the `mod` declaration (with
+  `missing_debug_implementations` for opaque C++ types) and the safety contract is written next to the declaration.

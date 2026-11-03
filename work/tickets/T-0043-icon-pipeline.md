@@ -3,7 +3,7 @@ id: T-0043
 title: Icon pipeline — Lucide SVGs in the Qt resource file, TwIcon component, sidebar and menu glyphs
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0040]
@@ -15,9 +15,9 @@ scope:
   - apps/tinwave-desktop/qml/Sidebar.qml # use icons on the menu button and nav items
   - docs/design/design-system.md        # §3.4 / §5 if the component contract needs wording
   - THIRD-PARTY-NOTICES or the app's notices source (Lucide ISC text)
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0043-icon-pipeline
+review_round: 1
 created_by: from T-0040 (P-0115)
 ---
 
@@ -48,3 +48,8 @@ None.
 
 ## Added from P-0120 (T-0040 review)
 Add a small screenshot capture helper (apps/tinwave-desktop/tools/) that crops to DWMWA_EXTENDED_FRAME_BOUNDS so captures have no black resize-border strips; use it for this ticket's screenshots.
+
+## Added from P-0131 (T-0035 build-1)
+Drive keyboard steps with the window active (the focus ring is not drawn in an inactive window under PrintWindow).
+Starting point: the T-0035 builder's scratch scripts cap.ps1 / cap2.ps1 in the lead session scratchpad
+(C:\Users\FSYY\AppData\Local\Temp\claude\D--dev-Tinwave+bf9027-c019-4dd4-82f1-5a72c6705b0c\scratchpad\).
