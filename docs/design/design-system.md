@@ -151,6 +151,20 @@ One stroke set: **Lucide** (ISC license), shipped as SVG in the Qt resource file
 (16 px in dense rows), tinted with `text`/`textMuted`. Filled glyphs only for "on" states (favorite, playing).
 No emoji, no platform icon fonts. The app icon is the Tinwave mark (wave in a rounded Tin Teal square).
 
+How it is built (T-0043):
+- **Vendored set.** `apps/tinwave-desktop/icons/` holds only the Lucide SVGs QML uses, at the version pinned in
+  `icons/VERSION`, plus `LICENSE-lucide.txt` (ISC, with Lucide's Feather MIT notice); `build.rs` compiles them into the QML
+  module's resources (`qrc:/qt/qml/Tinwave/Desktop/icons/<name>.svg`, the licence text with them) and **fails the build** when
+  the files and the icon names written in QML differ (unused icon, or a name with no file). `tools/vendor-icons.ps1` fetches
+  icons, bumps the version, and refreshes the licence; the licence file is the notices source for THIRD-PARTY-NOTICES.
+- **Stroke.** `Theme.iconStroke` (1.75) is baked into each vendored SVG by the vendoring script (an SVG in the resource file
+  cannot read a token); the same file serves 20 px and 16 px. Size comes from `Theme.iconSize` / `Theme.iconSizeDense`.
+- **Native controls keep their own icon slot**: `icon.source: TwIcons.source("<name>")`, `icon.width/height: Theme.iconSize`,
+  `icon.color: Theme.text` (every sidebar nav glyph, resting and selected, as in the canvas; icon-to-label gap `Theme.m`). `TwIcon { name; size; color }` exists only for places
+  with no such slot. Both take the glyph as a string literal so the build check can see it; both tint through Qt's own
+  `IconImage`, which rasterises at size x device pixel ratio (crisp at 100 / 150 / 200 %).
+- A glyph is decorative: the control carries `Accessible.name` (an icon-only control also shows its name as a tooltip).
+
 ## 4. Layout
 
 ```
@@ -190,6 +204,7 @@ TabBar, ScrollBar, Menu, ToolTip, dialogs) are used as-is from the OS style. `Tw
 | `TwSpeedControl` | ToolButton + Menu | Playback rate | `RateChanged` once per gesture |
 | `TwTrackRow` | ItemDelegate | Track in any list; states: default, hover, selected, playing, unavailable | `PlayStarted(origin)`, `QueuedNext/Later`, `Favorited`, `Impression` (counter) |
 | `TwAlbumTile` / `TwArtistTile` | ItemDelegate | Grid item with async artwork; hover/focus shows play button | `PlayStarted(origin)`, `ArtworkHover` (counter), `Impression` (counter) |
+| `TwIcon` | — | Lucide glyph tinted with a colour token (`name`, `size`, `color`), only where a native control has no icon slot (§3.4) | — |
 | `TwArtwork` | Image (async provider) | Bounded-cache thumbnail; flat `raised` placeholder, no shimmer | — |
 | `TwSourceBadge` | — | Local / `<server name>` / Downloaded; full or icon-only with tooltip + accessible name | — |
 | `TwWhyChip` | ToolButton + Popup | "Why this?" on every recommendation; reasons + feedback actions | `ExplanationOpened(reason_kind)`, `RadioFeedback(kind)` |
