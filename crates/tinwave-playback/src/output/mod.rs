@@ -53,31 +53,11 @@ pub struct OpenRequest<'a> {
     /// own, where a shared stream would be thrown away at once: an output with an exclusive mode
     /// then returns an error instead of falling back to shared, so a refusal costs no shared
     /// open. It is false for the engine's own rate, where shared is the right fallback.
-    /// The error for a refusal is [`exclusive_refusal`]; any other error is a failure of the
-    /// device and ends the open as it always did. Outputs that are not in exclusive mode ignore
+    /// The error for a refusal is [`PlaybackError::ExclusiveRefused`]; any other error is a
+    /// failure of the device and ends the open as it always did. Outputs that are not in exclusive mode ignore
     /// the flag; an output that ignores it altogether still works, the engine also recognises a
     /// shared stream as the refusal.
     pub exclusive_only: bool,
-}
-
-/// How a refusal reads: the start of the message of [`exclusive_refusal`].
-pub(crate) const EXCLUSIVE_REFUSED: &str = "exclusive mode refused";
-
-/// The error of an [`OpenRequest::exclusive_only`] open that the device would not take (the rate
-/// or the format is not available exclusively, or another application holds the endpoint). The
-/// engine treats exactly this error as a refusal of the rate: it opens again at its own rate and
-/// does not ask for this one again on the device. Any other error is a device failure.
-#[must_use]
-pub fn exclusive_refusal(reason: &str) -> PlaybackError {
-    PlaybackError::Output(format!("{EXCLUSIVE_REFUSED}: {reason}"))
-}
-
-/// The message of `error` when it is an [`exclusive_refusal`].
-pub(crate) fn exclusive_refusal_message(error: &PlaybackError) -> Option<&str> {
-    match error {
-        PlaybackError::Output(message) if message.starts_with(EXCLUSIVE_REFUSED) => Some(message),
-        _ => None,
-    }
 }
 
 /// An audio backend: WASAPI, cpal, or the in-memory [`ManualOutput`].
@@ -175,7 +155,7 @@ impl AudioOutput for ManualOutput {
             // As the WASAPI output does: no shared stream in place of the refused exclusive one.
             // The open is counted (the device was asked), nothing is left open.
             self.shared.refused.fetch_add(1, Ordering::AcqRel);
-            return Err(exclusive_refusal(&format!(
+            return Err(PlaybackError::ExclusiveRefused(format!(
                 "the device does not accept {} Hz",
                 request.sample_rate
             )));

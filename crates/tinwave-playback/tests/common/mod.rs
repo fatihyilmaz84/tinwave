@@ -326,9 +326,10 @@ impl Harness {
     ///
     /// It also polls the engine while the decoder waits for that: in exclusive mode a command that
     /// starts a track of another sample rate is carried out only after a poll has reopened the
-    /// output, so without the poll this would wait for ever. It polls **only then** (not on every
-    /// round like `settle_polling` used to): a poll also announces tracks and emits events, and
-    /// the shared-mode tests that settle depend on none of that having happened yet.
+    /// output, so without the poll this would wait for ever. It polls **only then**, unlike
+    /// [`settle_polling`](Self::settle_polling), which polls on every round: a poll also announces
+    /// tracks and emits events, and the shared-mode tests that settle depend on none of that having
+    /// happened yet.
     pub fn settle(&mut self) {
         for _ in 0..30_000 {
             if self.engine.reopen_pending() {

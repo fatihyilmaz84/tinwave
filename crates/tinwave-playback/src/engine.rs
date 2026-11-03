@@ -11,9 +11,7 @@ use tinwave_core::Clock;
 
 use crate::decoder::{Cmd, Decoder};
 use crate::event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
-use crate::output::{
-    exclusive_refusal_message, AudioOutput, OpenRequest, OutputStream, StreamInfo, StreamMode,
-};
+use crate::output::{AudioOutput, OpenRequest, OutputStream, StreamInfo, StreamMode};
 use crate::reader::SourceOpener;
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::stretch::{MAX_RATE, MIN_RATE};
@@ -967,10 +965,10 @@ impl Engine {
                 }
                 // Only the device saying no to the rate is a refusal; any other failure ends the
                 // open, as it does for a rate that is not exclusive-only.
-                Err(error) => match exclusive_refusal_message(&error) {
-                    Some(why) if request.exclusive_only => Err(why.to_owned()),
-                    _ => return Err(error),
-                },
+                Err(error @ PlaybackError::ExclusiveRefused(_)) if request.exclusive_only => {
+                    Err(error.to_string())
+                }
+                Err(error) => return Err(error),
             };
             let (stream, mut info) = match opened {
                 Ok(opened) => opened,

@@ -99,8 +99,9 @@ run`: it is marked `#[ignore]` and only runs when you ask for it as below.
 
 Before you start:
 
-1. Make the DAC under test the Windows **default output** (Settings > System > Sound). The test uses the default
-   device; it does not pick one.
+1. Make the DAC under test the Windows **default output** (Settings > System > Sound), if it is not already. Note
+   which device is the default now and **switch back to it afterwards**: the test never changes the default, so this
+   is the only setting you touch, by hand. The test uses the default device; it does not pick one.
 2. Close anything that may hold the DAC exclusively (foobar2000 in WASAPI exclusive, a DAW, ...), and pause other
    players.
 3. Turn the amplifier or headphone level on the **device itself** down. DACs and amps can click when the sample rate
@@ -121,25 +122,34 @@ wasapi exclusive reopen on "<your DAC's endpoint name>" (engine rate 48000 Hz, f
   open #1: asked 44100 Hz (exclusive only) took <ms> ms -> Exclusive I24In32 | period ... | buffer ... | fallback None
   open #2: asked 96000 Hz (exclusive only) took <ms> ms -> Exclusive I24In32 | period ... | buffer ... | fallback None
   load -> first reopen announced: <ms> | load -> 44.1 kHz clip heard: <ms>
-  boundary: reopen requested -> new stream announced: <ms> | last frame of the first clip -> first frame of the second: <ms>
+  GAP between the clips: open #2 start -> 96 kHz clip heard: <ms> (the 44.1 kHz stream had played out when open #2 started)
+  (this loop polls every ~1 ms; the app polls every 10 ms while a reopen is pending. The ear is the judge of the gap.)
   underrun events: <n>
 test result: ok. 1 passed
 ```
 
 How to read it:
 
-- `open #0` is the start-up stream at Tinwave's own rate (48 kHz). `open #1` and `open #2` are the reopens for the
-  44.1 kHz file (when it is loaded) and the 96 kHz file (at the boundary between the two clips). `took` is the whole
-  `open` call: thread start, format probe, exclusive initialise, priming and starting the stream.
+- `open #0` is the start-up stream at Tinwave's own rate (48 kHz). The next opens are the reopens for the 44.1 kHz
+  file (when it is loaded) and for the 96 kHz file (at the boundary between the two clips); in the sample above they
+  are `open #1` and `open #2`. `took` is the whole `open` call: thread start, format probe, exclusive initialise,
+  priming and starting the stream.
 - `(exclusive only)` means Tinwave asked the output to fail instead of falling back to shared mode, so a refusal
   costs one failed open and no wasted shared stream.
-- **The number that matters for the gap** is the last one on the `boundary:` line, "last frame of the first clip ->
-  first frame of the second". It is measured by a loop that polls every ~1 ms, so it is good to a few ms. The app
-  itself polls every 10 ms while a reopen is pending, which can add up to 10 ms on top. The spike measured about
-  42 ms for the device buffer plus the exclusive open; compare.
-- If the DAC does not accept 96 kHz exclusively, `open #2` prints `REFUSED, no stream opened: ... exclusive mode
-  refused: ...` and `open #3` is `asked 48000 Hz` (not exclusive only): the 96 kHz file then plays resampled to 48 kHz.
-  That is a valid outcome, not a test failure. Copy the refusal text.
+- **The number that matters for the gap** is the `GAP between the clips` line: from the moment Tinwave starts opening
+  the stream for the 96 kHz clip until the first moment the 96 kHz clip is heard. Tinwave opens that stream only
+  after the 44.1 kHz stream has played out its buffer, so that is when the first clip stops sounding. The number
+  covers the open, the first block, the new stream's own latency and the poll. It comes from a loop that polls every
+  ~1 ms, so it is good to a few ms; the app itself polls every 10 ms while a reopen is pending, which can add up to
+  10 ms on top. The spike measured about 42 ms for the device buffer plus the exclusive open; compare. (The same
+  metric, run against a fake device that takes exactly 40 callbacks to open, reports 40 to 42; that check is the
+  `the_boundary_gap_metric_sees_a_gap_of_a_known_size` test and runs with the normal tests.)
+- Any rate can be refused, not only 96 kHz. A refused open prints `REFUSED, no stream opened: ... exclusive mode
+  refused: ...` and the next open is `asked 48000 Hz` (not exclusive only): that file then plays resampled to 48 kHz.
+  If 96 kHz is refused, the refused open is `open #2` and `open #3` is the 48 kHz retry; if 44.1 kHz is refused,
+  `open #1` is refused, `open #2` is its 48 kHz retry and the 96 kHz open follows as `open #3`. Either is a valid
+  outcome, not a test failure. Copy the refusal text. The `GAP` line always refers to the open that asked for 96 kHz
+  (it names its number).
 - If the very first stream (`open #0`) is not exclusive, the test stops with `the endpoint ... does not open 48000 Hz
   exclusively, so there is no reopen to measure` and the reason. Report that text; it means exclusive mode is
   unavailable on that endpoint (disabled in the device's Advanced properties, or held by another application).

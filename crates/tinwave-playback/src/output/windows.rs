@@ -17,11 +17,11 @@
 //! Windows), the stream falls back to shared and `StreamInfo::fallback` says why.
 //!
 //! While exclusive mode is requested the engine opens the stream at each file's own sample rate
-//! (`AudioOutput::wants_exclusive`, T-0057). A refused rate comes back as a shared stream at
-//! that rate (the OS converts); the engine recognises it by its mode, closes it and opens again
-//! at its configured rate, where its own resampler converts. For a rate other than its own the
-//! engine asks `OpenRequest::exclusive_only` (T-0066): the open then fails with the reason
-//! instead of building a shared stream that would be closed at once.
+//! (`AudioOutput::wants_exclusive`, T-0057). For a rate other than its own the engine asks
+//! `OpenRequest::exclusive_only` (T-0066): a refused rate is then an open that fails with
+//! `PlaybackError::ExclusiveRefused` (no shared stream is built just to be closed), and the
+//! engine opens again at its configured rate, where its own resampler converts. A refused open
+//! at the engine's own rate is not exclusive-only and still falls back to shared mode.
 //!
 //! # What this module does not do
 //! It never writes endpoint volume or mute (in-app volume is the renderer's software gain,
@@ -48,12 +48,14 @@ use super::info::{StreamInfo, StreamMode};
 use super::plan::{plan_exclusive, resolve_mode, ModeOutcome};
 use super::pump::{DeviceLost, RenderDevice};
 use super::stream_thread::{run_render_thread, DeviceSetup, OpenState};
-use super::{exclusive_refusal, AudioOutput, OpenRequest, OutputStream, EXCLUSIVE_REFUSED};
+use super::{AudioOutput, OpenRequest, OutputStream};
 use crate::types::CHANNELS;
 use crate::{PlaybackError, Renderer};
 
 /// How long the render thread waits for the device's event before checking the device is alive.
 const WAIT_TIMEOUT_MS: u32 = 100;
+/// How `resolve_mode` starts the reason of an exclusive request that was refused.
+const REFUSED_PREFIX: &str = "exclusive mode refused: ";
 /// How long `open` waits for the render thread to build and prime the stream.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -392,9 +394,11 @@ fn open_device(
 /// The error of an `open` that the render thread reported as failed: the refusal of an
 /// exclusive-only request is the engine's cue to try its own rate, anything else is a failure of
 /// the device.
+/// (The render thread reports its failure as text; the text `resolve_mode` writes for a refusal
+/// is `REFUSED_PREFIX`.)
 fn open_error(message: String, exclusive_only: bool) -> PlaybackError {
-    match message.strip_prefix(&format!("{EXCLUSIVE_REFUSED}: ")) {
-        Some(reason) if exclusive_only => exclusive_refusal(reason),
+    match message.strip_prefix(REFUSED_PREFIX) {
+        Some(reason) if exclusive_only => PlaybackError::ExclusiveRefused(reason.to_owned()),
         _ => PlaybackError::Output(format!("WASAPI: {message}")),
     }
 }
@@ -566,15 +570,17 @@ mod tests {
 
     #[test]
     fn a_refusal_reaches_the_engine_as_the_refusal_error_and_a_failure_does_not() {
-        use crate::output::exclusive_refusal_message;
         // The message `resolve_mode` writes is what `open_error` looks for.
         let message = require_exclusive(shared(Some("busy")), true).expect_err("refused");
         let error = open_error(message.clone(), true);
-        assert!(exclusive_refusal_message(&error).is_some_and(|m| m.contains("busy")));
+        assert!(matches!(&error, PlaybackError::ExclusiveRefused(why) if why.contains("busy")));
         // The same text without the flag, and any other failure, stay device errors.
-        assert_eq!(exclusive_refusal_message(&open_error(message, false)), None);
+        assert!(matches!(
+            open_error(message, false),
+            PlaybackError::Output(_)
+        ));
         let failure = open_error("no default output device".into(), true);
-        assert_eq!(exclusive_refusal_message(&failure), None);
+        assert!(matches!(failure, PlaybackError::Output(_)));
         assert!(failure
             .to_string()
             .contains("WASAPI: no default output device"));
