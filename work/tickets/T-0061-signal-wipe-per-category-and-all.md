@@ -3,16 +3,16 @@ id: T-0061
 title: Wipe signal history per signal category and "wipe everything"
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0060]
 scope:
   - crates/tinwave-db/
   - docs/rules/privacy-and-signals.md   # the wipe paragraph only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0061-signal-wipe-per-category-and-all
+review_round: 1
 created_by: from P-0246 (T-0060 build-1)
 ---
 

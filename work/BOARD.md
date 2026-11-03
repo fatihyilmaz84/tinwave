@@ -27,7 +27,9 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-_none_
+| Ticket | Owner | Branch / worktree |
+|---|---|---|
+| [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (privacy) | tw-builder r1 | `t/T-0061-signal-wipe-per-category-and-all` · `D:\dev\Tinwave-worktrees\T-0061-signal-wipe-per-category-and-all` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -46,7 +48,6 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (P1, privacy) | feature | M | tinwave-db | free: no overlap with playback |
 | [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 (same crate) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
