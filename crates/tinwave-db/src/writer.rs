@@ -96,6 +96,10 @@ pub struct WriterStats {
     pub counter_rows_rejected: u64,
     /// Counter rows added.
     pub counter_rows: u64,
+    /// `play` rows written (one per `Completed` or `Skipped` stored with its `PlayStarted`).
+    pub plays_written: u64,
+    /// Outcomes stored without a `PlayStarted` to pair with: no `play` row.
+    pub plays_unpaired: u64,
     /// Commits that failed (each is retried).
     pub failed_commits: u64,
     /// WAL checkpoints run between batches.
@@ -113,6 +117,8 @@ struct Shared {
     events_rejected: AtomicU64,
     counter_rows_rejected: AtomicU64,
     counter_rows: AtomicU64,
+    plays_written: AtomicU64,
+    plays_unpaired: AtomicU64,
     failed_commits: AtomicU64,
     checkpoints: AtomicU64,
     events_lost: AtomicU64,
@@ -128,6 +134,8 @@ impl Shared {
             events_rejected: self.events_rejected.load(Ordering::Relaxed),
             counter_rows_rejected: self.counter_rows_rejected.load(Ordering::Relaxed),
             counter_rows: self.counter_rows.load(Ordering::Relaxed),
+            plays_written: self.plays_written.load(Ordering::Relaxed),
+            plays_unpaired: self.plays_unpaired.load(Ordering::Relaxed),
             failed_commits: self.failed_commits.load(Ordering::Relaxed),
             checkpoints: self.checkpoints.load(Ordering::Relaxed),
             events_lost: self.events_lost.load(Ordering::Relaxed),
@@ -144,6 +152,8 @@ impl Shared {
         add(&self.events_rejected, report.events_rejected);
         add(&self.counter_rows_rejected, report.counter_rows_rejected);
         add(&self.counter_rows, report.counter_rows);
+        add(&self.plays_written, report.plays_written);
+        add(&self.plays_unpaired, report.plays_unpaired);
     }
 
     fn set_last_error(&self, error: Option<DbError>) {

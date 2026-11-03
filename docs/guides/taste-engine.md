@@ -78,6 +78,34 @@ gigabytes. So:
 - Entities with no signals have no rows at all.
 - Values stored as `f32`; the context key is a packed `u32`.
 
+### ContextKey layout (version 1)
+
+The packed `u32` is the `ContextKey` type in `crates/tinwave-signals/src/context_key.rs`; it is stored in
+`play.context_key` and `context_snapshot.key`, so the layout is frozen (a field never moves, a code is never
+reused; a change needs a new layout version). Bit 0 is the least significant bit. **In every field 0 means
+"unknown"**; known values start at 1.
+
+| Bits | Width | Field | Known values (code = value) |
+|---|---|---|---|
+| 0-2 | 3 | daypart | 1 `Night`, 2 `EarlyMorning`, 3 `Morning`, 4 `Midday`, 5 `Afternoon`, 6 `Evening`, 7 `LateNight` |
+| 3-4 | 2 | weekday type | 1 `Weekday`, 2 `Weekend`, 3 `Holiday` |
+| 5-7 | 3 | weather condition | 1 `Clear`, 2 `Cloudy`, 3 `Rain`, 4 `Storm`, 5 `Snow`, 6 `Fog` |
+| 8-10 | 3 | temperature band | 1 `Cold` (<5), 2 `Cool` (5-15), 3 `Mild` (15-24), 4 `Warm` (24-30), 5 `Hot` (>30) |
+| 11-13 | 3 | device class | the output class plus one: 1 `Headphones`, 2 `Speakers`, 3 `Bluetooth`, 4 `UsbDac`, 5 `Hdmi`, 6 `Builtin`, 7 `Virtual`; `Unknown` is 0 |
+| 14-17 | 4 | activity | 1 `Focus`, 2 `Gaming`, 3 `Call`, 4 `Background`, 5 `OnTheMove`, 6 `Leisure`, 7 `Workout`, 8 `Commute`, 9 `Driving` |
+| 18-23 | 6 | place slot | 1-63: the place's slot in the device's own small place table; never an SSID, a MAC or a hash of one, so a slot means something only on the device that wrote it |
+| 24-27 | 4 | reserved | always 0 |
+| 28-31 | 4 | layout version | 1 |
+
+- Every enum fits its field. The daypart and the weekday type use every code their field has; a new value of either
+  needs a new layout version. The weather condition has 6 of 7 codes used, the activity 9 of 15.
+- **The all-unknown key is the raw value 0** (no version bits). It is also what a play stores when its context was
+  never captured: nothing known is one value, never a guess. A key with at least one known field carries version 1.
+  Readers accept `0` and version 1 and reject any other version, a non-zero reserved nibble or a code with no
+  meaning.
+- The hierarchical back-off above drops fields by masking them to 0 (`place` first, then `weather` and `device`),
+  so a coarse bucket is the same key with those fields cleared.
+
 ## 4. Similarity
 
 Each track gets a normalized vector:

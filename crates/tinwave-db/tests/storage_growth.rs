@@ -5,8 +5,8 @@
 //! Default run (fast): the P-0010 burst assertion and a 3-day determinism run.
 //!
 //! The 90-day run takes about 15 s of wall clock (the writer's commits, not the generator, are the
-//! cost), so it is in the default run. The writer's CPU time for it is about 6 s in a debug build
-//! and about 3 s in a release build (the generator and the libraries are optimized in release;
+//! cost), so it is in the default run. The writer's CPU time for it is about 7 s in a debug build
+//! and about 3.6 s in a release build (the generator and the libraries are optimized in release;
 //! SQLite is optimized in both, which is why debug is only 2x slower, not more).
 //!
 //! The speed check is on the writer thread's CPU time, not the wall clock, so a busy machine cannot
@@ -28,9 +28,10 @@
 //! `growth/mod.rs`, each with the row it comes from); `the_catalog_still_says_what_the_test_expects`
 //! fails if the catalog text and those constants drift apart.
 //!
-//! v1 has no compaction and no play records (E-01, T-0029): it measures the hot tier and
-//! extrapolates. `growth::run` calls a hook at the end of every simulated day, at a barrier where
-//! the writer is idle; the 5-year run with compaction runs its compaction pass there.
+//! There is no compaction yet (E-01): the run measures the hot tier and the live-written play
+//! records (T-0029, the warm tier) and extrapolates. `growth::run` calls a hook at the end of
+//! every simulated day, at a barrier where the writer is idle; the 5-year run with compaction
+//! runs its compaction pass there.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -213,6 +214,21 @@ fn stored_rows(db: &TempDb) -> (Vec<EventRow>, Vec<CounterRow>) {
     (events, counters)
 }
 
+/// Every column of every `play` row, in write order.
+fn play_rows(db: &TempDb) -> Vec<Vec<Option<i64>>> {
+    let conn = Connection::open(&db.path).unwrap();
+    let mut stmt = conn
+        .prepare(
+            "SELECT device, session, recording, source, started_ts, listened_ds, end_reason, \
+             end_frac, flags, peak_section, context_key FROM play ORDER BY id",
+        )
+        .unwrap();
+    stmt.query_map([], |r| (0..11).map(|i| r.get(i)).collect())
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
 /// Two runs stored the same thing: the same transactions, sizes and rows, including every
 /// dictionary id.
 fn assert_identical(a: &growth::Run, b: &growth::Run) {
@@ -223,6 +239,12 @@ fn assert_identical(a: &growth::Run, b: &growth::Run) {
     assert_eq!(ra.events, rb.events);
     assert_eq!(ra.counter_rows, rb.counter_rows);
     assert_eq!(ra.context_rows, rb.context_rows);
+    assert_eq!(ra.play_rows, rb.play_rows);
+    assert_eq!(
+        play_rows(&a.db),
+        play_rows(&b.db),
+        "the play records are the same rows"
+    );
     let (events_a, counters_a) = stored_rows(&a.db);
     let (events_b, counters_b) = stored_rows(&b.db);
     assert_eq!(events_a, events_b);
@@ -236,15 +258,22 @@ fn the_same_seed_gives_the_same_sizes() {
     let a = run_alone(cfg);
     let b = run_alone(cfg);
     assert_identical(&a, &b);
-    // A different seed is different data.
+    // A different seed is different data: the rows differ (the file size is whole pages, and two
+    // small runs can fill the same number of them).
     let other = run_alone(GrowthConfig { seed: 7, ..cfg });
-    assert_ne!(measure(&other).file_bytes, measure(&a).file_bytes);
+    assert_ne!(stored_rows(&other.db), stored_rows(&a.db));
+    assert_ne!(play_rows(&other.db), play_rows(&a.db));
 
     // And the run was clean: nothing dropped, nothing failed.
     for r in [&a, &b] {
         assert_eq!((r.dropped, r.reserved_overflows, r.keys_dropped), (0, 0, 0));
         assert_eq!(r.writer.failed_commits, 0);
         assert_eq!(r.writer.events_rejected, 0);
+        assert_eq!(r.writer.plays_unpaired, 0);
+        assert_eq!(
+            r.writer.plays_written, r.plays,
+            "one play row per simulated play"
+        );
     }
 }
 
@@ -311,11 +340,12 @@ fn writer_cpu<T>(body: impl FnOnce() -> T) -> (T, Duration, Duration) {
     (result, process.saturating_sub(generator), generator)
 }
 
-/// The writer's CPU time for the 90-day run depends on the build profile: about 6 s in a debug
-/// build (6.0 to 6.5 s, the same under load while the wall clock went from 16 s to 59 s) and
-/// about 3.2 s in a release build (3.1 to 3.5 s). Each budget is about 2.4x its measured value:
+/// The writer's CPU time for the 90-day run depends on the build profile: about 7 s in a debug
+/// build (7.0 to 7.4 s with the play records of T-0029, which cost the writer about 15 % more: 6.0
+/// to 6.5 s before; the same under load while the wall clock went from 16 s to 59 s) and about
+/// 3.6 s in a release build (3.1 to 3.5 s before). Each budget is about 2.1x its measured value:
 /// room for another machine, and a slowdown of 3x or more fails in either profile. (One budget
-/// of 15 s would let a release run slow down 4.7x.) `cargo test --release` has
+/// of 15 s would let a release run slow down 4.2x.) `cargo test --release` has
 /// `debug_assertions` off; a profile that sets it differently gets the matching budget.
 ///
 /// CPU work only: waiting (fsync, sleeps, checkpoint I/O) is not counted; see the module doc.
@@ -379,6 +409,18 @@ fn ninety_days_match_the_catalog_volume_table_within_fifty_percent() {
     assert_no_violations(&violations);
 }
 
+/// The play records against the catalog's "~120 a day, ~6 KB": one row per play that ended, each
+/// with a context key read from its start's snapshot; rate within 25 %, bytes/day within +50 %.
+#[test]
+fn ninety_days_play_records_match_the_catalog_estimate() {
+    let NinetyDays { run, report, .. } = ninety_days();
+    assert_eq!(
+        run.writer.plays_written, run.plays,
+        "the writer wrote one row per play"
+    );
+    assert_no_violations(&report.play_violations());
+}
+
 /// Context snapshots against the catalog's "~60 a day, ~4.5 KB" (about 70 B per row, the 64-bit
 /// hash with its UNIQUE index and the key included): rate within 25%, bytes/day within +50%.
 #[test]
@@ -424,6 +466,14 @@ fn the_catalog_still_says_what_the_test_expects() {
     assert!(
         counters.contains(&expected),
         "expected {expected:?} in {counters}"
+    );
+
+    let (play_rows, play_bytes) = growth::CATALOG_PLAYS;
+    let plays = row("| Play records");
+    let expected = format!("| ~{play_rows:.0} | {} |", catalog_kb(play_bytes));
+    assert!(
+        plays.contains(&expected),
+        "expected {expected:?} in {plays}"
     );
 
     let dictionaries = row("| Dictionaries and sessions");

@@ -33,12 +33,11 @@ const KB: f64 = 1000.0;
 /// How far above the catalog a group may be: +50 %.
 pub const TOLERANCE: f64 = 1.5;
 
-/// The warm tier and cold tier the catalog expects, per year, in MB (play records ~2, monthly
-/// rollups ~0.5). They are not built yet (T-0029, compaction), so the extrapolation takes the
-/// catalog's own numbers for them. It also keeps the dictionary tables at their 90-day size,
+/// The cold tier the catalog expects, per year, in MB (monthly rollups ~0.5). It is not built yet
+/// (compaction), so the extrapolation takes the catalog's own number for it. The warm tier is the
+/// measured `play` table. The extrapolation also keeps the dictionary tables at their 90-day size,
 /// although compaction does not remove them and they grow until the library is covered (a few
 /// MB more, still far under the 60 MB budget).
-pub const CATALOG_WARM_MB_PER_YEAR: f64 = 2.0;
 pub const CATALOG_COLD_MB_PER_YEAR: f64 = 0.5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -144,6 +143,8 @@ impl Group {
 pub const CATALOG_CONTEXT: (f64, f64) = (60.0, 4.5 * KB);
 /// UI counters: "~300 rows", "~7 KB".
 pub const CATALOG_COUNTERS: (f64, f64) = (300.0, 7.0 * KB);
+/// Play records: "~120" rows, "~6 KB" (a `play` row with its `recording, started_ts` index).
+pub const CATALOG_PLAYS: (f64, f64) = (120.0, 6.0 * KB);
 /// Dictionaries and sessions: "~20 KB while the library is being discovered, saturating as it is
 /// covered". The 90-day run is the discovery phase, so the 90-day average is compared with it.
 pub const CATALOG_DICTIONARIES_BYTES: f64 = 20.0 * KB;
@@ -187,6 +188,15 @@ pub struct Report {
     pub counter_bytes: u64,
     pub context_rows: u64,
     pub context_bytes: u64,
+    /// Rows of `play`, and the bytes of the table with its index.
+    pub play_rows: u64,
+    pub play_bytes: u64,
+    /// `play` rows whose `context_key` is 0 (nothing known).
+    pub plays_without_context: u64,
+    /// Plays the simulation ran (each ends with `Completed` or `Skipped`).
+    pub plays_simulated: u64,
+    /// Outcomes the writer stored without a start to pair with.
+    pub plays_unpaired: u64,
     /// Row-size to page-size scale factor of `signal_event`.
     pub event_scale: f64,
     pub size_samples: Vec<(u32, u64)>,
@@ -333,6 +343,11 @@ pub fn measure(run: &Run) -> Report {
         counter_bytes: table_bytes("ui_counter"),
         context_rows: count("SELECT count(*) FROM context_snapshot"),
         context_bytes: table_bytes("context_snapshot"),
+        play_rows: count("SELECT count(*) FROM play"),
+        play_bytes: table_bytes("play"),
+        plays_without_context: count("SELECT count(*) FROM play WHERE context_key = 0"),
+        plays_simulated: run.plays,
+        plays_unpaired: run.writer.plays_unpaired,
         tables,
         groups,
         kinds,
@@ -360,22 +375,32 @@ impl Report {
         self.file_bytes as f64 / f64::from(self.days) * 1825.0 / 1e6
     }
 
-    /// Extrapolated size at 5 years with the tiering of ADR 0002: the hot window stays at this
-    /// size (compaction deletes older raw rows), plus the catalog's warm and cold tiers.
+    /// Extrapolated size at 5 years with the tiering of ADR 0002: the hot window stays at its
+    /// 90-day size (compaction deletes older raw rows), plus five years of the measured warm tier
+    /// and the catalog's cold tier.
     ///
     /// Caveat: the 90-day figure includes the dictionary tables (1.8 MB here). Compaction never
     /// deletes dictionary rows, so they keep growing until the 50 000-track library has been
     /// covered: a few MB more than this adds up to, far under the 60 MB budget.
     pub fn five_years_with_tiering_mb(&self) -> f64 {
-        let hot = self.file_bytes as f64 / f64::from(self.days) * 90.0 / 1e6;
-        hot + 5.0 * (CATALOG_WARM_MB_PER_YEAR + CATALOG_COLD_MB_PER_YEAR)
+        5.0 * (self.warm_mb_per_year() + CATALOG_COLD_MB_PER_YEAR) + self.hot_window_mb()
+    }
+
+    /// The hot tier at its 90-day size: everything but the warm `play` table.
+    pub fn hot_window_mb(&self) -> f64 {
+        (self.file_bytes - self.play_bytes) as f64 / f64::from(self.days) * 90.0 / 1e6
+    }
+
+    /// The measured warm tier per year: the `play` table (rows and index) grows linearly.
+    pub fn warm_mb_per_year(&self) -> f64 {
+        self.play_bytes as f64 / f64::from(self.days) * 365.0 / 1e6
     }
 
     /// The budgets of ADR 0002 that v1 can check, as readable violations (empty when they hold):
     /// the 90-day hot window and the 5-year extrapolation.
     pub fn budget_violations(&self) -> Vec<String> {
         let mut out = Vec::new();
-        let hot_mb = self.file_bytes as f64 / f64::from(self.days) * 90.0 / 1e6;
+        let hot_mb = self.hot_window_mb();
         if hot_mb > 6.0 {
             out.push(format!(
                 "90-day hot window is {hot_mb:.2} MB, over the 6 MB budget"
@@ -430,11 +455,47 @@ impl Report {
                 CATALOG_COUNTERS.0
             ));
         }
+        out.extend(self.play_violations());
         let dict_day = self.per_day(self.dictionary_bytes() as f64);
         if dict_day > CATALOG_DICTIONARIES_BYTES * TOLERANCE {
             out.push(format!(
                 "dictionaries + sessions: {dict_day:.0} B/day is {:.0} % of the catalog's {CATALOG_DICTIONARIES_BYTES:.0} B/day (limit +50 %)",
                 dict_day / CATALOG_DICTIONARIES_BYTES * 100.0
+            ));
+        }
+        out
+    }
+
+    /// The play records: one row per simulated play (every one of them ended with `Completed` or
+    /// `Skipped`), each with the key of its start's snapshot; rate within 25 % and bytes/day
+    /// within +50 % of the catalog's "~120", "~6 KB".
+    pub fn play_violations(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.play_rows != self.plays_simulated {
+            out.push(format!(
+                "{} plays ended but the play table has {} rows ({} outcomes had no start)",
+                self.plays_simulated, self.play_rows, self.plays_unpaired
+            ));
+        }
+        if self.plays_without_context != 0 {
+            out.push(format!(
+                "{} play rows have context key 0 although every event carries a stored snapshot",
+                self.plays_without_context
+            ));
+        }
+        let rows_day = self.per_day(self.play_rows as f64);
+        if rows_day < CATALOG_PLAYS.0 * 0.75 || rows_day > CATALOG_PLAYS.0 * 1.25 {
+            out.push(format!(
+                "generator: {rows_day:.0} play rows/day, catalog says {:.0} (+-25 % allowed)",
+                CATALOG_PLAYS.0
+            ));
+        }
+        let bytes_day = self.per_day(self.play_bytes as f64);
+        if bytes_day > CATALOG_PLAYS.1 * TOLERANCE {
+            out.push(format!(
+                "play records: {bytes_day:.0} B/day is {:.0} % of the catalog's {:.0} B/day (limit +50 %)",
+                bytes_day / CATALOG_PLAYS.1 * 100.0,
+                CATALOG_PLAYS.1
             ));
         }
         out
@@ -568,6 +629,12 @@ impl Report {
                 self.counter_bytes,
                 CATALOG_COUNTERS,
             ),
+            (
+                "Play records (play, with its index)",
+                self.play_rows,
+                self.play_bytes,
+                CATALOG_PLAYS,
+            ),
         ];
         for (name, n, bytes, (cat_n, cat_b)) in rows {
             total_bytes += self.per_day(bytes as f64);
@@ -585,7 +652,7 @@ impl Report {
         }
         let _ = writeln!(
             s,
-            "  {:<46} {:>9} {:>9} {:>10.0} {:>10.0}   (the catalog's total also has 6 KB/day of play records, which T-0029 builds; the first six rows are conservative upper bounds)",
+            "  {:<46} {:>9} {:>9} {:>10.0} {:>10.0}   (the first six rows are conservative upper bounds)",
             "Total of the rows above", "", "", total_bytes, total_catalog
         );
         let dictionaries = self.dictionary_bytes();
@@ -621,11 +688,11 @@ impl Report {
         }
         let _ = writeln!(
             s,
-            "\nExtrapolation: {:.1} KB/day. 90-day hot window {:.2} MB (budget 6 MB). 5 years without compaction {:.0} MB (why compaction exists). 5 years with ADR 0002 tiering (hot window + catalog warm {:.1} + cold {:.1} MB/year; dictionaries are not compacted and keep growing until the library is covered, a few MB more) {:.1} MB (budget 60 MB).",
+            "\nExtrapolation: {:.1} KB/day. 90-day hot window {:.2} MB without the play table (budget 6 MB). 5 years without compaction {:.0} MB (why compaction exists). 5 years with ADR 0002 tiering (hot window + measured warm {:.1} + catalog cold {:.1} MB/year; dictionaries are not compacted and keep growing until the library is covered, a few MB more) {:.1} MB (budget 60 MB).",
             self.file_bytes as f64 / d / 1000.0,
-            self.file_bytes as f64 / d * 90.0 / 1e6,
+            self.hot_window_mb(),
             self.five_years_uncompacted_mb(),
-            CATALOG_WARM_MB_PER_YEAR,
+            self.warm_mb_per_year(),
             CATALOG_COLD_MB_PER_YEAR,
             self.five_years_with_tiering_mb()
         );

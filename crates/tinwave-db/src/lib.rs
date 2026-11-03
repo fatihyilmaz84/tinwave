@@ -6,7 +6,8 @@
 //!   checksum tripwire against edited migrations.
 //! - [`SignalStore`]: the writer connection of `signals.db` (pragmas, schema, dictionaries
 //!   behind a bounded LRU) and the [`SignalSink`](tinwave_signals::SignalSink) implementation:
-//!   one transaction per batch of events and counter rows.
+//!   one transaction per batch of events and counter rows, plus the `play` row of every play that
+//!   ends in the batch (`Completed` or `Skipped`, paired with its `PlayStarted` per device).
 //! - [`PersistentSettings`]: the Signal Center toggles (`SignalSettings`) and their row in
 //!   `signals.db`; loaded before the bus exists, saved on every change.
 //! - [`SignalWriter`]: the thread that drains a [`SignalDrain`](tinwave_signals::SignalDrain)
@@ -39,12 +40,14 @@ mod dict;
 mod error;
 mod lru;
 mod migrate;
+mod play;
 mod settings;
 mod store;
 mod writer;
 
 pub use error::DbError;
 pub use migrate::{migrate, Migration, MigrationReport};
+pub use play::{EndReason, PlayFlags};
 pub use settings::{PersistentSettings, SettingsLoad, SettingsProblem};
 pub use store::{
     ends_a_play, BatchReport, CheckpointPolicy, SessionTz, SignalStore, StoreConfig,

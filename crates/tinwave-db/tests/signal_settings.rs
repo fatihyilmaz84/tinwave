@@ -447,7 +447,7 @@ fn the_paused_banner_clears_after_the_first_successful_save_only() {
     // A save that fails leaves the row as found, so the banner stays.
     db.reader()
         .execute_batch(
-            "CREATE TRIGGER inject_failure BEFORE INSERT ON signal_settings              BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
+            "CREATE TRIGGER inject_failure BEFORE INSERT ON signal_settings \n             BEGIN SELECT RAISE(ABORT, 'injected failure'); END;",
         )
         .unwrap();
     settings.set_tier(Tier::T0, true).unwrap_err();

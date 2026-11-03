@@ -22,6 +22,7 @@
 mod bus;
 mod coalesce;
 mod codec;
+mod context_key;
 mod counters;
 mod enums;
 mod error;
@@ -46,6 +47,9 @@ pub use priority::Priority;
 pub use settings::{SignalCategory, SignalSettings};
 
 pub use codec::{EncodedPayload, MAX_PAYLOAD_LEN};
+pub use context_key::{
+    ActivityGuess, ContextKey, Daypart, PlaceSlot, TemperatureBand, WeatherCondition, WeekdayType,
+};
 pub use enums::{
     ContextScope, EntityKind, InputSource, MetadataFields, OutputClass, OutputTransport,
     PlayOrigin, PlaylistKind, QueueOrigin, RadioFeedbackKind, RepeatMode, SearchScope, Section,
