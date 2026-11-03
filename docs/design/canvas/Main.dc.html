@@ -26,7 +26,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 </div>
 <div style="display: flex; flex-direction: column; gap: 4px; align-items: flex-end; font-size: 13px; color: #5D5D66">
 <span>v0.1 · ADR 0003</span>
-<span>Qt 6.8 LTS · Qt Quick Controls native styles</span>
+<span>Qt 6.10+ · Qt Quick Controls native styles</span>
 <span>Windows · macOS · Linux</span>
 </div>
 </header>
@@ -53,7 +53,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <div style="background: #F3F3F5; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
 <span style="font-size: 15px; font-weight: 600">Light</span>
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
-<sc-for list="{{light}}" as="c" hint-placeholder-count="12">
+<sc-for list="{{light}}" as="c" hint-placeholder-count="16">
 <div style="display: flex; gap: 10px; align-items: center">
 <span style="width: 36px; height: 36px; border-radius: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.12); background: {{c.hex}}"></span>
 <span style="display: flex; flex-direction: column; min-width: 0">
@@ -67,7 +67,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <div style="background: #161618; color: #F2F2F4; border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 16px">
 <span style="font-size: 15px; font-weight: 600">Dark</span>
 <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
-<sc-for list="{{dark}}" as="c" hint-placeholder-count="12">
+<sc-for list="{{dark}}" as="c" hint-placeholder-count="16">
 <div style="display: flex; gap: 10px; align-items: center">
 <span style="width: 36px; height: 36px; border-radius: 8px; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.14); background: {{c.hex}}"></span>
 <span style="display: flex; flex-direction: column; min-width: 0">
@@ -119,7 +119,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <span style="padding: 12px 0; border-bottom: 1px solid #E4E4E8; display: flex; align-items: center; white-space: nowrap; overflow: hidden; font-size: {{t.px}}; font-weight: {{t.w}}">{{t.sample}}</span>
 </sc-for>
 </div>
-<span style="font-size: 13px; line-height: 1.5; color: #5D5D66">Base = <code>Qt.application.font</code> (Segoe UI Variable 14 · SF Pro 13 · system font, usually 10 pt). Durations and counts use tabular figures. Never ship a bundled UI font.</span>
+<span style="font-size: 13px; line-height: 1.5; color: #5D5D66">Base = the active style’s control font, read by <code>Theme.base</code> from a hidden <code>Label</code>, never from <code>Qt.application.font</code> (Segoe UI Variable 14 px · SF Pro 13 · Linux: the desktop setting). Durations and counts use tabular figures. Never ship a bundled UI font.</span>
 </div>
 
 <div style="display: flex; flex-direction: column; gap: 20px">
@@ -148,7 +148,7 @@ a{color:#0B6E78}a:hover{color:#08525A}
 <div style="display: flex; flex-direction: column; gap: 16px">
 <h2 style="margin: 0; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #5D5D66">Layout sizes</h2>
 <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">
-<sc-for list="{{sizes}}" as="s" hint-placeholder-count="8">
+<sc-for list="{{sizes}}" as="s" hint-placeholder-count="11">
 <div style="display: flex; justify-content: space-between; gap: 16px; padding-bottom: 8px; border-bottom: 1px solid #E4E4E8">
 <span style="font-family: ui-monospace, 'Cascadia Mono', Menlo, monospace; font-size: 13px">{{s.name}}</span>
 <span style="color: #5D5D66; font-variant-numeric: tabular-nums">{{s.v}}</span>
@@ -199,14 +199,14 @@ light: [
 { name: 'raised', hex: '#FFFFFF' }, { name: 'hover', hex: '#0000000A' }, { name: 'selected', hex: '#E7F1F2' },
 { name: 'separator', hex: '#0000001A' }, { name: 'text', hex: '#1B1B1F' }, { name: 'textMuted', hex: '#5D5D66' },
 { name: 'textFaint', hex: '#64646D' }, { name: 'accent', hex: '#0B6E78' }, { name: 'onAccent', hex: '#FFFFFF' },
-{ name: 'srcServer', hex: '#1F5FA8' }, { name: 'srcDownload', hex: '#2A7240' }, { name: 'warning', hex: '#925700' }
+{ name: 'srcServer', hex: '#1F5FA8' }, { name: 'srcDownload', hex: '#2A7240' }, { name: 'warning', hex: '#925700' }, { name: 'danger', hex: '#B42318' }
 ],
 dark: [
 { name: 'window', hex: '#161618' }, { name: 'sidebar', hex: '#1D1D20' }, { name: 'content', hex: '#161618' },
 { name: 'raised', hex: '#202023' }, { name: 'hover', hex: '#FFFFFF0F' }, { name: 'selected', hex: '#1E2B2E' },
 { name: 'separator', hex: '#FFFFFF14' }, { name: 'text', hex: '#F2F2F4' }, { name: 'textMuted', hex: '#A6A6AF' },
 { name: 'textFaint', hex: '#94949C' }, { name: 'accent', hex: '#5CC6CF' }, { name: 'onAccent', hex: '#0F2F33' },
-{ name: 'srcServer', hex: '#7BB0EE' }, { name: 'srcDownload', hex: '#76C48E' }, { name: 'warning', hex: '#E0A453' }
+{ name: 'srcServer', hex: '#7BB0EE' }, { name: 'srcDownload', hex: '#76C48E' }, { name: 'warning', hex: '#E0A453' }, { name: 'danger', hex: '#F2877D' }
 ],
 type: [
 { name: 'display', win: '28', mac: '26', lin: 'base+14', px: '28px', w: '650', sample: 'Harbour Lights' },
@@ -222,9 +222,10 @@ space: [
 { name: 'l', v: '16', w: '16px' }, { name: 'xl', v: '24', w: '24px' }, { name: 'xxl', v: '32', w: '32px' }, { name: 'xxxl', v: '48', w: '48px' }
 ],
 sizes: [
-{ name: 'sidebar', v: '232 (rail 56)' }, { name: 'transportBar', v: '80' }, { name: 'sidePanel', v: '320' },
+{ name: 'sidebar', v: '232 (rail 56)' }, { name: 'sidebarRowHeight', v: '34' }, { name: 'transportBar', v: '80' }, { name: 'sidePanel', v: '320' },
 { name: 'rowComfortable', v: '40' }, { name: 'rowCompact', v: '32' }, { name: 'tileMin', v: '168' },
-{ name: 'hitTarget', v: '≥ 32 mouse · 44 touch' }, { name: 'windowMin', v: '880 × 560' }
+{ name: 'hairline', v: '1' }, { name: 'hitTarget', v: '≥ 32 mouse · 44 touch' },
+{ name: 'windowMin', v: '880 × 560' }, { name: 'windowDefault', v: '1200 × 800' }
 ],
 motion: [
 { name: 'fast', v: '120 ms · hover, press' }, { name: 'normal', v: '200 ms · panels' }, { name: 'slow', v: '300 ms · view change' },
