@@ -52,7 +52,9 @@ Do not trust the handoff — verify it.
   turn waiting on a background command, and leave nothing running (`tinwave-desktop`, `image-stress`, `cargo`,
   `python`) when you return your verdict.
 - Reproductions go in a scratch copy outside the worktree, made with `git archive` (sources only) and deleted
-  afterwards; never copy `target/` (disk is limited).
+  afterwards; never copy `target/` (disk is limited). Build the scratch copy with its **own** `CARGO_TARGET_DIR`
+  (in the scratch folder), never the worktree's: sharing it makes cargo reuse mutated binaries in the real worktree.
+  Delete that target dir when done.
 
 ## Your final message — always exactly this format
 
