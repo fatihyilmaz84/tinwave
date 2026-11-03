@@ -3,7 +3,7 @@ id: T-0051
 title: Packaging hardening and notices completeness (before any public release)
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0042]
@@ -48,3 +48,6 @@ Rule:
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-03: merged d6407a7 after review-1 APPROVE (31 packaging cases). README count fixed by the lead. Follow-ups T-0054 (before release, with D-0007).

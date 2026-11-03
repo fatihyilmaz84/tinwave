@@ -31,7 +31,7 @@ into every folder it creates; any other non-empty folder is refused, whatever it
 4. Legal files (below).
 5. `check-bundle.ps1`, then 6. `smoke-test.ps1`. Either one failing makes the script exit 1.
 
-It prints the bundle size and file count at the end. Reference run (Qt 6.12.0, MSVC 14.50 runtime): **1094 files, 57.7 MiB**
+It prints the bundle size and file count at the end. Reference run (Qt 6.12.0, MSVC 14.50 runtime): **1095 files, 57.7 MiB** (incl. the `.tinwave-package` marker)
 (51.4 MiB in the root: Qt DLLs, exe, runtime; `qml\` 4.1 MiB in 1052 files; plugins 2.2 MiB; legal files 0.3 MiB).
 
 ## The checks (`check-bundle.ps1`, exit code 1 on any FAIL)
