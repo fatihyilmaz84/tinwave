@@ -462,8 +462,8 @@ impl Engine {
     ///
     /// Returns at once. The decoder thread applies the change by restarting the stream at the
     /// audible position: the renderer fades out at most 5 ms, the decoder reopens the track there
-    /// and the new stream fades in, about 15 ms of dip and 10 to 20 ms from the call to the first
-    /// audio at the new rate. A change that follows another within 125 ms waits for the interval,
+    /// and the new stream fades in: a short dip whose length on a real device is not yet measured
+    /// (ADR 0006, implementation note 7). A change that follows another within 125 ms waits for the interval,
     /// and the value current then is applied, so a drag costs a few restarts and ends on the
     /// final value. Setting the rate the engine already has does nothing.
     ///

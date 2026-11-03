@@ -3,7 +3,7 @@ id: T-0062
 title: Derive RateSession per play and expose the applied rate in PlaybackStatus
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: S
 depends_on: [T-0027]

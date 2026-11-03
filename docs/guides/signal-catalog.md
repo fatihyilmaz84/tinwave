@@ -38,8 +38,9 @@ Interpretation rules:
 
 ## 2. Speed — "what do they rush, what do they savor?"
 
-Tinwave offers playback rate 0.75×–1.5× with pitch preservation (license check: prefer an MIT/BSD
-time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR accepts it).
+Tinwave offers playback rate 0.75×–1.5× with pitch preservation: Signalsmith Stretch (MIT) in the decoder thread,
+bypassed at exactly 1.0× (bit-exact), see [ADR 0006](../adr/0006-time-stretch.md). `RateChanged` is emitted per
+coalesced gesture (T-0027); `RateSession` is derived from the engine's `RateStats` counters (T-0062).
 
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|

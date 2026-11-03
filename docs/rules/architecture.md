@@ -40,7 +40,8 @@ tinwave-desktop
 - `tinwave-playback` knows nothing about taste. It emits facts; others interpret.
 - Inside `tinwave-playback`, sample-rate conversion happens **only in the decoder thread**
   (`reader -> [stretch] -> [resample] -> ring`, ADR 0005 decision 5, ADR 0006): the render callback only ever sees the
-  stream rate. Same-rate tracks share one continuous resampler (no filter restart at a boundary). Dither is applied
+  stream rate. Time-stretch also runs there (bypassed at 1.0); the callback only fades and counts (`RateStats`).
+  Same-rate tracks share one continuous resampler (no filter restart at a boundary). Dither is applied
   only at the output conversion, and only for integer formats (`output/convert.rs` has the policy).
 - `tinwave-desktop` wires everything in one composition root (`app/wiring.rs`). No global singletons elsewhere.
 

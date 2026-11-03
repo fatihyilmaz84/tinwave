@@ -111,6 +111,32 @@ fine at 1.25x to 1.5x; WSOLA keeps onsets sharp but is the weakest on dense poly
    the `RateChanged` signal stays one event per gesture (600 ms coalescer, T-0005).
 6. Stretch runs at the file rate, before the rubato resampler (T-0019): effective stretch rate = rate.
 
+## Implementation (T-0027, 2026-11-03)
+
+Built as decided, with these refinements (review: work/reports/T-0027/review-1.md):
+
+1. **No segment queue (replaces decision 5's second SPSC queue).** A rate change is always a flush, so the ring only
+   ever holds one rate. The decoder stores `Shared::stream_rate` while the ring is empty (after the renderer's flush
+   ack, before the first push); the renderer reads it after popping and books `eff_rate`, `wall_frames` (= consumed)
+   and `src_micro`. The rate is in stream frames per output frame, so decision 6's `file_rate / device_rate` factor is
+   not needed. The counters are exposed as `RateStats`.
+2. **Positions come from `Mark.rate`** (replaces "audible position = base + src_micro_since_flush"). Marks carry the
+   rate; a rate restart appends a `MarkKind::Rate` mark and keeps older marks until consumed, so positions inside the
+   device buffer and a restart landing in the next track stay correct.
+3. **Pre-roll.** A freshly reset stretcher overshoots the level by up to 4-5 % for about 60 ms, so the reader starts
+   `2 x input_latency` frames early (`TrackReader::seek_with_preroll`) and the discard grows by `round(preroll / rate)`.
+4. **The fade-out spans callbacks**, so a device buffer shorter than 5 ms still gets the full ramp.
+5. **Throttle: one restart per 125 ms** from flush start; changes in between wait and the latest value wins. Nothing
+   audible (nothing loaded, or everything played) adopts the rate without a flush.
+6. **Click criterion restated.** A stretched sine's own steepest sample step is up to about 0.5 % above a pure sine's;
+   the step at a restart is no larger than the steady stretched signal's (measured 1.0035x vs 1.0053x of the analytic
+   sine). The Consequences sentence "largest sample step equals the steady sine's" means this.
+7. **Latency is not re-measured.** The 10-19 ms set_rate-to-audio figure above is the spike's (no pre-roll, no flush
+   backoff). The engine's flush wait backs off up to 16 ms, so the real dip may be longer; it is measured in the PO
+   listening pass (P-0251) and the backoff fix is T-0063. Do not quote it as a measured engine figure.
+8. `RateStats` counters are booked at the callback, not at the speaker: a per-play time-weighted rate taken from
+   snapshots at play start/leave (T-0062) is off by about one device latency at the edges.
+
 ## Spec / docs updated
 
 On acceptance, in the same change:

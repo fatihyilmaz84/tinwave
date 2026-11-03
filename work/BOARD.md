@@ -35,11 +35,10 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-reviewer r1 | `t/T-0027-rate-control-engine` @ dfa60b9 · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
+_none_
 
 ## Recently done
+- [T-0027](tickets/T-0027-rate-control-engine.md) Playback rate 0.75-1.5x (Signalsmith in the decoder thread), RateChanged — merged 9a3d07b (review r1 APPROVE; ADR 0006 implementation notes applied).
 - [T-0060](tickets/T-0060-wipe-masks-context-key.md) SignalWiper: wiping a context category clears its fields (and derived activity) from play rows and snapshot keys — merged 4362edd (review r2 APPROVE).
 - [T-0058](tickets/T-0058-switch-to-gpl.md) Tinwave is GPL-3.0-only in Cargo, cargo-deny and packaging — merged 211d9fe (review r1 APPROVE; hardening → T-0054).
 - [T-0029](tickets/T-0029-live-play-records.md) Live play records, ContextKey v1 — merged 14105bf (review r1 APPROVE; Stopped/Quit → T-0059, wipe masking → T-0060).
@@ -48,7 +47,8 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 (same crate) |
+| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | next playback ticket |
+| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | feature | S | tinwave-playback controller | after T-0057 (same crate) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
@@ -66,7 +66,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | Ticket | Depends on |
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
-| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | T-0027 |
+| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
