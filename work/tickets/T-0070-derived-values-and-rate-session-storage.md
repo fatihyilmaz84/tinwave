@@ -3,7 +3,7 @@ id: T-0070
 title: Derived signal values as a first-class path; store RateSession with the play
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0062]
