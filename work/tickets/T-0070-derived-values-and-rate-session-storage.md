@@ -3,7 +3,7 @@ id: T-0070
 title: Derived signal values as a first-class path; store RateSession with the play
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0062]
@@ -19,6 +19,7 @@ scope:
 owner: tw-builder
 branch: t/T-0070-derived-values-and-rate-session-storage
 review_round: 1
+merge: 7612e42
 created_by: from P-0275, P-0276 (T-0062 build-1)
 ---
 
