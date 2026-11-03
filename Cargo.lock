@@ -1733,6 +1733,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tinwave-core",
+ "tinwave-db",
  "tinwave-signals",
  "tracing",
 ]

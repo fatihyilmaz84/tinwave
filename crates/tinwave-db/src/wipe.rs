@@ -217,8 +217,10 @@ impl SignalWiper {
     }
 
     /// The wiper's connection, so that the integration tests can install a `trace_v2` hook and count
-    /// the statements a wipe runs (`tests/common`, `statements_of`). Not part of the API: nothing in
-    /// the product calls it, and a hidden item is not documented or supported.
+    /// the statements a wipe runs (`tests/common`, `statements_of`). Exists only with the
+    /// `test-support` feature, which only this crate's own dev-dependencies enable: the default
+    /// build exposes no raw connection. Not part of the API.
+    #[cfg(feature = "test-support")]
     #[doc(hidden)]
     pub fn connection_for_tests(&mut self) -> &mut Connection {
         &mut self.conn

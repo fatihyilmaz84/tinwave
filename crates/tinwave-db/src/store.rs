@@ -428,6 +428,16 @@ impl SignalStore {
         Ok(report)
     }
 
+    /// The writer's connection, so that the integration tests can install a `trace_v2` hook and
+    /// count the statements of a batch (`tests/common`, `store_statements_of`). Exists only with
+    /// the `test-support` feature, which only this crate's own dev-dependencies enable: the default
+    /// build exposes no raw connection. Not part of the API.
+    #[cfg(feature = "test-support")]
+    #[doc(hidden)]
+    pub fn connection_for_tests(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+
     /// Dictionary and session entries currently held by the in-memory LRUs (never more than
     /// the configured capacities). Diagnostics and tests.
     #[must_use]

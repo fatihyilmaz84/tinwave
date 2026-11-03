@@ -42,6 +42,26 @@ impl TempDb {
     pub fn reader(&self) -> Connection {
         reader(&self.path)
     }
+
+    /// A new database with this one's content, as one file copy. For a test that needs many
+    /// identical, expensive databases (the statement counts run every kind of wipe on a fresh
+    /// small and a fresh large one): build it once, copy it per case. Opening and migrating a
+    /// database costs dozens of fsyncs; copying a file costs none.
+    ///
+    /// Nothing else may write to `self` while this runs. The WAL is folded into the main file
+    /// first, so the copy is complete.
+    pub fn copy(&self) -> TempDb {
+        {
+            let conn = self.reader();
+            let busy: i64 = conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(busy, 0, "the template is in use: its WAL was not folded in");
+        }
+        let copy = TempDb::new();
+        std::fs::copy(&self.path, &copy.path).unwrap();
+        copy
+    }
 }
 
 pub fn reader(path: &Path) -> Connection {
@@ -456,6 +476,31 @@ pub fn is_busy(error: &DbError) -> bool {
     )
 }
 
+/// Installs a `trace_v2` hook on `conn` that logs the SQL of every statement SQLite starts.
+fn start_trace(conn: &mut Connection) -> Arc<Mutex<Vec<String>>> {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&log);
+    conn.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_STMT,
+        Some(move |event: TraceEvent<'_>| {
+            if let TraceEvent::Stmt(_, sql) = event {
+                sink.lock().unwrap().push(sql.to_owned());
+            }
+        }),
+    )
+    .unwrap();
+    log
+}
+
+fn stop_trace(conn: &mut Connection, log: &Mutex<Vec<String>>) -> Vec<String> {
+    conn.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_STMT,
+        None::<fn(TraceEvent<'_>)>,
+    )
+    .unwrap();
+    std::mem::take(&mut *log.lock().unwrap())
+}
+
 /// The SQL statements `wipe` runs on the wiper's connection, in order, with its result: every
 /// statement SQLite starts, so the `BEGIN IMMEDIATE`, the scans, the `COMMIT` and the checkpoint
 /// of the wipe. A test pins the length of this list per kind of wipe, and compares it between a
@@ -465,28 +510,22 @@ pub fn statements_of<R>(
     wiper: &mut SignalWiper,
     wipe: impl FnOnce(&mut SignalWiper) -> R,
 ) -> (R, Vec<String>) {
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&log);
-    wiper
-        .connection_for_tests()
-        .trace_v2(
-            TraceEventCodes::SQLITE_TRACE_STMT,
-            Some(move |event: TraceEvent<'_>| {
-                if let TraceEvent::Stmt(_, sql) = event {
-                    sink.lock().unwrap().push(sql.to_owned());
-                }
-            }),
-        )
-        .unwrap();
+    let log = start_trace(wiper.connection_for_tests());
     let result = wipe(wiper);
-    wiper
-        .connection_for_tests()
-        .trace_v2(
-            TraceEventCodes::SQLITE_TRACE_STMT,
-            None::<fn(TraceEvent<'_>)>,
-        )
-        .unwrap();
-    let statements = std::mem::take(&mut *log.lock().unwrap());
+    let statements = stop_trace(wiper.connection_for_tests(), &log);
+    (result, statements)
+}
+
+/// [`statements_of`] for the store's writer connection: every statement `run` starts, so the
+/// `BEGIN IMMEDIATE`, the epoch read, the dictionary lookups, the inserts and the `COMMIT` of a
+/// `write_batch`.
+pub fn store_statements_of<R>(
+    store: &mut SignalStore,
+    run: impl FnOnce(&mut SignalStore) -> R,
+) -> (R, Vec<String>) {
+    let log = start_trace(store.connection_for_tests());
+    let result = run(store);
+    let statements = stop_trace(store.connection_for_tests(), &log);
     (result, statements)
 }
 
