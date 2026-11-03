@@ -3,7 +3,7 @@ id: T-0053
 title: Platform bridge follow-ups — portable winId, same-process window guard, menu re-flush, tighter probe test
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0036]
@@ -13,9 +13,9 @@ scope:
   - apps/tinwave-desktop/cpp/                 # the winId shim only
   - apps/tinwave-desktop/build.rs             # registering the shim only
   - apps/tinwave-desktop/tests/platform_qml.rs
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0053-platform-bridge-followups
+review_round: 1
 created_by: from T-0036 review-1 (P-0194..P-0196)
 ---
 

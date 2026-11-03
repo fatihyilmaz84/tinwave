@@ -3,15 +3,15 @@ id: T-0019
 title: Resampler (rubato) in the decoder thread and exclusive-mode float-to-int dither policy
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0016]
 scope:
   - crates/tinwave-playback/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0019-resampler-and-dither
+review_round: 1
 created_by: from P-0025
 ---
 
