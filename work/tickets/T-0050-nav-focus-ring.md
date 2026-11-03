@@ -3,16 +3,16 @@ id: T-0050
 title: Sidebar nav list — the keyboard focus ring follows the current item after Up/Down
 type: bug
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0043]
 scope:
   - apps/tinwave-desktop/qml/Sidebar.qml
   - apps/tinwave-desktop/tools/capture.ps1   # P-0163: verify foreground before capturing
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0050-nav-focus-ring
+review_round: 1
 created_by: from P-0154, P-0155 (T-0043 build-1), P-0163 (T-0043 build-2)
 ---
 

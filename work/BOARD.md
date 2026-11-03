@@ -25,6 +25,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0050](tickets/T-0050-nav-focus-ring.md) Nav list focus ring follows the current item; capture foreground check | tw-builder r1 | `t/T-0050-nav-focus-ring` · `D:\dev\Tinwave-worktrees\T-0050-nav-focus-ring` |
 | [T-0049](tickets/T-0049-artwork-provider-followups.md) Artwork follow-ups + cancel-storm gate flake (P1) | tw-builder r1 | `t/T-0049-artwork-provider-followups` · `D:\dev\Tinwave-worktrees\T-0049-artwork-provider-followups` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 (sent back before review: defer no-session queue acts, P-0160) | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
@@ -38,7 +39,6 @@ _none_
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | chore | M | desktop packaging/ | free |
-| [T-0050](tickets/T-0050-nav-focus-ring.md) Nav list focus ring follows the current item | bug | S | desktop Sidebar.qml, tools/capture.ps1 | free |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | free |
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus) | feature | M | desktop src/platform | free (T-0044 merged) |
