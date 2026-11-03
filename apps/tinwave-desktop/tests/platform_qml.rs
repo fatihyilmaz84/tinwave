@@ -6,8 +6,9 @@
 //! The root-URL override only exists in debug builds, so this file does too.
 #![cfg(debug_assertions)]
 
-// Referenced so the test binary links the crate (and with it the Rust half of the CXX-Qt bridge); it never calls into it.
-use tinwave_desktop as _;
+// Linking the crate also links the Rust half of the CXX-Qt bridge. Only the OS reader is called, to know what the app
+// should have read.
+use tinwave_desktop::platform;
 
 mod common;
 
@@ -24,11 +25,14 @@ fn theme_follows_the_bridge_and_the_accent_setter_refuses_bad_values() {
     assert_eq!(run.get("themeReducedMotionFollows"), "true");
     assert_eq!(run.get("themeHighContrastFollows"), "true");
     assert_eq!(run.get("themeBackdropFollows"), "true");
-    // 120 ms unless the OS has animation effects off (read-only: whatever this machine is set to).
-    assert!(
-        ["0", "120"].contains(&run.get("durationFast")),
-        "durationFast {}",
-        run.get("durationFast")
+    // The OS is asked read-only, here and in the app: 0 when "animation effects" are off on this machine, else 120.
+    // Where the OS cannot be asked the app assumes the defaults, which `unwrap_or_default` gives the same way.
+    let os = platform::current().read().unwrap_or_default();
+    assert_eq!(
+        run.get("durationFast"),
+        if os.reduced_motion { "0" } else { "120" },
+        "reduced motion is {}",
+        os.reduced_motion
     );
     assert_eq!(run.get("accentIsOverride"), "false", "no --accent given");
 
@@ -50,11 +54,13 @@ fn theme_follows_the_bridge_and_the_accent_setter_refuses_bad_values() {
 #[test]
 fn windows_reads_the_os_and_offers_native_menus() {
     let run = probe(&[]);
-    // Settings are live unless the window watch failed (the offscreen window has no HWND, so it does).
+    // The offscreen plugin's window is not an OS window (its winId is a counter): the bridge does not attach to it
+    // and says so, instead of passing a fake handle to the OS and reporting a failed call.
+    assert_eq!(run.get("settingsStatus"), "not attached (QPA offscreen)");
     assert!(
-        run.get("settingsStatus") == "live" || run.get("settingsStatus").contains("IsWindow"),
-        "settingsStatus {}",
-        run.get("settingsStatus")
+        !run.stderr.contains("IsWindow"),
+        "no OS call was made for the offscreen window:\n{}",
+        run.stderr
     );
     // Windows 10 1903 and newer have the dark-menu opt-in; so does every machine this runs on.
     assert_eq!(
@@ -66,11 +72,9 @@ fn windows_reads_the_os_and_offers_native_menus() {
     assert_eq!(run.get("menuStatus"), "native");
     // No real window: the backdrop is not applied and says so (never a silent solid).
     assert_eq!(run.get("backdropActive"), "false");
-    assert!(
-        run.get("backdropStatus").starts_with("failed: IsWindow")
-            || run.get("backdropStatus").starts_with("solid:"),
-        "{}",
-        run.get("backdropStatus")
+    assert_eq!(
+        run.get("backdropStatus"),
+        "solid: not attached (QPA offscreen)"
     );
 }
 
@@ -80,14 +84,48 @@ fn developer_switches_change_the_app_in_process_only() {
     assert_eq!(run.get("accentIsOverride"), "true");
     assert_eq!(run.get("accent").to_lowercase(), "#d13438");
     assert_eq!(run.get("backdropActive"), "false");
+    // The offscreen window is not an OS window on any OS, so the status is the "not attached" reason (there is no
+    // backdrop to turn off); the switch shows in the combined `transparencyEffects` instead.
     assert_eq!(
         run.get("backdropStatus"),
-        "solid: turned off with --transparency=off"
+        "solid: not attached (QPA offscreen)"
     );
     assert_eq!(
         run.get("transparencyEffects"),
         "false",
         "the app acts on the combined value"
+    );
+}
+
+#[test]
+fn the_transparency_switch_is_what_turns_transparency_off() {
+    // Without the switch the app mirrors the OS (read-only here and in the app); `false` alone proves nothing on a
+    // machine whose "Transparency effects" is off, so the switch is only shown where the OS has it on.
+    let os = platform::current().read().unwrap_or_default();
+    let baseline = probe(&[]);
+    assert_eq!(
+        baseline.get("transparencyEffects"),
+        os.transparency_effects.to_string(),
+        "without --transparency the app follows the OS"
+    );
+    if !os.transparency_effects {
+        eprintln!(
+            "NOTE: transparency effects are off on this machine, so the --transparency=off switch cannot be shown \
+             here (the value is false with or without it); the controller tests pin the switch."
+        );
+        return;
+    }
+    let switched = probe(&["--transparency=off"]);
+    assert_eq!(
+        switched.get("transparencyEffects"),
+        "false",
+        "the switch turns it off"
+    );
+    let system = probe(&["--transparency=system"]);
+    assert_eq!(
+        system.get("transparencyEffects"),
+        "true",
+        "and `system` leaves it"
     );
 }
 

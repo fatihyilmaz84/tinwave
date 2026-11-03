@@ -180,5 +180,7 @@ fn main() {
     .include_dir("cpp")
     .cpp_file("cpp/thumb_task.h")
     .cpp_file("cpp/image_provider.cpp")
+    // winId() and the platform plugin name as rust::usize / rust::String (see the header for why).
+    .cpp_file("cpp/platform_window.cpp")
     .build();
 }
