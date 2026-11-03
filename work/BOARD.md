@@ -27,13 +27,14 @@ _Maintained by the lead. Last updated: 2026-11-02._
 |---|---|---|
 | [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus, --accent) | tw-builder r1 | `t/T-0036-windows-platform-bridge` · `D:\dev\Tinwave-worktrees\T-0036-windows-platform-bridge` |
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | tw-builder r1 | `t/T-0051-packaging-hardening` · `D:\dev\Tinwave-worktrees\T-0051-packaging-hardening` |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r1 (sent back before review: defer no-session queue acts, P-0160) | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-reviewer r1 (build-1 + 1b: deferred no-session queue acts) | `t/T-0023-live-queue-edits` @ 57aca71 · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
