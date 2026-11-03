@@ -31,6 +31,12 @@
 //! least one field is known, and [`ContextKey::from_raw`] accepts `0` and version-1 values
 //! (a version-1 value with every field 0 reads as all-unknown). Any other version, a non-zero
 //! reserved nibble or a field code with no meaning is an error, never a silent clamp.
+//!
+//! # Clearing fields
+//!
+//! A user wipe of a data category removes the fields that category owns from every stored key:
+//! [`ContextKey::without`] on a decoded key, [`ContextKey::clear_raw`] on a stored `u32`. Both
+//! keep the rule above: a key left with no known field is the raw 0.
 
 use crate::{OutputClass, SignalsError};
 
@@ -212,6 +218,111 @@ const ACTIVITY_MASK: u32 = 0b1111;
 const PLACE_MASK: u32 = 0b11_1111;
 const RESERVED_MASK: u32 = 0b1111;
 const VERSION_MASK: u32 = 0b1111;
+
+/// One field of a [`ContextKey`], named so a set of them can be cleared (a user wipe removes
+/// the fields a data category owns; see [`ContextKey::without`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ContextField {
+    /// Bits 0-2.
+    Daypart,
+    /// Bits 3-4.
+    WeekdayType,
+    /// Weather condition, bits 5-7.
+    Condition,
+    /// Temperature band, bits 8-10.
+    Temperature,
+    /// Output device class, bits 11-13.
+    DeviceClass,
+    /// Activity guess, bits 14-17.
+    Activity,
+    /// Place slot, bits 18-23.
+    Place,
+}
+
+impl ContextField {
+    /// Every field, in bit order.
+    pub const ALL: [Self; 7] = [
+        Self::Daypart,
+        Self::WeekdayType,
+        Self::Condition,
+        Self::Temperature,
+        Self::DeviceClass,
+        Self::Activity,
+        Self::Place,
+    ];
+
+    /// The field's bits in a packed key.
+    const fn bits(self) -> u32 {
+        match self {
+            Self::Daypart => DAYPART_MASK << DAYPART_SHIFT,
+            Self::WeekdayType => WEEKDAY_MASK << WEEKDAY_SHIFT,
+            Self::Condition => CONDITION_MASK << CONDITION_SHIFT,
+            Self::Temperature => TEMPERATURE_MASK << TEMPERATURE_SHIFT,
+            Self::DeviceClass => DEVICE_MASK << DEVICE_SHIFT,
+            Self::Activity => ACTIVITY_MASK << ACTIVITY_SHIFT,
+            Self::Place => PLACE_MASK << PLACE_SHIFT,
+        }
+    }
+
+    const fn flag(self) -> u8 {
+        1 << (self as u8)
+    }
+}
+
+/// A set of [`ContextField`]s: what [`ContextKey::without`] and [`ContextKey::clear_raw`] clear.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct ContextFieldSet(u8);
+
+impl ContextFieldSet {
+    /// No field.
+    pub const EMPTY: Self = Self(0);
+
+    /// This set plus `field`.
+    #[must_use]
+    pub const fn with(self, field: ContextField) -> Self {
+        Self(self.0 | field.flag())
+    }
+
+    /// This set plus every field of `other`.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether `field` is in the set.
+    #[must_use]
+    pub const fn contains(self, field: ContextField) -> bool {
+        self.0 & field.flag() != 0
+    }
+
+    /// Whether the set has no field.
+    #[must_use]
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The bits of the fields in the set.
+    const fn bits(self) -> u32 {
+        let mut bits = 0;
+        let mut i = 0;
+        while i < ContextField::ALL.len() {
+            if self.contains(ContextField::ALL[i]) {
+                bits |= ContextField::ALL[i].bits();
+            }
+            i += 1;
+        }
+        bits
+    }
+}
+
+impl FromIterator<ContextField> for ContextFieldSet {
+    fn from_iter<I: IntoIterator<Item = ContextField>>(iter: I) -> Self {
+        iter.into_iter().fold(Self::EMPTY, Self::with)
+    }
+}
+
+/// All 24 field bits (0-23): what is left of a key when the version and reserved nibbles go.
+const FIELD_BITS: u32 = (1 << RESERVED_SHIFT) - 1;
 
 /// The context a play happened in, as the taste engine buckets it. Every field may be unknown.
 ///
@@ -453,6 +564,52 @@ impl ContextKey {
     }
 }
 
+impl ContextKey {
+    /// This key with every field in `fields` set back to unknown. When no known field is left the
+    /// key is [`UNKNOWN`](Self::UNKNOWN), which packs to the raw 0 (the version rule).
+    #[must_use]
+    pub const fn without(mut self, fields: ContextFieldSet) -> Self {
+        if fields.contains(ContextField::Daypart) {
+            self.daypart = None;
+        }
+        if fields.contains(ContextField::WeekdayType) {
+            self.weekday_type = None;
+        }
+        if fields.contains(ContextField::Condition) {
+            self.condition = None;
+        }
+        if fields.contains(ContextField::Temperature) {
+            self.temperature = None;
+        }
+        if fields.contains(ContextField::DeviceClass) {
+            self.device_class = None;
+        }
+        if fields.contains(ContextField::Activity) {
+            self.activity = None;
+        }
+        if fields.contains(ContextField::Place) {
+            self.place = None;
+        }
+        self
+    }
+
+    /// A stored key with the bits of `fields` cleared, without decoding it: the other fields and
+    /// the version nibble stay as they are, and a key with no field bit left is the raw 0.
+    ///
+    /// This is for rewriting stored keys (a wipe must also clean a key this build cannot decode, so
+    /// it works on bits and never fails). For a valid key it is the same as
+    /// `from_raw(raw)?.without(fields).raw()`; a test pins that.
+    #[must_use]
+    pub const fn clear_raw(raw: u32, fields: ContextFieldSet) -> u32 {
+        let cleared = raw & !fields.bits();
+        if cleared & FIELD_BITS == 0 {
+            0
+        } else {
+            cleared
+        }
+    }
+}
+
 impl Default for ContextKey {
     fn default() -> Self {
         Self::UNKNOWN
@@ -649,6 +806,146 @@ mod tests {
         assert!(PlaceSlot::new(64).is_err());
         assert_eq!(PlaceSlot::new(1).unwrap().get(), 1);
         assert_eq!(PlaceSlot::new(63).unwrap().get(), 63);
+    }
+
+    fn set(fields: &[ContextField]) -> ContextFieldSet {
+        fields.iter().copied().collect()
+    }
+
+    /// Clearing a field set leaves exactly the other fields, for every subset of the seven fields.
+    #[test]
+    fn without_clears_exactly_the_chosen_fields() {
+        for subset in 0u8..(1 << ContextField::ALL.len()) {
+            let chosen: ContextFieldSet = ContextField::ALL
+                .iter()
+                .copied()
+                .filter(|f| subset & (1 << (*f as u8)) != 0)
+                .collect();
+            let k = full().without(chosen);
+            let keep = |f: ContextField| !chosen.contains(f);
+            assert_eq!(k.daypart().is_some(), keep(ContextField::Daypart));
+            assert_eq!(k.weekday_type().is_some(), keep(ContextField::WeekdayType));
+            assert_eq!(k.condition().is_some(), keep(ContextField::Condition));
+            assert_eq!(k.temperature().is_some(), keep(ContextField::Temperature));
+            assert_eq!(k.device_class().is_some(), keep(ContextField::DeviceClass));
+            assert_eq!(k.activity().is_some(), keep(ContextField::Activity));
+            assert_eq!(k.place().is_some(), keep(ContextField::Place));
+            // What stays is unchanged, not just present.
+            if keep(ContextField::Place) {
+                assert_eq!(k.place(), full().place());
+            }
+            if keep(ContextField::Daypart) {
+                assert_eq!(k.daypart(), full().daypart());
+            }
+        }
+        assert_eq!(full().without(ContextFieldSet::EMPTY), full());
+    }
+
+    /// The version rule: a key whose last known field is cleared is the raw 0, not a version-1
+    /// key with every field 0.
+    #[test]
+    fn clearing_the_last_known_field_gives_raw_zero() {
+        let only_place = ContextKey::UNKNOWN.with_place(PlaceSlot::new(9).unwrap());
+        assert_eq!(only_place.raw() >> 28, 1);
+        let gone = only_place.without(set(&[ContextField::Place]));
+        assert_eq!(gone, ContextKey::UNKNOWN);
+        assert_eq!(gone.raw(), 0);
+        assert_eq!(
+            ContextKey::clear_raw(only_place.raw(), set(&[ContextField::Place])),
+            0
+        );
+        // Clearing an unrelated field keeps the key, version included.
+        assert_eq!(
+            ContextKey::clear_raw(only_place.raw(), set(&[ContextField::Condition])),
+            only_place.raw()
+        );
+        // The raw 0 stays 0.
+        assert_eq!(ContextKey::clear_raw(0, set(&ContextField::ALL)), 0);
+    }
+
+    /// The bit-level rewrite a wipe uses agrees with the typed one on every valid key we can
+    /// build from the single-field and the full keys, for every subset.
+    #[test]
+    fn clear_raw_agrees_with_without() {
+        let mut keys = vec![ContextKey::UNKNOWN, full()];
+        for &d in Daypart::ALL {
+            keys.push(full().with_daypart(d));
+        }
+        for slot in [1, 2, 31, 32, 63] {
+            keys.push(full().with_place(PlaceSlot::new(slot).unwrap()));
+            keys.push(ContextKey::UNKNOWN.with_place(PlaceSlot::new(slot).unwrap()));
+        }
+        for &a in ActivityGuess::ALL {
+            keys.push(
+                ContextKey::UNKNOWN
+                    .with_activity(a)
+                    .with_daypart(Daypart::Night),
+            );
+        }
+        for &c in OutputClass::ALL {
+            keys.push(
+                ContextKey::UNKNOWN
+                    .with_device_class(c)
+                    .with_condition(WeatherCondition::Fog),
+            );
+        }
+        for key in keys {
+            for subset in 0u8..(1 << ContextField::ALL.len()) {
+                let chosen: ContextFieldSet = ContextField::ALL
+                    .iter()
+                    .copied()
+                    .filter(|f| subset & (1 << (*f as u8)) != 0)
+                    .collect();
+                assert_eq!(
+                    ContextKey::clear_raw(key.raw(), chosen),
+                    key.without(chosen).raw(),
+                    "{key:?} without {chosen:?}"
+                );
+            }
+        }
+    }
+
+    /// A wipe also cleans a key this build cannot decode: the cleared bits go, nothing is
+    /// validated or rejected.
+    #[test]
+    fn clear_raw_works_on_keys_that_do_not_decode() {
+        let v = 1u32 << 28;
+        // Weather condition 7 has no meaning; clearing it makes the key decodable and all-unknown.
+        let bad = v | (7 << 5);
+        assert!(ContextKey::from_raw(bad).is_err());
+        assert_eq!(
+            ContextKey::clear_raw(bad, set(&[ContextField::Condition])),
+            0
+        );
+        // The other fields of such a key survive a wipe of a different field.
+        let bad_and_day = bad | 6;
+        assert_eq!(
+            ContextKey::clear_raw(bad_and_day, set(&[ContextField::Condition])),
+            v | 6
+        );
+    }
+
+    #[test]
+    fn a_field_set_holds_what_was_put_in() {
+        let s = set(&[ContextField::Place, ContextField::Condition]);
+        assert!(s.contains(ContextField::Place) && s.contains(ContextField::Condition));
+        assert!(!s.contains(ContextField::Daypart));
+        assert!(ContextFieldSet::EMPTY.is_empty() && !s.is_empty());
+        assert_eq!(
+            s.union(set(&[ContextField::Daypart])),
+            set(&[
+                ContextField::Place,
+                ContextField::Condition,
+                ContextField::Daypart
+            ])
+        );
+        // Every field has its own bits and they do not overlap.
+        let mut seen = 0u32;
+        for &f in &ContextField::ALL {
+            assert_eq!(seen & f.bits(), 0, "{f:?} overlaps");
+            seen |= f.bits();
+        }
+        assert_eq!(seen, FIELD_BITS);
     }
 
     #[test]

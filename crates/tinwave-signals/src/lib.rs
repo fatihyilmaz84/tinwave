@@ -48,7 +48,8 @@ pub use settings::{SignalCategory, SignalSettings};
 
 pub use codec::{EncodedPayload, MAX_PAYLOAD_LEN};
 pub use context_key::{
-    ActivityGuess, ContextKey, Daypart, PlaceSlot, TemperatureBand, WeatherCondition, WeekdayType,
+    ActivityGuess, ContextField, ContextFieldSet, ContextKey, Daypart, PlaceSlot, TemperatureBand,
+    WeatherCondition, WeekdayType,
 };
 pub use enums::{
     ContextScope, EntityKind, InputSource, MetadataFields, OutputClass, OutputTransport,

@@ -33,6 +33,13 @@ Never collect, even with consent:
   (see [storage-budget.md](storage-budget.md)). Less raw data kept is also less sensitive data kept.
 - Export: JSON Lines of all signals + context + derived taste, from the Signal Center.
 - Wipe: per category, per tier, everything. Wiping signals also clears derived `taste.db`.
+  Wiping a **context** category (clock, output device, foreground app, network place, weather) also clears its
+  fields from the `ContextKey` kept in every `play` row (3-year tier) and every `context_snapshot` (hot tier),
+  in the same transaction as the rest of the wipe; a key left with no known field becomes the raw 0. Field
+  ownership: clock → daypart, weekday type; output device → device class; foreground app (T2) → activity;
+  network place (T2) → place slot; weather (T3) → weather condition, temperature band. Monthly rollups carry no
+  context and are untouched. Turning a category or tier off only stops new values; existing rows change only
+  on a wipe.
 - No telemetry, no analytics SDKs, no crash reporters that upload by default (spec §15).
 - Never put signal data, recording names or file paths in logs above `debug`, URLs, or crash reports.
 - Hashing for places: `blake3(device_secret || ssid || gateway_mac)`, `device_secret` in the OS keychain.
