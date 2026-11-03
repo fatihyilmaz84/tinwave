@@ -35,5 +35,8 @@ events (kind.rs `tier()`) is still missing, though privacy-and-signals.md promis
 - The reference-size contention tests assert a bound on the writer's wait (not only success within the 5 s busy
   timeout), chosen from measured quiet and parallel-load numbers.
 
+- (P-0277) `signal_wipe::the_writer_thread_keeps_working_while_everything_is_wiped` failed once under parallel load
+  (16.9 s); make it wait on conditions with budgets that hold under load.
+
 ## Signals & storage
 None.

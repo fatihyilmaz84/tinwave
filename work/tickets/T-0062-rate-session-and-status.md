@@ -3,7 +3,7 @@ id: T-0062
 title: Derive RateSession per play and expose the applied rate in PlaybackStatus
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0027]
@@ -32,6 +32,12 @@ derived per-play `RateSession` (signal catalog §2, `time_weighted_rate`) is not
 - [ ] No RateSession with Speed off, or for an unheard/failed play — test.
 - [ ] PlaybackStatus reports the applied rate after a throttled change (latest value wins) — test.
 - [ ] Catalog row, storage estimate and Signal Center entry consistent; growth test passes.
+
+## Lead decisions on build-1 (2026-11-03)
+- Delivery via `take_rate_sessions()` (derived kinds can't go on the bus) is accepted as a stopgap; the real path is
+  T-0070. The `lib.rs` re-export is accepted.
+- A play spent entirely at 1.0 yields 1.0 ("not rushed" vs "not measured"); a play straddling a Speed toggle yields
+  none — confirmed.
 
 ## Signals & storage
 Emits the catalogued derived `RateSession` (≤ 1 per play).

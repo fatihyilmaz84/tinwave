@@ -27,9 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-| Ticket | Owner | Branch / worktree |
-|---|---|---|
-| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | tw-builder r1 | `t/T-0062-rate-session-and-status` · `D:\dev\Tinwave-worktrees\T-0062-rate-session-and-status` |
+_none_
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -37,6 +35,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | tw-reviewer r1 | `t/T-0062-rate-session-and-status` @ db78ad9 · `D:\dev\Tinwave-worktrees\T-0062-rate-session-and-status` |
 | [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-reviewer r1 | `t/T-0065-wipe-follow-ups` @ fcb3196 · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 ## Recently done
@@ -74,6 +73,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
+| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | T-0062 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
