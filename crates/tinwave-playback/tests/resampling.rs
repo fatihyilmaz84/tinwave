@@ -264,28 +264,33 @@ fn a_queue_edit_keeps_the_resampler_running_across_the_new_tail() {
     // Three pieces of the sweep at 44.1 kHz. The tail starts as [third] and is replaced by
     // [second, third] while the first plays: the edit must not restart the resampler, so the
     // joins are as clean as in a queue that was never edited.
+    //
+    // The first piece is 60,000 file frames, about 65,300 stream frames: longer than the 48,000
+    // frame ring plus what the test has played, so the decoder is certainly still reading it
+    // (an edit is refused once the decoder has opened the next item) however slowly the test runs.
     let dir = TempDir::new("resample-edit");
     let paths = [dir.path("p1.wav"), dir.path("p2.wav"), dir.path("p3.wav")];
-    write_sweep_piece(&paths[0], 44_100, 0, 20_001, 2);
-    write_sweep_piece(&paths[1], 44_100, 20_001, 60_000, 2);
-    write_sweep_piece(&paths[2], 44_100, 60_000, 88_200, 2);
+    write_sweep_piece(&paths[0], 44_100, 0, 60_000, 2);
+    write_sweep_piece(&paths[1], 44_100, 60_000, 75_000, 2);
+    write_sweep_piece(&paths[2], 44_100, 75_000, 88_200, 2);
     let mut h = Harness::new();
     h.latency = 480;
     h.engine
         .load(vec![track(1, &paths[0]), track(3, &paths[2])], 0, 0)
         .expect("load");
     let mut rec = h.render_exact(4_800, 480);
-    h.engine
+    let edit = h
+        .engine
         .replace_after(
             QueueItemId(1),
             vec![track(2, &paths[1]), track(4, &paths[2])],
         )
         .expect("edit");
+    h.expect_edit_applied(edit);
     rec.extend(h.render_exact(TOTAL - 4_800, 480));
     h.finish();
     let err = error_vs_ideal(&rec, 0);
     assert!(err < TOLERANCE, "waveform deviates by {err}");
-    assert!(h.saw(|k| matches!(k, EventKind::QueueEdited { .. })));
     assert_paired(&h.sink.kinds(), false);
 }
 

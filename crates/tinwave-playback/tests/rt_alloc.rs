@@ -81,23 +81,29 @@ fn render_never_allocates_across_play_seek_volume_pause_and_device_change() {
         .load(vec![track(1, &a), track(2, &b)], 0, 0)
         .expect("load");
 
-    // Command handshake and first fill: callbacks race the decoder, so some are starved
-    // (underrun path) -- they must not allocate either.
-    rig.run(40, false);
+    // Command handshake (empty acknowledgement callbacks).
     rig.settle();
-    // Play.
-    rig.run(30, true);
-    // Queue edits while playing: the tail is replaced twice, the callback carries on.
-    rig.h
+    // Queue edits: the tail is replaced twice. Nothing has been played, so the ring is full with
+    // the first 48,000 of A's 48,777 frames and the decoder cannot have opened B yet: an edit
+    // on A is certain to be applied (it is refused once the decoder moved on), which the test
+    // checks, so the edit path really ran next to the callback.
+    let edit = rig
+        .h
         .engine
         .replace_after(QueueItemId(1), vec![track(3, &b), track(4, &a)])
         .expect("play next");
-    rig.run(5, true);
-    rig.h
+    rig.h.expect_edit_applied(edit);
+    let edit = rig
+        .h
         .engine
         .replace_after(QueueItemId(1), vec![track(2, &b)])
         .expect("remove");
-    rig.run(5, true);
+    rig.h.expect_edit_applied(edit);
+    // First fill: callbacks race the decoder, so some are starved (underrun path) -- they must
+    // not allocate either.
+    rig.run(40, false);
+    // Play.
+    rig.run(30, true);
     // Volume changes: ramp down, hold, ramp up.
     rig.h.engine.set_volume(0.25).expect("volume");
     rig.run(5, true);
@@ -161,13 +167,18 @@ fn counter_detects_allocation_in_a_callback_shaped_region() {
     assert_eq!(allocs, 2, "one allocation and one free");
 }
 
-/// The same guarantee when the decoder is resampling: rate changes at track boundaries (48 kHz ->
-/// 44.1 kHz -> 96 kHz -> 48 kHz), a seek and a device change inside resampled tracks, a queue
-/// edit. All resampling happens on the decoder thread, so the callback still touches no heap.
+/// The same guarantee when the decoder is resampling: a queue edit, a device change and a seek
+/// inside a resampled track, then rate changes at every track boundary (44.1 kHz -> 48 kHz ->
+/// 44.1 kHz -> 96 kHz -> 48 kHz). All resampling happens on the decoder thread, so the callback
+/// still touches no heap.
 #[test]
 fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
     let dir = TempDir::new("rt-alloc-rates");
     let [a, b, c] = rate_change_files(&dir);
+    // 80,000 frames at 44.1 kHz, about 87,000 stream frames: far more than the ring holds plus
+    // what this test plays before the edit, so the decoder is still reading it then.
+    let long = dir.path("long44.wav");
+    write_sweep_piece(&long, 44_100, 0, 80_000, 2);
 
     let mut rig = Rig {
         h: Harness::new(),
@@ -178,22 +189,23 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
     };
     rig.h
         .engine
-        .load(
-            vec![track(1, &a), track(2, &b), track(3, &c), track(4, &a)],
-            0,
-            0,
-        )
+        .load(vec![track(1, &long), track(2, &a)], 0, 0)
         .expect("load");
-    rig.run(40, false);
     rig.settle();
-    // Past the 48 -> 44.1 kHz boundary (stream frame 33,600) and into the 44.1 kHz track.
-    rig.run(100, true);
-    // Seek inside the resampled track, then across the 44.1 -> 96 kHz boundary.
-    rig.h.engine.seek(5_000).expect("seek");
-    rig.run(20, false);
-    rig.settle();
-    rig.run(60, true);
-    // Device change inside the 96 kHz track.
+    rig.run(20, true);
+    // Queue edit while the resampler is running: the tail is replaced (and the edit applied, not
+    // refused as stale) by the three tracks that change the rate at every boundary.
+    let edit = rig
+        .h
+        .engine
+        .replace_after(
+            QueueItemId(1),
+            vec![track(3, &a), track(4, &b), track(5, &c), track(6, &a)],
+        )
+        .expect("edit");
+    rig.h.expect_edit_applied(edit);
+    rig.run(20, true);
+    // Device change inside the resampled track.
     rig.h
         .engine
         .switch_device(Some("other".into()))
@@ -201,16 +213,15 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
     rig.run(20, false);
     rig.settle();
     rig.run(20, true);
-    // The tail is replaced while a resampler is running; the 96 kHz -> 44.1 kHz -> 48 kHz
-    // boundaries follow.
-    rig.h
-        .engine
-        .replace_after(QueueItemId(3), vec![track(5, &b), track(6, &a)])
-        .expect("edit");
-    rig.run(5, true);
-    rig.run(150, true);
-    // Run to the end of the queue and past it.
-    rig.run(60, false);
+    // Seek inside the resampled track.
+    rig.h.engine.seek(5_000).expect("seek");
+    rig.run(20, false);
+    rig.settle();
+    rig.run(30, true);
+    // Play on through 44.1 -> 48 -> 44.1 -> 96 -> 48 kHz (about 199,000 frames from here), then
+    // past the end of the queue.
+    rig.run(440, true);
+    rig.run(100, false);
 
     assert_eq!(
         rig.allocs, 0,
@@ -218,7 +229,7 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
         rig.allocs
     );
     assert!(
-        rig.real_frames > 90_000,
+        rig.real_frames > 190_000,
         "test must cross the rate changes, rendered {} frames",
         rig.real_frames
     );

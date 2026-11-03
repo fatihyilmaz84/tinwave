@@ -385,6 +385,56 @@ fn seek_past_the_end_is_reported_for_wav_flac_alac_and_mp3() {
     }
 }
 
+/// The same for a track that is resampled: its length in stream frames is the file's length scaled
+/// (and rounded), seeking to or before it works (see tests/resampling.rs) and anything after it is
+/// `SeekOutOfRange`, even when the scaled target rounds to a file frame that exists.
+#[test]
+fn seek_past_the_end_of_a_resampled_track_is_reported() {
+    let dir = TempDir::new("seek-end-resampled");
+    let next = dir.path("next.wav");
+    write_sweep_piece(&next, 48_000, 0, 4_800, 2);
+    // (file rate, file frames): 44.1 kHz needs rounding up, 96 kHz an odd frame count.
+    for (rate, frames) in [(44_100u32, 44_877usize), (96_000, 96_001)] {
+        let file = dir.path(&format!("a{rate}.wav"));
+        write_sweep_piece(&file, rate, 0, frames, 2);
+        let stream_len = (frames as u64 * 48_000 + u64::from(rate) / 2) / u64::from(rate);
+        for target in [stream_len + 1, stream_len + 5_000, 10_000_000] {
+            let mut h = Harness::new();
+            h.engine
+                .load(vec![track(1, &file), track(2, &next)], 0, 0)
+                .expect("load");
+            let _ = h.render_exact(480, 480);
+            h.engine.seek(target).expect("seek is accepted");
+            h.settle();
+            let kinds = h.sink.kinds();
+            assert!(
+                kinds.iter().any(|k| matches!(
+                    k,
+                    EventKind::SeekFailed {
+                        item: QueueItemId(1),
+                        error: PlaybackError::SeekOutOfRange { .. },
+                        ..
+                    }
+                )),
+                "{rate} Hz seek to {target} (length {stream_len}): {kinds:?}"
+            );
+            let _ = h.render_exact(480, 480);
+            let events = h.sink.kinds();
+            assert!(
+                events.iter().any(|k| matches!(
+                    k,
+                    EventKind::TrackStarted {
+                        item: QueueItemId(2),
+                        cause: StartCause::Advance,
+                        ..
+                    }
+                )),
+                "{rate} Hz seek to {target}: {events:?}"
+            );
+        }
+    }
+}
+
 /// The last valid frame is still seekable (the bound is exact, not conservative).
 #[test]
 fn seek_to_the_last_frame_works_in_every_container() {

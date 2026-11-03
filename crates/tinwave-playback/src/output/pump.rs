@@ -104,13 +104,6 @@ impl Pump {
         }
     }
 
-    /// Use `dither` (another seed) for integer formats; only tests need this.
-    #[must_use]
-    pub fn with_dither(mut self, dither: Dither) -> Self {
-        self.dither = dither;
-        self
-    }
-
     /// Wait for the device, then fill whatever room it has.
     pub fn step<D: RenderDevice>(&mut self, device: &mut D, timeout_ms: u32) -> PumpStep {
         match device.wait(timeout_ms) {

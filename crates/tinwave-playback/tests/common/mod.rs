@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use symphonia::core::io::MediaSource;
 use tinwave_core::{ManualClock, UtcMillis};
 use tinwave_playback::{
-    Engine, EngineConfig, EventKind, EventSink, FsOpener, ManualHandle, ManualOutput,
+    EditId, Engine, EngineConfig, EventKind, EventSink, FsOpener, ManualHandle, ManualOutput,
     PlaybackEvent, QueueItemId, SourceOpener, Track,
 };
 
@@ -284,6 +284,27 @@ impl Harness {
             }
         }
         panic!("never happened: {what}");
+    }
+
+    /// Wait (bounded spin, no audio rendered) for the decoder's verdict on a `replace_after` and
+    /// require that the edit was applied. An edit built on an item the decoder has already moved
+    /// past is refused, which would silently leave the old tail in place; this makes that fail
+    /// right here with the reason.
+    pub fn expect_edit_applied(&self, edit: EditId) {
+        for _ in 0..30_000 {
+            let kinds = self.sink.kinds();
+            for kind in &kinds {
+                match kind {
+                    EventKind::QueueEdited { edit: e, .. } if *e == edit => return,
+                    EventKind::QueueEditRejected { edit: e, .. } if *e == edit => {
+                        panic!("the decoder refused the edit: {kinds:?}")
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        panic!("the decoder never answered the edit");
     }
 
     /// True once `pred` matches an event emitted so far.

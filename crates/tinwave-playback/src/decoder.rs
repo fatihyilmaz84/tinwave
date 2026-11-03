@@ -527,7 +527,10 @@ impl Decoder {
         } else {
             Some(StreamResampler::new(rate, self.sample_rate)?)
         };
-        self.flush_resampler(st)?;
+        if let Err(error) = self.flush_resampler(st) {
+            // The old track's tail is lost: that track failed, not the one that starts now.
+            self.flush_failed(st, error);
+        }
         // The flush moved the end of the timeline: the new resampler's output starts there.
         st.resampler = next.map(|resampler| resampler.start_at(Self::stream_end(st)));
         Ok(())
@@ -549,6 +552,19 @@ impl Decoder {
         let before = st.pending.len();
         resampler.finish(&mut st.pending)?;
         Ok(st.pending.len() > before)
+    }
+
+    /// The tail of the last track that was read could not be converted, so that track ends early:
+    /// it is reported as failed (and its `TrackLeft` will say so). The last track read is the last
+    /// one opened, which is not `cur - 1` when the items after it failed to open.
+    fn flush_failed(&mut self, st: &mut State, error: PlaybackError) {
+        if let Some(track) = st.last_opened.and_then(|i| st.queue.get(i)) {
+            self.emit(EventKind::TrackFailed {
+                item: track.id,
+                error,
+            });
+        }
+        st.item_failed = true;
     }
 
     /// The conversion stage: file-rate audio in `st.chunk` to stream-rate audio in `st.pending`.
@@ -574,16 +590,7 @@ impl Decoder {
                 match self.flush_resampler(st) {
                     Ok(true) => return true,
                     Ok(false) => {}
-                    Err(error) => {
-                        // The tail of the last track could not be converted: it ends early.
-                        if let Some(track) = st.cur.checked_sub(1).and_then(|i| st.queue.get(i)) {
-                            self.emit(EventKind::TrackFailed {
-                                item: track.id,
-                                error,
-                            });
-                        }
-                        st.item_failed = true;
-                    }
+                    Err(error) => self.flush_failed(st, error),
                 }
                 self.finish_queue(st);
                 return false;
@@ -643,5 +650,85 @@ impl Decoder {
             at: self.clock.now(),
             kind,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tinwave_core::{ManualClock, UtcMillis};
+
+    #[derive(Debug, Default)]
+    struct Events(Mutex<Vec<EventKind>>);
+
+    impl EventSink for Events {
+        fn emit(&self, event: PlaybackEvent) {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(event.kind);
+        }
+    }
+
+    fn track(id: u64) -> Arc<Track> {
+        Arc::new(Track {
+            id: QueueItemId(id),
+            path: std::path::PathBuf::from("unused.wav"),
+            gapless: None,
+        })
+    }
+
+    fn state(queue: Vec<Arc<Track>>, cur: usize, last_opened: Option<usize>) -> State {
+        State {
+            queue,
+            cur,
+            last_opened,
+            reader: None,
+            resampler: None,
+            chunk: Vec::new(),
+            pending: Vec::new(),
+            pending_off: 0,
+            written: 0,
+            next_seq: 0,
+            mark_kind: MarkKind::Initial,
+            item_failed: false,
+            awaiting: None,
+        }
+    }
+
+    /// A resampler that fails while flushing cannot be built (it only fails on a buffer-size bug),
+    /// so this checks the reporting that follows such a failure: it names the track whose tail was
+    /// lost, the last one opened, not whatever precedes `cur`.
+    #[test]
+    fn a_failed_flush_blames_the_last_track_that_was_read() {
+        let events = Arc::new(Events::default());
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let (producer, _consumer) = rtrb::RingBuffer::new(8);
+        let mut decoder = Decoder {
+            sh: Shared::new(1.0),
+            rx,
+            producer,
+            opener: Arc::new(crate::FsOpener),
+            sink: events.clone(),
+            clock: Arc::new(ManualClock::new(UtcMillis::new(0))),
+            sample_rate: 48_000,
+        };
+        // Item 1 was the last one opened; items 2 and 3 failed to open, so `cur` is past the end.
+        let mut st = state(vec![track(1), track(2), track(3)], 3, Some(0));
+        decoder.flush_failed(&mut st, PlaybackError::Decode("resampler: test".into()));
+        assert!(st.item_failed);
+        let seen = events
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert_eq!(
+            seen,
+            vec![EventKind::TrackFailed {
+                item: QueueItemId(1),
+                error: PlaybackError::Decode("resampler: test".into()),
+            }]
+        );
     }
 }
