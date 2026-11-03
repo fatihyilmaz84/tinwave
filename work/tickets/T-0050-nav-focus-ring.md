@@ -9,10 +9,11 @@ size: S
 depends_on: [T-0043]
 scope:
   - apps/tinwave-desktop/qml/Sidebar.qml
+  - apps/tinwave-desktop/tools/capture.ps1   # P-0163: verify foreground before capturing
 owner:
 branch:
 review_round: 0
-created_by: from P-0154, P-0155 (T-0043 build-1)
+created_by: from P-0154, P-0155 (T-0043 build-1), P-0163 (T-0043 build-2)
 ---
 
 ## Context
@@ -35,3 +36,7 @@ apps/tinwave-desktop/docs/screenshots/keyboard-walkthrough-*.png.
 
 ## Signals & storage
 None (navigation between sections is not a preference signal yet; browse signals arrive with the screen tickets).
+
+## Added from P-0163 (T-0043 build-2)
+- `tools/capture.ps1` checks the window is the foreground window before each keyboard capture; retry a few times
+  with a short pause, then fail loudly (non-zero exit) instead of saving a capture of an inactive window.
