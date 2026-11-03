@@ -31,6 +31,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | tw-builder r2 | `t/T-0068-queue-edit-cancels-boundary-park` · `D:\dev\Tinwave-worktrees\T-0068-queue-edit-cancels-boundary-park` |
 | [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | tw-builder r1 | `t/T-0070-derived-values-and-rate-session-storage` · `D:\dev\Tinwave-worktrees\T-0070-derived-values-and-rate-session-storage` |
 | [T-0075](tickets/T-0075-busy-timeout-wall-clock.md) Contention tests vs busy-timeout wall time (P3) | tw-builder r1 | `t/T-0075-busy-timeout-wall-clock` · `D:\dev\Tinwave-worktrees\T-0075-busy-timeout-wall-clock` |
 
@@ -38,9 +39,7 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | tw-reviewer r1 | `t/T-0068-queue-edit-cancels-boundary-park` · `D:\dev\Tinwave-worktrees\T-0068-queue-edit-cancels-boundary-park` |
+_none_
 
 ## Recently done
 - [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate flush fast-polls then backs off, relative click test, TrackFailed once across a rate restart — merged 57dba25 (review r2 APPROVE).
