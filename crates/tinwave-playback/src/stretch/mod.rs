@@ -5,7 +5,8 @@
 //! over it, with the `cc` crate; nothing here needs bindgen or libclang.
 //!
 //! This is the only module of the crate's library, besides the Windows output's `os.rs`, that
-//! allows `unsafe`: the calls into that C ABI. It is not connected to the engine yet (T-0027).
+//! allows `unsafe`: the calls into that C ABI. The engine drives it from the decoder thread
+//! (`rate_stage.rs`, T-0027).
 //!
 //! # How it is meant to be driven
 //!
@@ -13,9 +14,10 @@
 //! [`Stretcher::process`] call takes `in_frames` interleaved source frames and fills `out_frames`
 //! output frames; the playback rate is `in_frames / out_frames` (1.25 consumes 5 source frames
 //! for every 4 frames produced). The caller owns the arithmetic that keeps the source position
-//! exact: a fixed `out_frames` per call, `round(out_frames * rate)` input frames, and the
-//! rounding remainder carried to the next call (ADR 0006 decision 3). The useful range is 0.75
-//! to 1.5; rate exactly 1.0 is bypassed by the engine, not here.
+//! exact: a fixed `out_frames` per call, `floor(out_frames * rate + carry)` input frames, and the
+//! remainder carried to the next call ([`BlockPlan`] does exactly this, ADR 0006 decision 3).
+//! The useful range is [`MIN_RATE`] to [`MAX_RATE`]; rate exactly 1.0 is bypassed by the engine,
+//! not here.
 //!
 //! The stretcher delays its output: after a [`Stretcher::reset`] the first
 //! [`Stretcher::discard_frames`] output frames are the lead-in and must be dropped, so that the
@@ -31,8 +33,16 @@
 #![allow(unsafe_code)]
 
 mod ffi;
+mod plan;
 
 use std::ptr::NonNull;
+
+pub use plan::{BlockPlan, BLOCK_FRAMES};
+
+/// Slowest playback rate the engine accepts (source frames per output frame).
+pub const MIN_RATE: f64 = 0.75;
+/// Fastest playback rate the engine accepts.
+pub const MAX_RATE: f64 = 1.5;
 
 /// Most channels a [`Stretcher`] is configured for.
 pub const MAX_CHANNELS: usize = 8;

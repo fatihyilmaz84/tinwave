@@ -21,17 +21,36 @@
 //! - A seek, a load or a device switch restarts the stream, so the resampler is dropped with it
 //!   (`reset_stream`); the first track after it starts a fresh one.
 //! - The end of the queue flushes the tail before the end of stream is published.
+//!
+//! # Playback rate (ADR 0006, T-0027)
+//! The chain is `reader -> [stretch] -> [resample] -> ring`. At rate exactly 1.0 there is no
+//! stretch stage and the samples take the path they always took. At any other rate each track
+//! goes through a [`StretchStage`] working at the file rate; its output is what the resampler
+//! (if any) converts. The stage is flushed into the resampler at the end of every track, so the
+//! next track's mark lands on an exact output frame and gapless playback stays gapless.
+//!
+//! A rate change is a flush at the audible position: the decoder raises `flush_req` (with
+//! `flush_fade` set, so the renderer plays a 5 ms fade-out and fades the new stream in), waits for
+//! the renderer's acknowledgement, and then reads how much the renderer has played
+//! (`consumed`). The marks say which item and which source frame that is; the stream restarts
+//! there at the new rate with a [`MarkKind::Rate`] mark, **keeping** the older marks (they describe
+//! the output frames before the flush, which the control side may still be hearing). At most one
+//! such flush happens per [`RATE_FLUSH_INTERVAL`]; a change that arrives sooner waits, and the
+//! value current when the interval is over is the one applied, so the final value of a drag is
+//! never lost. With nothing audible (nothing loaded, or everything has been played) there is
+//! nothing to flush and the rate is simply adopted.
 
 use std::collections::HashSet;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rtrb::Producer;
 use tinwave_core::Clock;
 
 use crate::event::{EventKind, EventSink, PlaybackEvent};
+use crate::rate_stage::StretchStage;
 use crate::reader::{SourceOpener, TrackReader};
 use crate::resample::{scale_frames, StreamResampler};
 use crate::shared::{Mark, MarkKind, Shared};
@@ -70,6 +89,9 @@ pub(crate) enum Cmd {
         frame: u64,
         gen: u64,
     },
+    /// The rate target changed (it is in `Shared::rate_target`): wake the thread so it applies it.
+    /// A full command queue loses nothing, the thread checks the target on every pass.
+    RateTarget,
     /// Wake the thread so it notices the shutdown flag.
     Shutdown,
 }
@@ -82,6 +104,7 @@ impl std::fmt::Debug for Cmd {
             Self::Append(_) => "Append",
             Self::EditQueue { .. } => "EditQueue",
             Self::Reconfigure { .. } => "Reconfigure",
+            Self::RateTarget => "RateTarget",
             Self::Shutdown => "Shutdown",
         })
     }
@@ -95,6 +118,9 @@ const FULL_RING_WAIT: Duration = Duration::from_millis(25);
 /// switch) costs about 20 wakeups per second instead of 1000.
 const FLUSH_WAIT_MIN: Duration = Duration::from_millis(1);
 const FLUSH_WAIT_MAX: Duration = Duration::from_millis(50);
+/// At most one rate flush per this long (ADR 0006: 100 to 150 ms while a slider is dragged). Each
+/// flush costs the listener a 15 ms dip, so a drag must not produce one per pixel.
+pub(crate) const RATE_FLUSH_INTERVAL: Duration = Duration::from_millis(125);
 
 pub(crate) struct Decoder {
     pub sh: Arc<Shared>,
@@ -120,7 +146,19 @@ struct State {
     /// Converts the file rate of `reader` (and of the tracks after it, while they share the rate)
     /// to the stream rate; `None` while the tracks already have the stream rate.
     resampler: Option<StreamResampler>,
-    /// One decoded packet at the file rate, before the resampler (unused without one).
+    /// The playback rate of the stream being decoded (source frames per output frame): what the
+    /// marks carry and `Shared::stream_rate` publishes. Changes only when the stream restarts,
+    /// or while nothing is audible.
+    rate: f64,
+    /// The time stretcher for the file rate of the track being read, kept between tracks and
+    /// restarts (it holds about a megabyte); `None` until a track needed one. It stretches the
+    /// current track only while `is_active`, which is never at rate 1.0.
+    stretch: Option<StretchStage>,
+    /// Stretched audio on its way to the resampler.
+    stretched: Vec<f32>,
+    /// When the last rate flush began (the throttle's clock).
+    last_rate_flush: Option<Instant>,
+    /// One decoded packet at the file rate, before the stretcher and the resampler.
     chunk: Vec<f32>,
     /// Stream-rate audio waiting for room in the ring.
     pending: Vec<f32>,
@@ -132,14 +170,21 @@ struct State {
     /// The item that started last failed mid-decode (copied into the next mark and the end of
     /// stream, so the control side can tell `Failed` from `Finished`).
     item_failed: bool,
-    /// A flush was requested; once the renderer acks `req`, restart at `cur`/`frame`.
+    /// A flush was requested; once the renderer acks `req`, restart as `restart` says.
     awaiting: Option<Awaiting>,
 }
 
 struct Awaiting {
     req: u64,
-    frame: u64,
-    gen: u64,
+    restart: Restart,
+}
+
+/// Where the stream starts again once the renderer acknowledged a flush.
+enum Restart {
+    /// A command named the place: `st.cur` at `frame` (stream frames); it is answered with `gen`.
+    At { frame: u64, gen: u64 },
+    /// A rate change: wherever the renderer got to, at the new rate.
+    Audible,
 }
 
 impl Decoder {
@@ -150,6 +195,10 @@ impl Decoder {
             last_opened: None,
             reader: None,
             resampler: None,
+            rate: 1.0,
+            stretch: None,
+            stretched: Vec::new(),
+            last_rate_flush: None,
             chunk: Vec::new(),
             pending: Vec::new(),
             pending_off: 0,
@@ -176,6 +225,9 @@ impl Decoder {
                 }
             }
 
+            // A rate change begins a flush, so it is looked at before the flush is waited for.
+            let rate_wait = self.service_rate(&mut st);
+
             if let Some(awaiting) = &st.awaiting {
                 if self.sh.flush_ack.load(Acquire) != awaiting.req {
                     match self.rx.recv_timeout(flush_wait) {
@@ -192,23 +244,28 @@ impl Decoder {
                     }
                     continue;
                 }
-                let (frame, gen) = (awaiting.frame, awaiting.gen);
                 flush_wait = FLUSH_WAIT_MIN;
-                st.awaiting = None;
-                self.restart(&mut st, frame, gen);
+                if let Some(awaiting) = st.awaiting.take() {
+                    match awaiting.restart {
+                        Restart::At { frame, gen } => self.restart(&mut st, frame, gen),
+                        Restart::Audible => self.restart_audible(&mut st),
+                    }
+                }
             }
 
             if st.pending_off >= st.pending.len() {
                 st.pending.clear();
                 st.pending_off = 0;
                 if !self.fill_pending(&mut st) {
-                    // End of queue: sleep until a command arrives.
-                    match self.rx.recv() {
-                        Ok(cmd) => {
+                    // End of queue: sleep until a command arrives (or a deferred rate change is
+                    // due: the tail of the last track may still be playing).
+                    match Self::wait_for_command(&self.rx, None, rate_wait) {
+                        Ok(Some(cmd)) => {
                             if !self.accept(&mut st, cmd) {
                                 return;
                             }
                         }
+                        Ok(None) => {}
                         Err(_) => return,
                     }
                     continue;
@@ -219,14 +276,14 @@ impl Decoder {
             let free = self.producer.slots() & !1;
             let take = free.min(st.pending.len() - st.pending_off);
             if take == 0 {
-                match self.rx.recv_timeout(FULL_RING_WAIT) {
-                    Ok(cmd) => {
+                match Self::wait_for_command(&self.rx, Some(FULL_RING_WAIT), rate_wait) {
+                    Ok(Some(cmd)) => {
                         if !self.accept(&mut st, cmd) {
                             return;
                         }
                     }
-                    Err(RecvTimeoutError::Timeout) => {}
-                    Err(RecvTimeoutError::Disconnected) => return,
+                    Ok(None) => {}
+                    Err(_) => return,
                 }
                 continue;
             }
@@ -247,6 +304,7 @@ impl Decoder {
     fn accept(&mut self, st: &mut State, cmd: Cmd) -> bool {
         match cmd {
             Cmd::Shutdown => return false,
+            Cmd::RateTarget => {}
             Cmd::Load {
                 queue,
                 index,
@@ -256,13 +314,13 @@ impl Decoder {
                 self.drop_reader(st);
                 st.queue = queue;
                 st.cur = index;
-                self.begin_flush(st, frame, gen);
+                self.begin_flush(st, Restart::At { frame, gen }, false);
             }
             Cmd::Seek { item, frame, gen } => match st.queue.iter().position(|t| t.id == item) {
                 Some(index) => {
                     self.drop_reader(st);
                     st.cur = index;
-                    self.begin_flush(st, frame, gen);
+                    self.begin_flush(st, Restart::At { frame, gen }, false);
                 }
                 None => {
                     self.emit(EventKind::SeekFailed {
@@ -387,20 +445,24 @@ impl Decoder {
         }
     }
 
-    fn begin_flush(&mut self, st: &mut State, frame: u64, gen: u64) {
+    /// Ask the renderer to drop the ring. `fade`: a rate change, so it plays a short fade-out
+    /// first (see `Shared::flush_fade`).
+    fn begin_flush(&mut self, st: &mut State, restart: Restart, fade: bool) {
         debug_assert!(
             st.reader.is_none(),
             "readers are dropped through drop_reader"
         );
         st.pending.clear();
         st.pending_off = 0;
+        // Before the request is raised: the renderer reads it after seeing the request.
+        self.sh.flush_fade.store(fade, Release);
         let req = self.sh.flush_req.fetch_add(1, AcqRel) + 1;
-        st.awaiting = Some(Awaiting { req, frame, gen });
+        st.awaiting = Some(Awaiting { req, restart });
     }
 
     /// Start a fresh stream timeline at the renderer's current position and open `st.cur`.
     fn restart(&mut self, st: &mut State, frame: u64, gen: u64) {
-        self.reset_stream(st);
+        self.reset_stream(st, false);
         st.mark_kind = MarkKind::Initial;
         if st.cur >= st.queue.len() || !self.open_current(st, frame) {
             self.finish_queue(st);
@@ -409,19 +471,113 @@ impl Decoder {
         self.sh.applied_gen.fetch_max(gen, Release);
     }
 
-    fn reset_stream(&mut self, st: &mut State) {
+    /// Apply the rate target if it differs from the rate in use. Called on every pass of the
+    /// thread's loop. Returns how long until a change that has to wait for the throttle may be
+    /// applied (the loop's waits must not sleep past it).
+    fn service_rate(&mut self, st: &mut State) -> Option<Duration> {
+        if st.awaiting.is_some() {
+            return None;
+        }
+        let target = self.sh.rate_target();
+        if target == st.rate {
+            return None;
+        }
+        if !self.audible() {
+            // Nothing in the ring that anyone will hear: there is no stream to flush.
+            self.adopt_rate(st, target);
+            return None;
+        }
+        if let Some(last) = st.last_rate_flush {
+            let wait = RATE_FLUSH_INTERVAL.saturating_sub(last.elapsed());
+            if !wait.is_zero() {
+                return Some(wait);
+            }
+        }
+        st.last_rate_flush = Some(Instant::now());
+        self.drop_reader(st);
+        self.begin_flush(st, Restart::Audible, true);
+        None
+    }
+
+    /// Whether the stream this thread has been feeding still has audio that has not been played:
+    /// it has a mark, and the end of stream (if reached) is not yet behind the renderer.
+    fn audible(&self) -> bool {
+        let ended = self.sh.eos.load(Acquire)
+            && self.sh.consumed.load(Acquire) >= self.sh.eos_total.load(Acquire);
+        !ended && !self.sh.marks().is_empty()
+    }
+
+    /// Use `rate` for everything decoded from now on. Only while the ring is empty: the renderer
+    /// reads the rate of the frames it pops, so it must not change under audio that is queued.
+    fn adopt_rate(&mut self, st: &mut State, rate: f64) {
+        st.rate = rate;
+        self.sh.stream_rate.store(rate.to_bits(), Release);
+    }
+
+    /// The renderer acknowledged a rate flush: start again where it got to, at the new rate.
+    ///
+    /// `consumed` is exact now (the acknowledgement is stored after the renderer's last update of
+    /// it, and the ring is empty), and the marks turn it into an item and a source frame. The marks
+    /// from before the flush stay: the control side still resolves positions it has not yet heard
+    /// (the device buffer) through them. The ones after `consumed` are the audio that was just
+    /// thrown away, and go.
+    fn restart_audible(&mut self, st: &mut State) {
+        let consumed = self.sh.consumed.load(Acquire);
+        let at = {
+            let mut marks = self.sh.marks();
+            let at = marks
+                .iter()
+                .rev()
+                .find(|m| m.start_frame <= consumed)
+                .or_else(|| marks.front())
+                .map(|m| (m.item.id, m.source_frame_at(consumed)));
+            marks.retain(|m| m.start_frame <= consumed);
+            at
+        };
+        self.sh.rate_flushes.fetch_add(1, Relaxed);
+        let Some((item, frame)) = at else {
+            // Everything was cleared (a stop that overtook the flush): nothing to resume.
+            self.reset_stream(st, false);
+            self.finish_queue(st);
+            return;
+        };
+        st.cur = st
+            .queue
+            .iter()
+            .position(|t| t.id == item)
+            .unwrap_or(st.queue.len());
+        self.reset_stream(st, true);
+        st.mark_kind = MarkKind::Rate;
+        if st.cur >= st.queue.len() || !self.open_current(st, frame) {
+            self.finish_queue(st);
+        }
+    }
+
+    /// Forget the old stream: `keep_marks` keeps the marks already published (a rate restart
+    /// continues the output timeline), otherwise the new stream is a new timeline.
+    fn reset_stream(&mut self, st: &mut State, keep_marks: bool) {
         debug_assert!(
             st.reader.is_none(),
             "readers are dropped through drop_reader"
         );
         st.item_failed = false;
         st.last_opened = None;
-        // A new stream timeline: whatever the resampler still held belonged to the old one.
+        // A new stream timeline: whatever the resampler or the stretcher still held belonged to
+        // the old one.
         st.resampler = None;
+        if let Some(stage) = st.stretch.as_mut() {
+            stage.stop();
+        }
         st.pending.clear();
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
-        self.sh.marks().clear();
+        if !keep_marks {
+            self.sh.marks().clear();
+        }
+        // The ring is empty here (the renderer acknowledged the flush, or this is a new ring), so
+        // the rate may change: the renderer reads it only for frames pushed after this.
+        let target = self.sh.rate_target();
+        self.adopt_rate(st, target);
         self.sh.buffering.store(false, Release);
         self.sh.eos.store(false, Release);
     }
@@ -451,8 +607,22 @@ impl Decoder {
                             continue;
                         }
                     }
-                    // Last thing that can fail: from here on the stream state changes.
-                    if let Err(error) = self.use_rate(st, reader.sample_rate()) {
+                    // The stretcher only touches itself, so it comes before the step that changes
+                    // the stream (the resampler), which must be the last thing that can fail.
+                    let file_rate = reader.sample_rate();
+                    if let Err(error) = Self::arm_stretch(st, file_rate) {
+                        self.emit(EventKind::TrackFailed {
+                            item: track.id,
+                            error,
+                        });
+                        st.cur += 1;
+                        frame = 0;
+                        continue;
+                    }
+                    if let Err(error) = self.use_rate(st, file_rate) {
+                        if let Some(stage) = st.stretch.as_mut() {
+                            stage.stop();
+                        }
                         self.emit(EventKind::TrackFailed {
                             item: track.id,
                             error,
@@ -470,6 +640,7 @@ impl Decoder {
                         offset: frame,
                         kind: st.mark_kind,
                         prev_failed: st.item_failed,
+                        rate: st.rate,
                     });
                     st.item_failed = false;
                     st.mark_kind = MarkKind::Continuation;
@@ -488,6 +659,24 @@ impl Decoder {
             }
         }
         false
+    }
+
+    /// Get the stretch stage ready for a track of `file_rate` that starts now, or idle for rate
+    /// 1.0. The stage is kept from track to track and rebuilt only when the file rate changes.
+    fn arm_stretch(st: &mut State, file_rate: u32) -> Result<(), PlaybackError> {
+        if st.rate == 1.0 {
+            if let Some(stage) = st.stretch.as_mut() {
+                stage.stop();
+            }
+            return Ok(());
+        }
+        let mut stage = match st.stretch.take() {
+            Some(stage) if stage.sample_rate() == file_rate => stage,
+            _ => StretchStage::new(file_rate)?,
+        };
+        stage.begin(st.rate)?;
+        st.stretch = Some(stage);
+        Ok(())
     }
 
     /// `frame` (stream frames) as a frame of the file `reader` is reading.
@@ -568,29 +757,57 @@ impl Decoder {
     }
 
     /// The conversion stage: file-rate audio in `st.chunk` to stream-rate audio in `st.pending`.
-    ///
-    /// This is the seam for time-stretch (ADR 0006, T-0027): the stretcher works at the file rate
-    /// and runs on `st.chunk` first, then the resampler converts its output.
+    /// At a rate other than 1.0 the stretcher (file rate) runs first and the resampler converts
+    /// its output; at 1.0 the audio goes straight on.
     fn convert_chunk(st: &mut State) -> Result<(), PlaybackError> {
-        match st.resampler.as_mut() {
-            Some(resampler) => resampler.push(&st.chunk, &mut st.pending),
+        match st.stretch.as_mut().filter(|stage| stage.is_active()) {
+            Some(stage) => {
+                st.stretched.clear();
+                stage.push(&st.chunk, &mut st.stretched)?;
+                Self::forward(&mut st.resampler, &st.stretched, &mut st.pending)
+            }
+            None => Self::forward(&mut st.resampler, &st.chunk, &mut st.pending),
+        }
+    }
+
+    /// Resample `samples` into `pending`, or copy them when the file has the stream's rate.
+    fn forward(
+        resampler: &mut Option<StreamResampler>,
+        samples: &[f32],
+        pending: &mut Vec<f32>,
+    ) -> Result<(), PlaybackError> {
+        match resampler.as_mut() {
+            Some(resampler) => resampler.push(samples, pending),
             None => {
-                st.pending.extend_from_slice(&st.chunk);
+                pending.extend_from_slice(samples);
                 Ok(())
             }
         }
+    }
+
+    /// The track that was being read is over: run the stretcher's tail out into the conversion
+    /// stage, so the next track's mark lands where this one really ends.
+    fn flush_stretch(st: &mut State) -> Result<(), PlaybackError> {
+        let Some(stage) = st.stretch.as_mut().filter(|stage| stage.is_active()) else {
+            return Ok(());
+        };
+        st.stretched.clear();
+        stage.finish(&mut st.stretched)?;
+        Self::forward(&mut st.resampler, &st.stretched, &mut st.pending)
     }
 
     /// Decode more audio into `st.pending`, advancing through the queue. `false` at the end.
     fn fill_pending(&mut self, st: &mut State) -> bool {
         loop {
             if st.reader.is_none() && !self.open_current(st, 0) {
-                // The last track's tail is still inside the resampler: it is audio, so it goes out
+                // The last track's tail is still inside the resampler, and the stretcher's tail
+                // (flushed with the track) may be waiting in `pending`: it is audio, so it goes out
                 // before the end of the stream is published.
-                match self.flush_resampler(st) {
-                    Ok(true) => return true,
-                    Ok(false) => {}
-                    Err(error) => self.flush_failed(st, error),
+                if let Err(error) = self.flush_resampler(st) {
+                    self.flush_failed(st, error);
+                }
+                if st.pending_off < st.pending.len() {
+                    return true;
                 }
                 self.finish_queue(st);
                 return false;
@@ -623,6 +840,9 @@ impl Decoder {
     }
 
     fn finish_item(&mut self, st: &mut State) {
+        if let Err(error) = Self::flush_stretch(st) {
+            self.flush_failed(st, error);
+        }
         self.drop_reader(st);
         st.cur += 1;
     }
@@ -642,6 +862,28 @@ impl Decoder {
                     packets,
                 });
             }
+        }
+    }
+
+    /// Wait for the next command: up to `base` (forever if `None`), but never past `cap`, the
+    /// time until a deferred rate change is due. `Ok(None)` is a timeout; `Err` means the control
+    /// side is gone.
+    fn wait_for_command(
+        rx: &Receiver<Cmd>,
+        base: Option<Duration>,
+        cap: Option<Duration>,
+    ) -> Result<Option<Cmd>, ()> {
+        let limit = match (base, cap) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        match limit {
+            Some(limit) => match rx.recv_timeout(limit) {
+                Ok(cmd) => Ok(Some(cmd)),
+                Err(RecvTimeoutError::Timeout) => Ok(None),
+                Err(RecvTimeoutError::Disconnected) => Err(()),
+            },
+            None => rx.recv().map(Some).map_err(|_| ()),
         }
     }
 
@@ -686,6 +928,10 @@ mod tests {
             last_opened,
             reader: None,
             resampler: None,
+            rate: 1.0,
+            stretch: None,
+            stretched: Vec::new(),
+            last_rate_flush: None,
             chunk: Vec::new(),
             pending: Vec::new(),
             pending_off: 0,

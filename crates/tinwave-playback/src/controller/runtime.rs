@@ -34,6 +34,7 @@ enum Command {
     Pause(InputSource),
     Resume(InputSource),
     Volume(f32, InputSource),
+    Rate(f64, InputSource),
     Repeat(RepeatMode),
     SwitchDevice(Option<String>),
 }
@@ -181,6 +182,14 @@ impl ControllerHandle {
         self.call(Command::Volume(volume_linear, input))
     }
 
+    /// Set the playback rate. See [`Controller::set_rate`].
+    ///
+    /// # Errors
+    /// As [`load`](Self::load).
+    pub fn set_rate(&self, rate: f64, input: InputSource) -> Result<(), PlaybackError> {
+        self.call(Command::Rate(rate, input))
+    }
+
     /// Record the repeat choice. See [`Controller::set_repeat_mode`].
     ///
     /// # Errors
@@ -290,6 +299,7 @@ fn execute(controller: &mut Controller, command: Command) -> Result<(), Playback
             Ok(())
         }
         Command::Volume(volume, input) => controller.set_volume(volume, input),
+        Command::Rate(rate, input) => controller.set_rate(rate, input),
         Command::Repeat(mode) => {
             controller.set_repeat_mode(mode);
             Ok(())

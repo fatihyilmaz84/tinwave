@@ -14,6 +14,7 @@ use crate::event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
 use crate::output::{AudioOutput, OpenRequest, OutputStream};
 use crate::reader::SourceOpener;
 use crate::shared::{Mark, MarkKind, Shared};
+use crate::stretch::{MAX_RATE, MIN_RATE};
 use crate::types::CHANNELS;
 use crate::{EditId, PlaybackError, Position, QueueItemId, Renderer, Track};
 
@@ -23,6 +24,50 @@ const RING_SECONDS: usize = 1;
 const POSITION_MARKS_PER_SECOND: u32 = 10;
 /// Commands that may wait for the decoder thread before calls fail with [`PlaybackError::Busy`].
 const COMMAND_QUEUE: usize = 64;
+/// Fades at a rate change are this many milliseconds long (ADR 0006).
+const RATE_FADE_MS: u32 = 5;
+
+/// What the renderer has played, and at what rate: the engine's own account of playback speed,
+/// read from counters the audio callback keeps (no guess from the UI).
+///
+/// The counters only grow. `RateSession.time_weighted_rate` of one play is
+/// [`time_weighted_rate_since`](Self::time_weighted_rate_since) between a snapshot taken when the
+/// play began and one taken when it ended.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RateStats {
+    /// Frames of audio the renderer has played (wall-clock frames at the stream rate), fades
+    /// included. Silence the callback produced for want of audio is not counted.
+    pub wall_frames: u64,
+    /// Source frames those frames advanced through the tracks, in millionths: a frame played at
+    /// rate 1.25 adds 1,250,000.
+    pub source_micro_frames: u64,
+    /// Rate (source frames per output frame) of the last block that carried audio.
+    pub effective_rate: f64,
+    /// The rate of the audio the decoder is producing now. It trails
+    /// [`Engine::rate`] by the time a change takes to be applied.
+    pub applied_rate: f64,
+    /// Rate flushes the decoder has carried out: how often the stream restarted for a new rate.
+    pub flushes: u64,
+}
+
+impl RateStats {
+    /// Source frames advanced, as a number of frames.
+    #[must_use]
+    pub fn source_frames(&self) -> f64 {
+        self.source_micro_frames as f64 / 1e6
+    }
+
+    /// Source frames per played frame between `earlier` and `self`: `None` when no audio was
+    /// played in between.
+    #[must_use]
+    pub fn time_weighted_rate_since(&self, earlier: &Self) -> Option<f64> {
+        let wall = self.wall_frames.checked_sub(earlier.wall_frames)?;
+        let micro = self
+            .source_micro_frames
+            .checked_sub(earlier.source_micro_frames)?;
+        (wall > 0).then(|| micro as f64 / 1e6 / wall as f64)
+    }
+}
 
 /// Everything an [`Engine`] is wired to.
 pub struct EngineConfig {
@@ -131,6 +176,8 @@ impl Engine {
             return Err(PlaybackError::InvalidArgument("sample_rate must be > 0"));
         }
         let sh = Shared::new(1.0);
+        sh.fade_frames
+            .store((sample_rate / (1000 / RATE_FADE_MS)).max(1), Relaxed);
         let (producer, consumer) = ring(sample_rate);
         let (tx, rx) = sync_channel(COMMAND_QUEUE);
         let decoder = Decoder {
@@ -409,6 +456,65 @@ impl Engine {
         self.sh.volume()
     }
 
+    /// Set the playback rate: source frames per output frame, pitch preserved. 1.0 is normal speed
+    /// and bypasses the time stretcher, so playback is bit-exact; the range is
+    /// [`MIN_RATE`] to [`MAX_RATE`] (0.75 to 1.5). The rate holds across tracks and loads.
+    ///
+    /// Returns at once. The decoder thread applies the change by restarting the stream at the
+    /// audible position: the renderer fades out at most 5 ms, the decoder reopens the track there
+    /// and the new stream fades in, about 15 ms of dip and 10 to 20 ms from the call to the first
+    /// audio at the new rate. A change that follows another within 125 ms waits for the interval,
+    /// and the value current then is applied, so a drag costs a few restarts and ends on the
+    /// final value. Setting the rate the engine already has does nothing.
+    ///
+    /// Every accepted call is reported as one [`EventKind::RateChanged`].
+    ///
+    /// # Errors
+    /// [`PlaybackError::InvalidArgument`] for NaN or a rate outside the range;
+    /// [`PlaybackError::EngineStopped`] when the decoder thread has exited.
+    pub fn set_rate(&mut self, rate: f64) -> Result<(), PlaybackError> {
+        if !(MIN_RATE..=MAX_RATE).contains(&rate) {
+            return Err(PlaybackError::InvalidArgument(
+                "rate must be within 0.75 to 1.5",
+            ));
+        }
+        let from = self.sh.rate_target();
+        if from.to_bits() == rate.to_bits() {
+            return Ok(());
+        }
+        // The target is stored first: the wake-up only tells the decoder to look at it.
+        self.sh.rate_target.store(rate.to_bits(), Release);
+        if let Err(TrySendError::Disconnected(_)) = self.tx.try_send(Cmd::RateTarget) {
+            self.sh.rate_target.store(from.to_bits(), Release);
+            return Err(PlaybackError::EngineStopped);
+        }
+        self.emit(EventKind::RateChanged {
+            from,
+            to: rate,
+            position: self.position(),
+        });
+        Ok(())
+    }
+
+    /// The playback rate target (1.0 is normal speed). The audio follows within a few tens of
+    /// milliseconds: see [`rate_stats`](Self::rate_stats) for the rate being played.
+    #[must_use]
+    pub fn rate(&self) -> f64 {
+        self.sh.rate_target()
+    }
+
+    /// The renderer's account of what it has played and at which rate.
+    #[must_use]
+    pub fn rate_stats(&self) -> RateStats {
+        RateStats {
+            wall_frames: self.sh.consumed.load(Acquire),
+            source_micro_frames: self.sh.src_micro.load(Relaxed),
+            effective_rate: f64::from_bits(self.sh.eff_rate.load(Relaxed)),
+            applied_rate: self.sh.stream_rate(),
+            flushes: self.sh.rate_flushes.load(Relaxed),
+        }
+    }
+
     /// Where playback is, from frames the output has taken minus the output latency. Resolution is
     /// one audio callback. After a command this reports the command's target until the decoder has
     /// processed it.
@@ -562,8 +668,11 @@ impl Engine {
                 continue;
             }
             match (&self.cursor, mark.kind) {
-                (Some(prev), MarkKind::Continuation) => {
-                    let left_at = prev.offset + (mark.start_frame - prev.start_frame);
+                // The stream restarted at a new rate and carries on with the same track: the
+                // listener's view does not change.
+                (Some(prev), MarkKind::Rate) if prev.item.id == mark.item.id => {}
+                (Some(prev), MarkKind::Continuation | MarkKind::Rate) => {
+                    let left_at = prev.source_frame_at(mark.start_frame);
                     let (left, started) = (prev.item.id, mark.item.id);
                     let cause = if mark.prev_failed {
                         LeaveCause::Failed
@@ -610,7 +719,7 @@ impl Engine {
 
         if ended {
             if let Some(last) = self.cursor.take() {
-                let frame = last.offset + view.eos_total.saturating_sub(last.start_frame);
+                let frame = last.source_frame_at(view.eos_total);
                 let cause = if view.eos_failed {
                     LeaveCause::Failed
                 } else {
@@ -792,7 +901,7 @@ struct View {
 /// start (the old stream's tail still playing after a seek) it is the first mark's offset.
 fn resolve(marks: &[Mark], played: u64) -> Option<(usize, u64)> {
     match marks.iter().rposition(|m| m.start_frame <= played) {
-        Some(i) => Some((i, marks[i].offset + (played - marks[i].start_frame))),
+        Some(i) => Some((i, marks[i].source_frame_at(played))),
         None => marks.first().map(|m| (0, m.offset)),
     }
 }

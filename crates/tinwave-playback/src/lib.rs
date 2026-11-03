@@ -32,6 +32,7 @@ mod error;
 mod event;
 mod output;
 mod reader;
+mod rate_stage;
 mod renderer;
 mod resample;
 mod shared;
@@ -43,7 +44,7 @@ pub use controller::{
     FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEdit, QueueEditRequest,
     QueueEntry, SinkStats, TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
 };
-pub use engine::{Engine, EngineConfig};
+pub use engine::{Engine, EngineConfig, RateStats};
 pub use error::PlaybackError;
 pub use event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
 pub use output::{

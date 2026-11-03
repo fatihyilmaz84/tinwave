@@ -35,6 +35,7 @@
 //! | `Paused` / `Resumed` | `Paused { input }` / `Resumed { pause, input }`; a resume after 30 minutes of silence starts a new session first |
 //! | `Seeked` | `SeekForward` / `SeekBack`, through the 2 s [`GestureCoalescer`](tinwave_signals::GestureCoalescer) |
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
+//! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
 //! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
 //! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one |
 //! | `QueueEnded` | none (silence starts) |
@@ -134,13 +135,15 @@
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
 //!   wiring, not the playback controller's.
 //!
-//! # Where `RateChanged` will go
+//! # Playback rate
 //!
-//! The engine has no playback rate yet (time-stretch, T-0027). When it does, it will report it as
-//! a new [`EventKind`](crate::EventKind) variant, and this crate will not compile until
-//! `Mapper::handle` has an arm for it: the arm feeds [`GestureCoalescer::rate`] (600 ms window,
-//! already implemented in `tinwave-signals`) with a `RatePayload` and the command's input, and
-//! the controller gets a `set_rate` command beside `set_volume`.
+//! [`Controller::set_rate`] forwards to the engine's time stretcher (ADR 0006). The engine reports
+//! the change as `RateChanged { from, to, position }`; the mapper feeds it, like a volume step,
+//! to [`GestureCoalescer::rate`] (600 ms window) with a `RatePayload` and the command's input, so a
+//! slider drag is one signal from the first `from` to the last `to`. Like a volume change, it
+//! needs a session (or a play not yet heard, which opens one for a listener's input) and is
+//! applied but not recorded otherwise. `RateSession` is derived from
+//! [`Controller::rate_stats`]: the engine's own counters of frames played and source advanced.
 //!
 //! [`GestureCoalescer::rate`]: tinwave_signals::GestureCoalescer::rate
 
@@ -394,6 +397,29 @@ impl Controller {
         self.engine.set_volume(volume_linear)?;
         self.drain(command(input));
         Ok(())
+    }
+
+    /// Set the playback rate (0.75 to 1.5, pitch preserved; 1.0 is normal speed).
+    ///
+    /// # Errors
+    /// As [`Engine::set_rate`](crate::Engine::set_rate).
+    pub fn set_rate(&mut self, rate: f64, input: InputSource) -> Result<(), PlaybackError> {
+        self.engine.set_rate(rate)?;
+        self.drain(command(input));
+        Ok(())
+    }
+
+    /// The playback rate target.
+    #[must_use]
+    pub fn rate(&self) -> f64 {
+        self.engine.rate()
+    }
+
+    /// What the renderer has played and at which rate, for `RateSession` (the time-weighted rate
+    /// of a play is [`RateStats::time_weighted_rate_since`](crate::RateStats::time_weighted_rate_since)).
+    #[must_use]
+    pub fn rate_stats(&self) -> crate::RateStats {
+        self.engine.rate_stats()
     }
 
     /// Record the listener's repeat choice and emit `RepeatModeChanged` when it changed. The
