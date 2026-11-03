@@ -3,12 +3,10 @@
 _Maintained by the lead. Last updated: 2026-11-03._
 
 ## Needs the PO
-- [D-0009](decisions/D-0009-project-licence.md): the GitHub repo says GPL-3.0 but the project and package say
-  MIT OR Apache-2.0. Which is Tinwave's licence? Blocks a public release (and D-0007).
 - [D-0008](decisions/D-0008-canvas-vs-tokens.md): should the design artboards match the token colours exactly, and
   keep 20 px sidebar icons on macOS/Linux too? (recommendation: yes and yes; not blocking)
-- [D-0007](decisions/D-0007-licence-holder-and-source-offer.md): who is the copyright holder in Tinwave's own MIT/Apache
-  texts, and what contact goes in the Qt source offer? Blocks a public release only.
+- [D-0007](decisions/D-0007-licence-holder-and-source-offer.md): who is Tinwave's copyright holder (you or your
+  company), and what contact goes in the Qt source offer? Blocks a public release only.
 - **Check your system volume.** T-0008 left master volume at 2 % unmuted; T-0003 later found the default output
   muted at 6 %. Set it the way you want before any listening test.
 - Runbooks, when convenient (they gate acceptance, not current work):
@@ -33,6 +31,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 |---|---|---|
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-builder r1 | `t/T-0027-rate-control-engine` · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
 | [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | tw-builder r1 | `t/T-0029-live-play-records` · `D:\dev\Tinwave-worktrees\T-0029-live-play-records` |
+| [T-0058](tickets/T-0058-switch-to-gpl.md) Switch Tinwave's licence to GPL-3.0-only (ADR 0009) | tw-builder r1 | `t/T-0058-switch-to-gpl` · `D:\dev\Tinwave-worktrees\T-0058-switch-to-gpl` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -81,6 +80,7 @@ Accepted 2026-11-01: [ADR 0004](../docs/adr/0004-windows-volume-device-provider.
 Decided 2026-11-02: [D-0003](decisions/D-0003-audio-stack-and-mpl.md) audio stack, MPL scoped to symphonia* ·
 [D-0004](decisions/D-0004-aac-decode-route.md) AAC route at the Phase 9 license review.
 Decided 2026-11-02: [D-0005](decisions/D-0005-t0016-third-round.md) merge T-0016 now, fix in T-0028.
+Decided 2026-11-03: [D-0009](decisions/D-0009-project-licence.md) GPL-3.0-only, mobile closed source ([ADR 0009](../docs/adr/0009-project-licence.md)).
 Accepted 2026-11-02: [ADR 0005](../docs/adr/0005-audio-backend.md) audio backend (spec §2/§7 updated) ·
 [ADR 0006](../docs/adr/0006-time-stretch.md) time-stretch (Signalsmith, pending PO listening pass).
 Accepted 2026-11-02: [ADR 0008](../docs/adr/0008-cxx-qt-bridge.md) CXX-Qt 0.10, Cargo-driven, dynamic Qt.
