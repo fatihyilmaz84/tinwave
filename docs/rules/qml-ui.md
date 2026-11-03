@@ -60,6 +60,21 @@ The UI is a major signal source (browse dwell, hover, scroll impressions, view c
   OS reduced motion and high contrast respected.
 - UI work follows the design Definition of Done in design-system.md §8.
 
+## About dialog (LGPL-3.0 §4(c), ADR 0008)
+
+Tinwave uses Qt under the LGPL-3.0, linked dynamically. §4(c) requires that a program which displays copyright notices
+while it runs also displays the notice for the library and points to the licence texts. So the About dialog (native dialog
+or `Tw*` page, once it exists) must:
+
+- name Qt and its version (`QLibraryInfo` at run time), say that it is used under the **GNU LGPL v3**, and say that the Qt
+  libraries are separate files that can be replaced;
+- give access to the licence texts shipped in the folder (`licenses\Qt-LGPL-3.0-and-GPL-3.0.txt`, `THIRD-PARTY-NOTICES.txt`,
+  `SOURCE-OFFER-Qt.txt`) through an openable link or button, not only as a file path;
+- show Tinwave's own licence and copyright holder, taken from the shipped notices (never retyped in QML).
+
+An About dialog without the Qt notice and the licence-text access is not done. The files and how they are generated are
+described in `apps/tinwave-desktop/packaging/README.md`.
+
 ## Signal Center screen (required, Phase 1)
 
 - Category list with tier badge, on/off toggle, event count, last event time.

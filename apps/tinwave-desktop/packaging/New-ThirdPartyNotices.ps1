@@ -11,6 +11,10 @@
 #                   Qt's own attribution pages from the kit's documentation (<Qt>\Docs\Qt-<ver>\*\*-attribution-*.html:
 #                   the output of qtattributionsscanner, with each component's full license text).
 #   * Qt licenses   <Qt>\Licenses\LICENSE (LGPL-3.0 and GPL-3.0 texts), copied into the bundle by package.ps1.
+#   * Rust std      the standard library statically linked into the exe, and the crates it vendors (hashbrown, rustc-demangle,
+#                   ...). The list is read from the link itself: the rlibs named in the exe's pdb (target\release\
+#                   tinwave_desktop.pdb) that exist in the pinned toolchain's sysroot. Notices and texts come from the
+#                   toolchain's own share\doc\rust\COPYRIGHT-library.html and share\doc\rust\licenses\ (no hand-typed list).
 #   * Assets        every LICENSE* file under apps\tinwave-desktop\icons\ (Lucide ISC etc.) when that folder exists.
 #
 # It fails (non-zero exit, nothing written) rather than skipping a component it cannot document.
@@ -18,11 +22,16 @@ param(
     [Parameter(Mandatory)][string]$Bundle,
     [string]$Out = "",
     [string[]]$Package = @('tinwave-desktop'),
-    [string]$QtDir = ""
+    [string]$QtDir = "",
+    # The linker's module list of the exe: it names the Rust std rlibs that were linked (default: the desktop build's pdb).
+    [string]$Pdb = "",
+    [string]$IdentityFile = ""
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 if (-not $Out) { $Out = Join-Path $PSScriptRoot 'THIRD-PARTY-NOTICES.txt' }
+if (-not $Pdb) { $Pdb = Join-Path $script:RepoRoot 'target\release\tinwave_desktop.pdb' }
+$identity = Get-ReleaseIdentity $IdentityFile
 
 $kit = Resolve-QtKit $QtDir
 $files = @(Get-BundleFiles $Bundle)
@@ -129,7 +138,7 @@ function ConvertFrom-AttributionPage([string]$path) {
 }
 
 # --- 3. Rust crates --------------------------------------------------------------------------------------------------
-$meta = (& cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc --manifest-path (Join-Path $script:RepoRoot 'Cargo.toml') | Out-String) | ConvertFrom-Json
+$meta = (& cargo metadata --format-version 1 --locked --offline --filter-platform x86_64-pc-windows-msvc --manifest-path (Join-Path $script:RepoRoot 'Cargo.toml') | Out-String) | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed" }
 $byId = @{}; foreach ($p in $meta.packages) { $byId[$p.id] = $p }
 $nodes = @{}; foreach ($n in $meta.resolve.nodes) { $nodes[$n.id] = $n }
@@ -159,6 +168,34 @@ function Add-LicenseText([string]$text, [string]$label) {
     if (-not $texts.ContainsKey($sha)) { $texts[$sha] = @{ Text = $norm; Names = (New-Object Collections.Generic.List[string]) } }
     $texts[$sha].Names.Add($label)
 }
+# The copyright holder for a crate that ships no license file: the `SPDX-FileCopyrightText: <years> <holder>` lines in its
+# sources (cxx-qt: Klaralvdalens Datakonsult AB, a KDAB Group company), else the Cargo.toml authors. Never a guess: fails
+# when the crate names nobody.
+function Get-CrateHolders([string]$Dir, [string]$Authors, [string]$Label) {
+    $by = @{}   # holder -> @{ Min; Max }
+    $exts = '.rs', '.toml', '.h', '.hpp', '.cpp', '.cmake', '.md', '.txt'
+    foreach ($f in (Get-ChildItem $Dir -Recurse -File | Where-Object { $exts -contains $_.Extension.ToLowerInvariant() })) {
+        $txt = Read-TextFile $f.FullName
+        foreach ($m in [regex]::Matches($txt, '(?m)SPDX-FileCopyrightText:[ \t]*(?:(?<y1>\d{4})(?:[ \t]*[-,][ \t]*(?<y2>\d{4}))?[ \t]+)?(?<h>[^\r\n]+?)[ \t]*$')) {
+            $h = ($m.Groups['h'].Value -replace '\s*(-->|\*/)\s*$', '').Trim()
+            $y1 = if ($m.Groups['y1'].Success) { [int]$m.Groups['y1'].Value } else { 0 }
+            $y2 = if ($m.Groups['y2'].Success) { [int]$m.Groups['y2'].Value } else { $y1 }
+            if (-not $by.ContainsKey($h)) { $by[$h] = @{ Min = 9999; Max = 0 } }
+            if ($y1 -gt 0) { $by[$h].Min = [Math]::Min($by[$h].Min, $y1); $by[$h].Max = [Math]::Max($by[$h].Max, [Math]::Max($y1, $y2)) }
+        }
+    }
+    if ($by.Count -gt 0) {
+        $parts = foreach ($h in ($by.Keys | Sort-Object)) {
+            $y = $by[$h]
+            $years = if ($y.Max -eq 0) { '' } elseif ($y.Min -eq $y.Max) { "$($y.Min) " } else { "$($y.Min)-$($y.Max) " }
+            "$years$h"
+        }
+        return [pscustomobject]@{ Text = ($parts -join "`nCopyright (c) "); From = 'the SPDX-FileCopyrightText lines in the crate sources' }
+    }
+    if ($Authors) { return [pscustomobject]@{ Text = $Authors; From = 'the Cargo.toml authors' } }
+    throw "Crate $Label ships no license file and names no copyright holder (no SPDX-FileCopyrightText lines, no Cargo.toml authors): cannot write its MIT/BSD notice without inventing one."
+}
+
 $crateRows = New-Object Collections.Generic.List[object]
 $mplCrates = New-Object Collections.Generic.List[string]
 foreach ($c in $crates) {
@@ -171,16 +208,91 @@ foreach ($c in $crates) {
         foreach ($f in $lf) { Add-LicenseText (Read-TextFile $f.FullName) "$label ($($f.Name))" }
     } else {
         # The published crate carries no license file: use the canonical text of every SPDX id in its expression.
+        $holders = Get-CrateHolders $dir $authors $label
         $ids = @($expr -split '[\s()]+' | Where-Object { $_ -and $_ -notin 'OR', 'AND', 'WITH' } | Select-Object -Unique)
         foreach ($sid in $ids) {
             $tf = Join-Path $licenseTextDir "$sid.txt"
             if (-not (Test-Path $tf)) { throw "Crate $label ships no license file and packaging\license-texts\$sid.txt does not exist. Add the canonical $sid text there." }
-            $t = (Read-TextFile $tf).Replace('{{HOLDERS}}', $(if ($authors) { $authors } else { "the $($c.name) authors ($($c.repository))" }))
-            Add-LicenseText $t "$label (no license file in the crate; canonical $sid text, copyright holders from Cargo.toml authors)"
+            $t = (Read-TextFile $tf).Replace('{{HOLDERS}}', $holders.Text)
+            Add-LicenseText $t "$label (no license file in the crate; canonical $sid text, copyright holder from $($holders.From))"
         }
     }
     if ($expr -match 'MPL-2\.0') { $mplCrates.Add($label) }
     $crateRows.Add([pscustomobject]@{ Label = $label; License = $expr; Repo = $c.repository; Authors = $authors; Files = (@($lf | ForEach-Object { $_.Name }) -join ', ') })
+}
+
+# --- 3b. Rust standard library and the crates vendored by it ---------------------------------------------------------
+# std is statically linked into every Rust exe. Which of its crates really are is in the link: the module list of the exe's
+# pdb names every rlib the linker took, and a std rlib is recognised by existing, with the same hash in its file name, in the
+# pinned toolchain's sysroot (a Cargo crate's rlib lives in target\release\deps instead). On x86_64-pc-windows-msvc this is
+# alloc, compiler_builtins, core, hashbrown, panic_unwind, rustc_demangle and std: gimli, addr2line, miniz_oxide, ... are
+# not linked here (backtraces use dbghelp), so they are not listed. The Rust project publishes the notices and texts of
+# std and of every crate it vendors in the toolchain (share\doc\rust\COPYRIGHT-library.html, share\doc\rust\licenses).
+Push-Location $script:RepoRoot
+try {
+    $sysroot = ((& rustc --print sysroot) | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or -not $sysroot) { throw "rustc --print sysroot failed" }
+    $rustcVersion = ((& rustc --version) | Out-String).Trim()
+} finally { Pop-Location }
+if (-not (Test-Path $Pdb)) { throw "$Pdb not found: it lists the Rust std crates the exe links. Build tinwave-desktop first (release, MSVC debug info is on by default) or pass -Pdb." }
+$stdLibDir = Join-Path $sysroot 'lib\rustlib\x86_64-pc-windows-msvc\lib'
+$pdbText = [Text.Encoding]::GetEncoding(28591).GetString([IO.File]::ReadAllBytes($Pdb))
+$stdLinked = New-Object Collections.Generic.SortedSet[string]
+foreach ($m in [regex]::Matches($pdbText, 'lib([A-Za-z0-9_]+)-([0-9a-f]{16})\.rlib')) {
+    if (Test-Path (Join-Path $stdLibDir ("lib$($m.Groups[1].Value)-$($m.Groups[2].Value).rlib"))) { [void]$stdLinked.Add($m.Groups[1].Value) }
+}
+if (-not ($stdLinked.Contains('std') -and $stdLinked.Contains('core'))) {
+    throw "$Pdb names no std/core rlib of the sysroot ${sysroot}: it does not belong to this toolchain's build of tinwave-desktop."
+}
+$rustDoc = Join-Path $sysroot 'share\doc\rust'
+$rustCopyright = Join-Path $rustDoc 'COPYRIGHT-library.html'
+if (-not (Test-Path $rustCopyright)) { throw "$rustCopyright not found: the toolchain does not ship the Rust standard library notices." }
+$cr = Read-TextFile $rustCopyright
+$iTree = $cr.IndexOf('id="in-tree-files"'); $iOot = $cr.IndexOf('id="out-of-tree-dependencies"')
+if ($iTree -lt 0 -or $iOot -lt $iTree) { throw "Unexpected layout of $rustCopyright" }
+function Get-HtmlField([string]$Html, [string]$Label) {
+    $m = [regex]::Match($Html, "<b>$Label[:]?</b>\s*(?<v>.*?)</p>", 'Singleline')
+    if ($m.Success) { [Net.WebUtility]::HtmlDecode(($m.Groups['v'].Value -replace '<[^>]+>', '').Trim()) } else { '' }
+}
+# In-tree: library/ of the Rust repository
+$stdTree = New-Object Collections.Generic.List[object]
+foreach ($blk in ($cr.Substring($iTree, $iOot - $iTree) -split '<b>File/Directory:</b>' | Select-Object -Skip 1)) {
+    $path = [Net.WebUtility]::HtmlDecode(([regex]::Match($blk, '<code>(.*?)</code>')).Groups[1].Value)
+    $stdTree.Add([pscustomobject]@{
+        Path = $path; License = (Get-HtmlField $blk 'License')
+        Copyright = @([regex]::Matches($blk, '<b>Copyright:</b>\s*(?<v>[^<]+)</p>') | ForEach-Object { [Net.WebUtility]::HtmlDecode($_.Groups['v'].Value.Trim()) })
+    })
+}
+if ($stdTree.Count -eq 0) { throw "No in-tree entries in $rustCopyright" }
+# Out-of-tree: crates.io crates vendored by std
+$stdVendored = New-Object Collections.Generic.List[object]
+foreach ($blk in ($cr.Substring($iOot) -split '(?=<h3>)' | Where-Object { $_ -like '<h3>*' })) {
+    if ($blk -notmatch '^<h3>\S+\s+(?<id>[^<]+?)</h3>') { continue }
+    $id = $Matches['id']
+    if ($id -notmatch '^(?<n>.+?)-(?<v>\d.*)$') { throw "Unexpected crate id '$id' in $rustCopyright" }
+    $notices = @([regex]::Matches($blk, '(?s)<summary><code>(?<f>.*?)</code></summary>\s*<pre>(?<t>.*?)</pre>') | ForEach-Object {
+        [pscustomobject]@{ File = [Net.WebUtility]::HtmlDecode($_.Groups['f'].Value); Text = [Net.WebUtility]::HtmlDecode($_.Groups['t'].Value) }
+    })
+    $stdVendored.Add([pscustomobject]@{
+        Name = $Matches['n']; Version = $Matches['v']; Norm = ($Matches['n'] -replace '-', '_').ToLowerInvariant()
+        Authors = (Get-HtmlField $blk 'Authors'); License = (Get-HtmlField $blk 'License'); Notices = $notices
+    })
+}
+if ($stdVendored.Count -eq 0) { throw "No out-of-tree entries in $rustCopyright" }
+$stdLinkedVendored = @($stdVendored | Where-Object { $stdLinked.Contains($_.Norm) })
+$stdLinkedInTree = @($stdLinked | Where-Object { $n = $_; -not ($stdVendored | Where-Object { $_.Norm -eq $n }) })
+$stdNotLinked = @($stdVendored | Where-Object { -not $stdLinked.Contains($_.Norm) } | ForEach-Object { "$($_.Name) $($_.Version)" })
+foreach ($v in $stdLinkedVendored) {
+    if ($v.Notices.Count -eq 0) { throw "Rust std crate $($v.Name) $($v.Version) has no license text in $rustCopyright" }
+    foreach ($nt in $v.Notices) { Add-LicenseText $nt.Text "$($v.Name) $($v.Version) (Rust standard library; $($nt.File))" }
+}
+foreach ($t in $stdTree) {
+    foreach ($sid in @($t.License -split '[\s()]+' | Where-Object { $_ -and $_ -notin 'OR', 'AND', 'WITH' } | Select-Object -Unique)) {
+        $tf = Join-Path $rustDoc "licenses\$sid.txt"
+        if (-not (Test-Path $tf)) { throw "Rust std in-tree license $sid (for $($t.Path)) has no text in $rustDoc\licenses" }
+        $body = (Read-TextFile $tf) -replace '<year>\s*<(?:copyright holders|owner)>', ($t.Copyright -join "`nCopyright (c) ")
+        Add-LicenseText $body "Rust standard library, $($t.Path) ($sid)"
+    }
 }
 
 # --- 4. Assets with their own license (icons etc.) -------------------------------------------------------------------
@@ -205,6 +317,7 @@ Add-Line 'folder; do not edit it by hand.'
 Add-Rule '1. Tinwave'
 Add-Line "Tinwave's own source code is licensed under: $ownLicense."
 Add-Line 'The Apache-2.0 text is in licenses\Apache-2.0.txt.'
+Add-Line "Copyright holder: $($identity.HolderText)"
 
 Add-Rule '2. Qt (LGPL-3.0)'
 Add-Line "This program uses the Qt $($kit.Version) toolkit (https://www.qt.io), (C) The Qt Company Ltd. and other contributors,"
@@ -246,6 +359,23 @@ foreach ($name in $supplemented.Keys) {
     $pageOrder += [pscustomobject]@{ Title = $cn; Body = $body.Trim("`n") }
 }
 $pageOrder = @($pageOrder | Sort-Object Title -Unique)
+
+# Acknowledgements that FreeType's FTL (clause 6) and the IJG license (libjpeg) require in the documentation of a binary
+# distribution. They are emitted for the components that are really in this folder; the FreeType year is the newest copyright
+# year of the FreeType version Qt bundles (the FTL says: the value from the version you use).
+$ftPages = @($pageOrder | Where-Object { $_.Title -match '(?i)^freetype' })
+$ijgPages = @($pageOrder | Where-Object { $_.Body -match 'Independent JPEG\s+Group' })
+if ($ftPages.Count -gt 0 -or $ijgPages.Count -gt 0) {
+    Add-Line
+    Add-Line 'Acknowledgements required by the licenses of these components:'
+    Add-Line
+    if ($ftPages.Count -gt 0) {
+        $years = @($ftPages | ForEach-Object { [regex]::Matches($_.Body, '(?im)^\s*Copyright[^\n]*') } | ForEach-Object { [regex]::Matches($_.Value, '\b(?:19|20)\d\d\b') } | ForEach-Object { [int]$_.Value })
+        if ($years.Count -eq 0) { throw "FreeType is shipped but its attribution pages carry no copyright year for the FTL acknowledgement." }
+        Add-Line ("  Portions of this software are copyright (c) {0} The FreeType Project (www.freetype.org). All rights reserved." -f ($years | Measure-Object -Maximum).Maximum)
+    }
+    if ($ijgPages.Count -gt 0) { Add-Line '  This software is based in part on the work of the Independent JPEG Group.' }
+}
 foreach ($pg in $pageOrder) {
     Add-Line; Add-Line ('-' * 100); Add-Line $pg.Title; Add-Line ('-' * 100); Add-Line
     Add-Line $pg.Body
@@ -263,7 +393,7 @@ if ($crt.Count -gt 0) {
 
 Add-Rule "5. Rust crates ($($crates.Count))"
 Add-Line "Crates compiled into tinwave-desktop.exe (normal dependencies of: $($Package -join ', ')), with the license each declares."
-Add-Line 'Where a license offers a choice (A OR B), Tinwave uses and redistributes the crate under either. Texts follow in section 6.'
+Add-Line 'Where a license offers a choice (A OR B), Tinwave uses and redistributes the crate under either. Texts follow in section 7.'
 if ($mplCrates.Count -gt 0) {
     Add-Line
     Add-Line ('MPL-2.0 (file-level copyleft) applies to: ' + ($mplCrates -join ', ') + '.')
@@ -277,7 +407,31 @@ foreach ($r in $crateRows) {
     if ($r.Repo) { Add-Line ('      source: ' + $r.Repo) }
 }
 
-Add-Rule '6. License texts of the Rust crates'
+Add-Rule '6. Rust standard library'
+Add-Line "tinwave-desktop.exe statically links the Rust standard library of the pinned toolchain ($rustcVersion)."
+Add-Line 'The list below is not typed by hand: it is the set of std rlibs that the linker took for this exe (module list of'
+Add-Line ('{0}), and the notices come from the toolchain itself (share\doc\rust\COPYRIGHT-library.html and' -f (Split-Path $Pdb -Leaf))
+Add-Line 'share\doc\rust\licenses). Texts follow in section 7.'
+Add-Line
+Add-Line ('Linked crates of the standard library source tree: ' + ($stdLinkedInTree -join ', ') + '.')
+Add-Line 'The Rust project documents the in-tree source files of this release as (the entries for other platforms are listed'
+Add-Line 'because the Rust project lists them for the library):'
+foreach ($t in $stdTree) {
+    Add-Line ('  {0} - {1}' -f $t.Path, $t.License)
+    foreach ($cp in $t.Copyright) { Add-Line ('      copyright: ' + $cp) }
+}
+Add-Line
+Add-Line 'Crates vendored by the standard library and linked into this exe:'
+foreach ($v in $stdLinkedVendored) {
+    Add-Line ('  {0} {1} - {2}' -f $v.Name, $v.Version, $v.License)
+    if ($v.Authors) { Add-Line ('      authors: ' + $v.Authors) }
+    Add-Line ('      source: https://crates.io/crates/{0}/{1}' -f $v.Name, $v.Version)
+}
+Add-Line
+Add-Line 'Crates the Rust project lists for the standard library that contribute no code to this program (other targets, the test'
+Add-Line ('harness, build tools, crates without object code): ' + ($stdNotLinked -join ', ') + '.')
+
+Add-Rule '7. License texts of the Rust crates and the Rust standard library'
 $n = 0
 foreach ($t in ($texts.Values | Sort-Object { $_.Names[0] })) {
     $n++
@@ -289,7 +443,7 @@ foreach ($t in ($texts.Values | Sort-Object { $_.Names[0] })) {
 }
 
 if ($assetLicenses.Count -gt 0) {
-    Add-Rule '7. Icons and other assets'
+    Add-Rule '8. Icons and other assets'
     foreach ($a in $assetLicenses) {
         $rel = $a.FullName.Substring($script:RepoRoot.Length + 1).Replace('\', '/')
         Add-Line ('-' * 100); Add-Line $rel; Add-Line ('-' * 100); Add-Line

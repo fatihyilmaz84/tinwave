@@ -21,10 +21,12 @@ if (-not (Test-Path $exe)) { throw "No tinwave-desktop.exe in $root" }
 
 # A missing DLL must make the child exit, not show the loader's modal "code execution cannot proceed" box (that would hang
 # this script until the timeout). SetErrorMode is inherited by the child; nothing in Windows settings or the registry changes.
+# The mode is process-wide, and when package.ps1 runs this script it is package.ps1's own process (an interactive shell would
+# keep it): the previous mode is restored in the finally block below.
 if (-not ('Tw.SmokeNative' -as [type])) {
     Add-Type -Namespace Tw -Name SmokeNative -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetErrorMode(uint mode);'
 }
-$null = [Tw.SmokeNative]::SetErrorMode(0x0001 -bor 0x0002 -bor 0x8000)
+$previousErrorMode = [Tw.SmokeNative]::SetErrorMode(0x0001 -bor 0x0002 -bor 0x8000)
 
 $saved = @{}
 foreach ($k in @('PATH', 'QMAKE', 'QT_PLUGIN_PATH', 'QML_IMPORT_PATH', 'QML2_IMPORT_PATH', 'QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_QPA_PLATFORM', 'QT_QUICK_BACKEND', 'QT_QUICK_CONTROLS_STYLE', 'QT_DIR', 'QTDIR', 'QT_FORCE_STDERR_LOGGING')) {
@@ -70,6 +72,7 @@ try {
     }
 } finally {
     if ($p -ne $null -and -not $p.HasExited) { $p.Kill(); $null = $p.WaitForExit(10000) }
+    $null = [Tw.SmokeNative]::SetErrorMode($previousErrorMode)
     foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k], 'Process') }
 }
 $stderr = Get-Content $errFile -Raw -ErrorAction SilentlyContinue
