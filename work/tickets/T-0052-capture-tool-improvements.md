@@ -3,7 +3,7 @@ id: T-0052
 title: capture.ps1 improvements — desktop-crop mode, click and key-down steps, cursor restore
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0036]
