@@ -10,8 +10,9 @@
 //!
 //! `--qml` defaults to `Storm.qml` next to this file; `--pool` (default 1, the setting that exposed the T-0041 crash
 //! most), `--delay-ms` (default 3) and `--max-edge` (default: the production limit) configure the provider and the
-//! source; the remaining arguments are read by the scene itself (`Qt.application.arguments`). On success it prints, in
-//! this order:
+//! source; the remaining arguments are read by the scene itself (`Qt.application.arguments`; `Storm.qml` counts its
+//! `--exit-ms` from the provider's first answer, not from the scene load, see the top of that file). On success it
+//! prints, in this order:
 //!
 //! 1. `STRESS_DONE exit=<code> responses=<n> finished=<n> ...` after the event loop ended and the providers were
 //!    quiesced, with the provider's counters. `in_flight_at_quit` (last field) is `responses - finished` read the
