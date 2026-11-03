@@ -3,7 +3,7 @@ id: T-0066
 title: Exclusive reopen on a real device — ignored measurement test, exclusive-only open, harness settle
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0057]
@@ -37,6 +37,9 @@ open + first block + poll) and a real endpoint's refusal are unmeasured, and a r
 - [ ] A refused rate costs one failed open + one open at the engine rate (ManualOutput counts opens) — test.
 - [ ] settle() works in exclusive mode — test.
 - [ ] fmt, clippy, nextest, deny pass.
+
+## Lead decisions on build-1 (2026-11-03)
+- The typed `exclusive_refusal` helper in output/mod.rs and the conditional poll in `Harness::settle` are accepted.
 
 ## Signals & storage
 None.
