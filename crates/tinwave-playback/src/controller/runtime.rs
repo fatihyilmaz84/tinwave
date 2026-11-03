@@ -10,10 +10,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use tinwave_signals::{InputSource, RepeatMode};
+use tinwave_signals::{InputSource, RepeatMode, View};
 
 use super::types::{
-    ControllerConfig, ControllerDiagnostics, LoadRequest, PlaybackStatus, QueueEntry,
+    ControllerConfig, ControllerDiagnostics, LoadRequest, PlaybackStatus, QueueEditRequest,
+    QueueEntry,
 };
 use super::Controller;
 use crate::{AudioOutput, PlaybackError};
@@ -26,6 +27,8 @@ type Reply = SyncSender<Result<(), PlaybackError>>;
 enum Command {
     Load(LoadRequest),
     Append(Vec<QueueEntry>),
+    QueueLater(Vec<QueueEntry>, View, InputSource),
+    EditQueue(QueueEditRequest),
     Stop,
     Seek(u64, InputSource),
     Pause(InputSource),
@@ -114,6 +117,28 @@ impl ControllerHandle {
     /// As [`load`](Self::load).
     pub fn append(&self, entries: Vec<QueueEntry>) -> Result<(), PlaybackError> {
         self.call(Command::Append(entries))
+    }
+
+    /// The listener added entries to the end of the queue. See [`Controller::queue_later`].
+    ///
+    /// # Errors
+    /// As [`load`](Self::load).
+    pub fn queue_later(
+        &self,
+        entries: Vec<QueueEntry>,
+        from_view: View,
+        input: InputSource,
+    ) -> Result<(), PlaybackError> {
+        self.call(Command::QueueLater(entries, from_view, input))
+    }
+
+    /// Play next, reorder or remove without interrupting the playing track. See
+    /// [`Controller::edit_queue`].
+    ///
+    /// # Errors
+    /// As [`Controller::edit_queue`], or [`PlaybackError::Busy`] / [`PlaybackError::EngineStopped`].
+    pub fn edit_queue(&self, request: QueueEditRequest) -> Result<(), PlaybackError> {
+        self.call(Command::EditQueue(request))
     }
 
     /// Stop playback and clear the queue.
@@ -252,6 +277,8 @@ fn execute(controller: &mut Controller, command: Command) -> Result<(), Playback
     match command {
         Command::Load(request) => controller.load(request),
         Command::Append(entries) => controller.append(entries),
+        Command::QueueLater(entries, view, input) => controller.queue_later(entries, view, input),
+        Command::EditQueue(request) => controller.edit_queue(request),
         Command::Stop => controller.stop(),
         Command::Seek(ms, input) => controller.seek_ms(ms, input),
         Command::Pause(input) => {

@@ -3,6 +3,7 @@
 //! This is the only thread that touches files. It never waits on the render callback except at the
 //! seek handshake, and even there it keeps servicing commands.
 
+use std::collections::HashSet;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, TryRecvError};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use crate::event::{EventKind, EventSink, PlaybackEvent};
 use crate::reader::{SourceOpener, TrackReader};
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::types::CHANNELS;
-use crate::{PlaybackError, QueueItemId, Track};
+use crate::{EditId, PlaybackError, QueueItemId, Track};
 
 /// Commands from the control thread.
 pub(crate) enum Cmd {
@@ -34,6 +35,13 @@ pub(crate) enum Cmd {
     },
     /// Add tracks after the last queue entry.
     Append(Vec<Arc<Track>>),
+    /// Replace everything after `head` with `items`, if `head` is the last item the decoder
+    /// started. Answered with `QueueEdited` or `QueueEditRejected`.
+    EditQueue {
+        edit: EditId,
+        head: QueueItemId,
+        items: Vec<Arc<Track>>,
+    },
     /// The output stream was re-created: use this ring and resume at `item`/`frame`.
     Reconfigure {
         producer: Producer<f32>,
@@ -52,6 +60,7 @@ impl std::fmt::Debug for Cmd {
             Self::Load { .. } => "Load",
             Self::Seek { .. } => "Seek",
             Self::Append(_) => "Append",
+            Self::EditQueue { .. } => "EditQueue",
             Self::Reconfigure { .. } => "Reconfigure",
             Self::Shutdown => "Shutdown",
         })
@@ -235,18 +244,9 @@ impl Decoder {
                     return true;
                 }
                 st.queue.extend(items);
-                // The queue had ended: continue decoding into the same ring (gapless).
-                if st.awaiting.is_none()
-                    && st.reader.is_none()
-                    && self.sh.eos.load(Relaxed)
-                    && st.cur < st.queue.len()
-                {
-                    // Buffering is announced first, so a renderer that sees the revived stream
-                    // (`eos` false) also sees that its empty ring is not yet an underrun.
-                    self.sh.buffering.store(true, Release);
-                    self.sh.eos.store(false, Release);
-                }
+                self.revive_if_ended(st);
             }
+            Cmd::EditQueue { edit, head, items } => self.edit_queue(st, edit, head, items),
             Cmd::Reconfigure {
                 producer,
                 item,
@@ -273,6 +273,78 @@ impl Decoder {
             }
         }
         true
+    }
+
+    /// The queue had ended and now has entries the decoder has not opened: continue decoding into
+    /// the same ring (gapless).
+    fn revive_if_ended(&mut self, st: &State) {
+        if st.awaiting.is_none()
+            && st.reader.is_none()
+            && self.sh.eos.load(Relaxed)
+            && st.cur < st.queue.len()
+        {
+            // Buffering is announced first, so a renderer that sees the revived stream
+            // (`eos` false) also sees that its empty ring is not yet an underrun.
+            self.sh.buffering.store(true, Release);
+            self.sh.eos.store(false, Release);
+        }
+    }
+
+    /// Replace the entries after `head`, which must be the last item this thread started: its
+    /// audio is (partly) in the ring and its mark is published, while everything after it is still
+    /// only a list. Anything the decoder has already started cannot be edited, because its
+    /// audio is in the ring, so an edit built on an older head is refused, never applied to the
+    /// wrong item.
+    fn edit_queue(
+        &mut self,
+        st: &mut State,
+        edit: EditId,
+        head: QueueItemId,
+        items: Vec<Arc<Track>>,
+    ) {
+        match Self::edit_base(st, head, &items) {
+            Ok(base) => {
+                st.queue.truncate(base + 1);
+                st.queue.extend(items);
+                self.revive_if_ended(st);
+                self.emit(EventKind::QueueEdited { edit, head });
+            }
+            Err(error) => self.emit(EventKind::QueueEditRejected { edit, head, error }),
+        }
+    }
+
+    /// Index of `head` in the queue, if it is the last item started and `items` do not repeat an
+    /// id of the part that stays.
+    fn edit_base(
+        st: &State,
+        head: QueueItemId,
+        items: &[Arc<Track>],
+    ) -> Result<usize, PlaybackError> {
+        // While a reader is open (or a command is about to open one) `cur` is the item being
+        // read; once the queue is exhausted the last item started is the one before `cur`.
+        let started = if st.reader.is_some() || st.awaiting.is_some() {
+            Some(st.cur)
+        } else {
+            st.cur.checked_sub(1)
+        };
+        let base = started.filter(|&i| i < st.queue.len());
+        let current = base.map(|i| st.queue[i].id);
+        let stale = PlaybackError::StaleQueue {
+            expected: head,
+            current,
+        };
+        match base {
+            Some(i) if st.queue[i].id == head => {
+                let kept: HashSet<QueueItemId> = st.queue[..=i].iter().map(|t| t.id).collect();
+                if items.iter().any(|t| kept.contains(&t.id)) {
+                    return Err(PlaybackError::InvalidArgument(
+                        "queue item ids must be unique",
+                    ));
+                }
+                Ok(i)
+            }
+            _ => Err(stale),
+        }
     }
 
     fn begin_flush(&mut self, st: &mut State, frame: u64, gen: u64) {

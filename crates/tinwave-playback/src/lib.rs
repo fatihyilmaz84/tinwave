@@ -37,8 +37,8 @@ mod types;
 
 pub use controller::{
     BoundedSink, Controller, ControllerConfig, ControllerDiagnostics, ControllerHandle,
-    FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEntry, SinkStats,
-    TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
+    FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEdit, QueueEditRequest,
+    QueueEntry, SinkStats, TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
 };
 pub use engine::{Engine, EngineConfig};
 pub use error::PlaybackError;
@@ -53,4 +53,4 @@ pub use output::{
 pub use output::{WasapiControl, WasapiOutput};
 pub use reader::{FsOpener, SourceOpener};
 pub use renderer::Renderer;
-pub use types::{GaplessInfo, Position, QueueItemId, Track};
+pub use types::{EditId, GaplessInfo, Position, QueueItemId, Track};

@@ -15,7 +15,7 @@ use crate::output::{AudioOutput, OpenRequest, OutputStream};
 use crate::reader::SourceOpener;
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::types::CHANNELS;
-use crate::{PlaybackError, Position, QueueItemId, Renderer, Track};
+use crate::{EditId, PlaybackError, Position, QueueItemId, Renderer, Track};
 
 /// Seconds of audio the ring holds between the decoder and the callback.
 const RING_SECONDS: usize = 1;
@@ -80,6 +80,8 @@ pub struct Engine {
     sample_rate: u32,
     device: Option<String>,
     gen: u64,
+    /// Queue edits sent so far (the last [`EditId`]).
+    edits: u64,
     pending: Option<Pending>,
     /// Mark of the track the control side currently reports as playing.
     cursor: Option<Mark>,
@@ -167,6 +169,7 @@ impl Engine {
             sample_rate,
             device,
             gen: 0,
+            edits: 0,
             pending: None,
             cursor: None,
             seen_seq: None,
@@ -235,6 +238,63 @@ impl Engine {
     pub fn append(&mut self, items: Vec<Track>) -> Result<(), PlaybackError> {
         check_unique(&items)?;
         self.send(Cmd::Append(items.into_iter().map(Arc::new).collect()))
+    }
+
+    /// Replace everything after `head` with `items`, without touching the track that is playing:
+    /// play next, reorder and remove are all this call with a different list. Nothing is flushed
+    /// and nothing is reloaded, so the current track keeps playing and the hand-off into the first
+    /// of `items` is as gapless as into any other entry.
+    ///
+    /// `head` is the item the caller saw as current, and the edit applies only if it still is.
+    /// The decoder reads up to a second ahead, so the item after the current one is already
+    /// started during the last second of the current track; an edit made then is refused.
+    ///
+    /// - A `head` that is not the current item fails this call with [`PlaybackError::StaleQueue`].
+    /// - A `head` that is current here but not on the decoder thread (the race above) is refused
+    ///   there: the call succeeds and [`EventKind::QueueEditRejected`] follows with the same
+    ///   [`EditId`]. The edit is applied when [`EventKind::QueueEdited`] follows instead.
+    ///
+    /// Either way, a refused edit changes nothing, so a caller that records the edit (a signal)
+    /// does so on `QueueEdited`.
+    ///
+    /// On the last item of the queue, `items` continue the queue like [`append`](Self::append)
+    /// does after the end, with the same caveat: an edit that reaches the decoder only after the
+    /// output has played the last frame of the head finds the queue already ended (`QueueEnded`),
+    /// and what plays then is announced when it is heard.
+    ///
+    /// # Errors
+    /// [`PlaybackError::NothingLoaded`] when no track is current; [`PlaybackError::StaleQueue`] as
+    /// above; [`PlaybackError::InvalidArgument`] for duplicate ids among `items` or an item with
+    /// the id of `head`; otherwise as [`load`](Self::load).
+    pub fn replace_after(
+        &mut self,
+        head: QueueItemId,
+        items: Vec<Track>,
+    ) -> Result<EditId, PlaybackError> {
+        check_unique(&items)?;
+        if items.iter().any(|t| t.id == head) {
+            return Err(PlaybackError::InvalidArgument(
+                "queue item ids must be unique",
+            ));
+        }
+        self.poll();
+        let current = self
+            .current_or_announced()
+            .ok_or(PlaybackError::NothingLoaded)?;
+        if current.item != head {
+            return Err(PlaybackError::StaleQueue {
+                expected: head,
+                current: Some(current.item),
+            });
+        }
+        let edit = EditId(self.edits + 1);
+        self.send(Cmd::EditQueue {
+            edit,
+            head,
+            items: items.into_iter().map(Arc::new).collect(),
+        })?;
+        self.edits += 1;
+        Ok(edit)
     }
 
     /// Stop playback and clear the queue.

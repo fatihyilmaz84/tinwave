@@ -1,5 +1,10 @@
 use std::path::PathBuf;
 
+/// Identifies one queue edit ([`Engine::replace_after`](crate::Engine::replace_after)), so that the
+/// verdict the decoder thread reports later can be matched to the call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct EditId(pub u64);
+
 /// Identifies one entry of the play queue for the lifetime of that entry.
 ///
 /// Assigned by the queue layer above the engine; the engine only echoes it in marks and events.

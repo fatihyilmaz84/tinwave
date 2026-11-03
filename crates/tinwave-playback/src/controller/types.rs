@@ -4,10 +4,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tinwave_core::{Clock, IdGenerator, RecordingId, SessionId, SourceId, TzOffsetMin};
-use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus};
+use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus, View};
 
 use super::sink::SinkStats;
-use crate::{Position, SourceOpener, Track};
+use crate::{Position, QueueItemId, SourceOpener, Track};
 
 /// A queue entry as the controller needs to know it: the file to play plus the identity and
 /// facts every signal about it carries.
@@ -57,6 +57,53 @@ pub struct LoadRequest {
     /// Why.
     pub intent: LoadIntent,
     /// What drove it.
+    pub input: InputSource,
+    /// For [`LoadIntent::Next`] and [`LoadIntent::Previous`]: the item the caller expects to
+    /// leave, i.e. the one its display showed as playing. If the engine has already moved on (a
+    /// gapless advance that the display has not caught up with), the request is a no-op: nothing
+    /// is reloaded and the track the listener wanted is not skipped. `None` is unconditional;
+    /// [`LoadIntent::Select`] ignores it (choosing a track is not relative to the current one).
+    pub leaving: Option<QueueItemId>,
+}
+
+/// What the listener did to the queue after the playing track, for the signals. The new queue
+/// itself is [`QueueEditRequest::tail`]; this says which of the four preferences it expresses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueEdit {
+    /// "Play next": `items` were put at the front of the tail, in this order (`QueuedNext` each).
+    PlayNext {
+        /// The inserted items: the first `items.len()` entries of the tail.
+        items: Vec<QueueItemId>,
+        /// The view the listener queued from.
+        from_view: View,
+    },
+    /// An item was dragged to another place in the tail (`QueueReordered`).
+    Reorder {
+        /// The moved item, still in the tail.
+        item: QueueItemId,
+        /// Queue positions it moved: negative is earlier. Not zero.
+        distance: i16,
+    },
+    /// Items were taken out of the tail before they played (`RemovedFromQueue` each).
+    Remove {
+        /// The removed items: no longer in the tail, and known from the queue that was loaded or
+        /// edited earlier.
+        items: Vec<QueueItemId>,
+    },
+}
+
+/// Change the queue after the playing track without interrupting it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueEditRequest {
+    /// The item the caller saw as playing. The edit applies only if it still is the item being
+    /// played (see [`Engine::replace_after`](crate::Engine::replace_after)).
+    pub head: QueueItemId,
+    /// Everything that should follow `head`, in order, after the edit.
+    pub tail: Vec<QueueEntry>,
+    /// What the listener did, for the signals.
+    pub edit: QueueEdit,
+    /// What drove it. `Auto` (a refill by the queue layer, not the listener) applies the edit and
+    /// records nothing.
     pub input: InputSource,
 }
 
@@ -108,6 +155,14 @@ pub struct ControllerDiagnostics {
     pub command_pending: bool,
     /// Events the engine's sink had to coalesce or lose.
     pub sink: SinkStats,
+    /// Queue edits sent whose verdict (applied or refused) has not come back from the decoder
+    /// thread yet. Their signals, if any, are emitted when it does.
+    pub edits_pending: usize,
+    /// Queue edits the decoder thread refused after the call had succeeded (the next track was
+    /// already started, see [`Engine::replace_after`](crate::Engine::replace_after)). The queue
+    /// was not changed and nothing was recorded for them; the shell should re-read the queue and
+    /// offer the edit again.
+    pub edits_refused: u64,
 }
 
 /// The local timezone, which the controller needs once per listening session.

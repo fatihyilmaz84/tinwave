@@ -50,6 +50,15 @@ pub enum PlaybackError {
     /// A seek or other command named a queue item the engine does not have.
     #[error("queue item {0:?} is not in the queue")]
     UnknownItem(QueueItemId),
+    /// A queue edit was built on a view of the queue that is out of date: the item it names as the
+    /// current one is not the one the engine is on, so nothing was changed.
+    #[error("the queue moved on: {expected:?} is not the current item (it is {current:?})")]
+    StaleQueue {
+        /// The item the caller saw as current.
+        expected: QueueItemId,
+        /// The item the engine is on, if it is on any.
+        current: Option<QueueItemId>,
+    },
     /// The command channel to the decoder thread is full; try again.
     #[error("decoder thread is busy")]
     Busy,

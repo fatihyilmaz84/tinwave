@@ -12,11 +12,12 @@ use controller_support::{entry, recording, T0};
 use tinwave_core::{IdGenerator, ManualClock, SeededRng, TzOffsetMin, UtcMillis};
 use tinwave_playback::{
     ControllerConfig, ControllerHandle, FixedTimezone, FsOpener, LoadIntent, LoadRequest,
-    ManualHandle, ManualOutput, PlayState, PlaybackError, SourceOpener,
+    ManualHandle, ManualOutput, PlayState, PlaybackError, QueueEdit, QueueEditRequest, QueueItemId,
+    SourceOpener,
 };
 use tinwave_signals::{
     BusConfig, CounterRow, InputSource, PlayOrigin, QueueOrigin, SignalBus, SignalDrain,
-    SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
+    SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError, View,
 };
 
 use common::{sweep, write_wav, Gate, GatedOpener, TempDir, RATE};
@@ -156,6 +157,7 @@ fn the_thread_polls_on_its_own_and_reports_status() {
             start_frame: 0,
             intent: LoadIntent::Select(PlayOrigin::Album),
             input: InputSource::Mouse,
+            leaving: None,
         })
         .expect("load");
     let status = t.handle.status();
@@ -216,6 +218,7 @@ fn dropping_the_handle_ends_the_session() {
             start_frame: 0,
             intent: LoadIntent::Select(PlayOrigin::Search),
             input: InputSource::Mouse,
+            leaving: None,
         })
         .expect("load");
     let mut signals = Vec::new();
@@ -242,6 +245,76 @@ fn dropping_the_handle_ends_the_session() {
 }
 
 #[test]
+fn queue_edits_go_through_the_handle_and_answer_with_the_engines_own_result() {
+    let mut t = Threaded::new("thr-edit");
+    let (a, b, c) = (
+        t.wav("a.wav", 10 * SECOND),
+        t.wav("b.wav", 10 * SECOND),
+        t.wav("c.wav", 10 * SECOND),
+    );
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Manual),
+    ];
+    t.handle
+        .load(LoadRequest {
+            entries: entries.clone(),
+            index: 0,
+            start_frame: 0,
+            intent: LoadIntent::Select(PlayOrigin::Album),
+            input: InputSource::Mouse,
+            leaving: None,
+        })
+        .expect("load");
+    let mut signals = Vec::new();
+    t.play_until_started(&mut signals);
+
+    let x = entry(3, &c, 10 * SECOND, QueueOrigin::Manual);
+    let request = |head: u64| QueueEditRequest {
+        head: QueueItemId(head),
+        tail: vec![x.clone()],
+        edit: QueueEdit::PlayNext {
+            items: vec![QueueItemId(3)],
+            from_view: View::Library,
+        },
+        input: InputSource::Mouse,
+    };
+    assert_eq!(
+        t.handle.edit_queue(request(9)),
+        Err(PlaybackError::StaleQueue {
+            expected: QueueItemId(9),
+            current: Some(QueueItemId(1)),
+        }),
+        "the display was wrong about what plays"
+    );
+    t.handle.edit_queue(request(1)).expect("edit");
+    t.handle
+        .queue_later(
+            vec![entry(4, &c, 10 * SECOND, QueueOrigin::Album)],
+            View::Album,
+            InputSource::Keyboard,
+        )
+        .expect("queue later");
+    for _ in 0..30_000 {
+        signals.extend(t.signals());
+        if signals.iter().any(|e| e.kind() == SignalKind::QueuedNext) {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(200));
+    }
+    let queue: Vec<_> = signals
+        .iter()
+        .filter(|e| matches!(e.kind(), SignalKind::QueuedNext | SignalKind::QueuedLater))
+        .map(|e| (e.kind(), e.recording))
+        .collect();
+    // Queue later is recorded when called, play next when the engine has applied it: the order
+    // between the two is not fixed.
+    assert_eq!(queue.len(), 2, "the stale edit recorded nothing: {queue:?}");
+    assert!(queue.contains(&(SignalKind::QueuedLater, Some(recording(4)))));
+    assert!(queue.contains(&(SignalKind::QueuedNext, Some(recording(3)))));
+}
+
+#[test]
 fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
     let mut t = Threaded::new("thr-stress");
     let a = t.wav("a.wav", 30 * SECOND);
@@ -253,6 +326,7 @@ fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
             start_frame: 0,
             intent: LoadIntent::Select(PlayOrigin::Album),
             input: InputSource::Mouse,
+            leaving: None,
         })
         .expect("load");
 
@@ -274,6 +348,7 @@ fn concurrent_callers_lose_nothing_and_the_engine_stays_consistent() {
                             start_frame: 0,
                             intent: LoadIntent::Next,
                             input,
+                            leaving: None,
                         }),
                         _ => handle.set_repeat_mode(tinwave_signals::RepeatMode::All),
                     };
@@ -344,6 +419,7 @@ fn quitting_does_not_wait_for_a_decoder_stuck_in_a_read() {
             start_frame: 0,
             intent: LoadIntent::Select(PlayOrigin::Search),
             input: InputSource::Mouse,
+            leaving: None,
         })
         .expect("load is accepted: the decoder works in the background");
     for _ in 0..10_000 {

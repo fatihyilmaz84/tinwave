@@ -64,7 +64,7 @@ time-stretch such as Signalsmith Stretch; avoid GPL libraries unless an ADR acce
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
 | `QueuedNext` / `QueuedLater` | T0 | Play next / add to queue | `from_view` (`Home|Library|Album|Artist|Playlist|Search|Queue|Radio|NowPlaying|Lyrics|MiniPlayer|Insights`) | Explicit intent +0.4 |
-| `RemovedFromQueue` | T0 | Removed before it played | `was_radio_pick` | Pre-listen rejection −0.4 (strong for radio picks) |
+| `RemovedFromQueue` | T0 | Removed from the queue before it played (never the playing track) | `was_radio_pick` | Pre-listen rejection −0.4 (strong for radio picks) |
 | `QueueReordered` | T0 | Drag in queue | `distance` (signed) | Moved earlier ⇒ eager (+0.2) |
 | `PlayStarted` | T0 | A play the listener heard: the first position mark that names the track (the engine makes one per 100 ms of heard audio; a gaplessly advanced track's first can come sooner than 100 ms in), not the moment it was requested | `origin` (`Search|Album|Artist|Playlist|Radio|Queue|Resume|Remote`), `input`; `pos_ds` = where the play began | Manual plays weigh more than radio/shuffle plays. A track that fails to open, or is left before any audio was heard, is not a play: no `PlayStarted`, and no `Skipped`/`Completed` either. |
 | `Favorited` / `Unfavorited` | T0 | Heart toggle | — | +2.0 / −1.0 |
@@ -146,6 +146,14 @@ Session boundaries (T-0024):
   heard yet and no session is open, that act opens the session, with the play's origin. Such a session can end with
   `tracks = 0` if the track then fails to open. A pause, seek or volume change made before a play's `PlayStarted` is
   recorded ahead of it.
+- Queue edits (T-0023): `QueuedNext`, `QueuedLater`, `QueueReordered` and `RemovedFromQueue` are the listener's acts,
+  one signal per item, scoped to that item's recording and source (`was_radio_pick` is whether its `queue_origin` is
+  `Radio`). An edit made by the queue layer itself (`Auto`, e.g. a radio refill) is applied and records nothing. Only
+  an edit the engine applied is recorded: one built on a track that is no longer playing, or refused because the next
+  track was already decoding (the decoder reads up to a second ahead), changes nothing and emits nothing. An edit needs
+  a session like a pause or a seek: with none open, a listener's edit on a play that has not been heard yet (restored
+  paused at launch) opens one with that play's origin; otherwise (nothing loaded, or the play outlived its session) it
+  is applied and not recorded. Unlike a repeat or exclusive-mode change it is not deferred to the next session.
 - A track that plays to its end before any position mark (shorter than 100 ms) was heard: its `PlayStarted` is
   emitted at the end, immediately before its `Completed`. A file that "finishes" without a single decoded frame (empty
   or truncated, every packet undecodable) or a seek to the very end of an unheard track is not a play and leaves no
