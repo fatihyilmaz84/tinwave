@@ -166,7 +166,11 @@ fn main() {
     .qrc_resources(icon_resources())
     .qt_module("Quick")
     .qt_module("QuickControls2")
-    .files(["src/app/app_info.rs", "src/app/artwork_bridge.rs"])
+    .files([
+        "src/app/app_info.rs",
+        "src/app/artwork_bridge.rs",
+        "src/app/platform_bridge.rs",
+    ])
     // The default scans and watches the whole crate directory, so every `cargo build` reruns this script
     // (a no-op build then costs ~10 s). Watch nothing extra; the C++ shim files below are tracked individually
     // (ADR 0008).

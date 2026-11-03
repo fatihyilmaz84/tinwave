@@ -25,16 +25,47 @@ ApplicationWindow {
     palette.highlight: Theme.accentFill
     palette.highlightedText: Theme.onAccent
 
-    // Developer/automation flag until Settings can own it: `--color-scheme=light|dark|system` switches the app's own
-    // colour scheme in-process (the OS setting is never touched).
+    // OS facts the Theme follows, from the platform bridge (Rust `PlatformSettings`, ADR 0007): animation effects off,
+    // a high-contrast theme, and whether Mica is applied behind the sidebar. Theme stays free of the bridge so its
+    // contrast self-check can run standalone.
+    Binding { target: Theme; property: "reducedMotion"; value: PlatformSettings.reducedMotion }
+    Binding { target: Theme; property: "highContrast"; value: PlatformSettings.highContrast }
+    Binding { target: Theme; property: "backdropActive"; value: PlatformSettings.backdropActive }
+
+    // Native menus draw in the app's own scheme (the OS scheme while it is "system"), never light inside a dark app.
+    Connections {
+        target: Theme
+        function onSchemeOverrideChanged() { PlatformSettings.setMenuScheme(Theme.schemeOverride) }
+    }
+
+    // Developer/automation flags until Settings can own them; they change the app in-process and never touch the OS:
+    //   --color-scheme=light|dark|system   the app's own colour scheme
+    //   --accent=#rrggbb                   the app's accent colour (pale/dark accents for the UI Definition of Done)
+    //   --transparency=off|system          off forces the solid sidebar instead of Mica
+    function switchValue(name) {
+        const prefix = "--" + name + "="
+        const arg = Qt.application.arguments.find(a => a.startsWith(prefix))
+        return arg === undefined ? undefined : arg.substring(prefix.length)
+    }
+
     Component.onCompleted: {
         width = Theme.firstStartWidth(Screen.desktopAvailableWidth)
         height = Theme.firstStartHeight(Screen.desktopAvailableHeight)
 
-        const prefix = "--color-scheme="
-        const arg = Qt.application.arguments.find(a => a.startsWith(prefix))
-        if (arg !== undefined)
-            Theme.setSchemeOverride(arg.substring(prefix.length))
+        const scheme = switchValue("color-scheme")
+        if (scheme !== undefined)
+            Theme.setSchemeOverride(scheme)
+        const accent = switchValue("accent")
+        if (accent !== undefined && !Theme.setAccentOverride(accent))
+            console.warn("--accent expects #rrggbb, got '" + accent + "'")
+        const transparency = switchValue("transparency")
+        if (transparency === "off")
+            PlatformSettings.setTransparencyAllowed(false)
+        else if (transparency !== undefined && transparency !== "system")
+            console.warn("--transparency expects off or system, got '" + transparency + "'")
+
+        // Last, after the switches: watches the window for OS setting changes and applies the sidebar backdrop.
+        PlatformSettings.attachWindow(root)
     }
 
     RowLayout {

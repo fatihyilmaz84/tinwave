@@ -18,6 +18,8 @@ Qt 6 Quick/QML window shell over thin CXX-Qt view models. Cargo-driven build, Qt
 | `tools/stress/` | Dev-only teardown stress target (`image-stress` binary, `Storm.qml`, `Settle.qml`, `run-stress.ps1`) |
 | `src/app/style.rs` | Style selection (FluentWinUI3 on Windows, `macOS` on macOS, Fusion elsewhere; `QT_QUICK_CONTROLS_STYLE` overrides) |
 | `src/app/app_info.rs` | First view model (QML singleton `AppInfo`); bridge files must all sit in `src/app/` (cxx-qt-build, QTBUG-93443) |
+| `src/app/platform_bridge.rs` | QML singleton `PlatformSettings`: mirrors the platform controller (reduced motion, high contrast, transparency, backdrop, native menus); `Main.qml` binds it into `Theme` |
+| `src/platform/` | OS services behind traits (settings reader and watcher, `WindowEffects`, `MenuStyle`); `controller.rs` holds every decision with no Qt or OS dependency, `windows.rs` is the only module of the layer with `unsafe`, `unsupported.rs` answers `Unsupported` everywhere else |
 | `qml/Theme/Theme.qml` | Design tokens (the only place raw colours/sizes may appear) |
 | `qml/Main.qml`, `qml/Sidebar.qml` | Window shell |
 | `qml/Tw/` | `Tw*` components (`TwIcon`) and the `TwIcons` URL helper (singleton) |
@@ -26,6 +28,7 @@ Qt 6 Quick/QML window shell over thin CXX-Qt view models. Cargo-driven build, Qt
 | `tools/capture.ps1` | Dev-only: UI screenshots cropped to the DWM frame, keyboard steps with the window active |
 | `packaging/` | Windows package: `package.ps1` (build + windeployqt + legal files + checks), `test-packaging.ps1`, generated `THIRD-PARTY-NOTICES.txt` |
 | `tests/startup.rs` | Headless start-up tests (offscreen platform, software rendering) |
+| `tests/platform_qml.rs` | Headless tests of the platform bridge as QML sees it (`tests/qml/PlatformProbe.qml`: the real shell, `Theme` bindings, developer switches); debug builds only |
 | `tests/image_provider.rs` | Headless provider tests: exactly one `finished()` per response, cache, cancel storm + quit with requests in flight |
 
 ## Build, run, test
@@ -42,8 +45,20 @@ Developer switches:
 
 - `QT_QUICK_CONTROLS_STYLE=Basic|Fusion|...` replaces the style chosen at start-up. This is Qt's own documented switch, honoured in release builds too (design-system §8).
 - `--color-scheme=light|dark|system` switches the app's own colour scheme in-process (the OS setting is untouched).
+- `--accent=#rrggbb` overrides the app's accent colour in-process (pale or dark accents for the UI Definition of Done; the OS accent is untouched). Anything but `#rrggbb` is refused with a warning.
+- `--transparency=off|system` (`off` forces the solid sidebar instead of Mica, to screenshot the fallback; the OS "Transparency effects" setting is untouched).
 - `TINWAVE_MAIN_QML=<url>` loads another root QML file (**debug builds only**; used by the load-failure test).
 - Exit codes: `2` the root QML could not be loaded, `3` Qt could not be initialised.
+
+## Platform bridge (Windows)
+
+`src/platform/` reads and follows OS facts Qt 6.10 does not give us, behind traits so the decisions are unit-tested with fakes:
+
+- **Reduced motion, high contrast, transparency**: `SystemParametersInfo` (`SPI_GETCLIENTAREAANIMATION`, `SPI_GETHIGHCONTRAST`) and the `EnableTransparency` registry value. The main window's procedure is subclassed to re-read them when Windows sends `WM_SETTINGCHANGE` (also `WM_THEMECHANGED`, `WM_SYSCOLORCHANGE`, `WM_DWMCOLORIZATIONCOLORCHANGED`). `PlatformSettings` exposes them and `Main.qml` binds the first two into `Theme` (`reducedMotion` turns every duration to 0).
+- **Mica** behind the sidebar (Windows 11 22H2+, build 22621): `DwmSetWindowAttribute(DWMWA_SYSTEMBACKDROP_TYPE)` plus `DwmExtendFrameIntoClientArea`. It needs `QT_QPA_DISABLE_REDIRECTION_SURFACE=1` and an alpha buffer before the window exists; `app::wiring::run()` sets both through `prepare_process()` (the variable goes through the C runtime's `_putenv_s`, because Qt does not see `std::env::set_var` on Windows: a white sidebar otherwise). The sidebar stays solid (`Theme.sidebar`) when the OS build is older, "Transparency effects" is off, a high-contrast theme is active, or `--transparency=off` is given; `PlatformSettings.backdropStatus` says which.
+- **Dark native menus**: the sidebar's app menu is `Popup.Native` when `PlatformSettings.nativeMenus` is true, `Popup.Window` otherwise. The opt-in is the undocumented `uxtheme.dll` ordinal 135 (`SetPreferredAppMode`) and 136 (`FlushMenuThemes`), looked up at run time on builds >= 18362; a missing symbol or an older build selects the Qt-drawn window menu automatically (ADR 0007, D-0006). The menu follows the OS scheme, or the app's own `--color-scheme` override.
+
+Nothing here changes a Windows setting. Live OS toggles (accent, light/dark, animation effects, contrast themes, transparency) are verified by hand with `spikes/T-0011-native-styles/PO-RUNBOOK.md`; the unit tests deliver synthetic messages to a message-only window of their own.
 
 Packaging (Windows): `pwsh packaging\package.ps1` with the Qt env set produces a self-contained folder under
 `target\package\` that runs with Qt off PATH, then checks it (licences, no GPL-only or static Qt, only

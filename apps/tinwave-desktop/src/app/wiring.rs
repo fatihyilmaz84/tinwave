@@ -18,6 +18,7 @@ use cxx_qt::casting::Upcast;
 use cxx_qt_lib::{QGuiApplication, QQmlApplicationEngine, QQmlEngine, QQuickStyle, QString, QUrl};
 
 use super::artwork_bridge::ArtworkProvider;
+use super::platform_bridge;
 use super::style;
 use super::ui_owner::UiOwner;
 use crate::image::{self, ArtworkSource, NoArtwork};
@@ -205,6 +206,9 @@ fn engine_of(
 
 /// Builds the app and runs it to completion. Returns the process exit code.
 pub fn run() -> ExitCode {
+    // Before the application object exists: the sidebar backdrop needs an environment variable Qt reads while creating
+    // it and an alpha buffer for the window. Only the app itself has a backdrop (not the stress tool or the tests).
+    platform_bridge::prepare_process();
     let mut shell = match Shell::start(ShellConfig::production()) {
         Ok(shell) => shell,
         Err(code) => return code,

@@ -1687,6 +1687,7 @@ dependencies = [
  "cxx-qt",
  "cxx-qt-build",
  "cxx-qt-lib",
+ "windows",
 ]
 
 [[package]]
