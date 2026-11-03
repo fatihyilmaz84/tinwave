@@ -3,7 +3,7 @@ id: T-0049
 title: Artwork provider follow-ups — one max-edge source, Image.Error for refused/missing, one-edge sourceSize
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0044]
