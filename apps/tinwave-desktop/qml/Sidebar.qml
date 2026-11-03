@@ -68,29 +68,56 @@ Rectangle {
             boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ScrollBar {}
             currentIndex: 0
-            keyNavigationEnabled: true
+            // The list handles its navigation keys itself (ListView's own key navigation only knows Up/Down and does not
+            // follow with the keyboard ring): keyboard focus moves with the selection, design-system section 7 (the ring
+            // is always visible). The list is one tab stop and the focused row is the current row. The native ItemDelegate
+            // draws its ring only for `visualFocus` (Tab/Backtab/Shortcut), so the target row takes focus with the Tab
+            // reason, before `currentIndex` changes: ListView then finds the current row already focused, so there is one
+            // focus change per key press. A mouse click changes `currentIndex` without passing through here, so a click
+            // shows no ring (native behaviour). No state is kept between key events.
+            keyNavigationEnabled: false
 
-            // Keyboard focus follows the selection (design-system section 7: the ring is always visible). The list is
-            // one tab stop, but Up/Down only move `currentIndex`. ListView then moves active focus to the new current
-            // row itself, with a non-keyboard focus reason, and the native ItemDelegate only draws its ring for
-            // `visualFocus` (Tab/Backtab/Shortcut). So when a navigation key caused the change, the new row is
-            // re-focused with the Tab reason. A mouse click also changes `currentIndex` but never sets `keyboardMove`,
-            // so a click shows no ring (native behaviour).
-            property bool keyboardMove: false
+            function moveTo(target) {
+                const last = count - 1
+                const to = Math.max(0, Math.min(last, target))
+                if (to === currentIndex)
+                    return
+                positionViewAtIndex(to, ListView.Contain)
+                const row = itemAtIndex(to)
+                if (row)
+                    row.forceActiveFocus(Qt.TabFocusReason)
+                currentIndex = to
+            }
 
             Keys.onPressed: event => {
+                if (event.modifiers !== Qt.NoModifier)
+                    return
+                // About one screenful, less one row of context (Windows list convention).
+                const page = Math.max(1, Math.floor(height / Theme.sidebarRowHeight) - 1)
                 switch (event.key) {
                 case Qt.Key_Up:
-                case Qt.Key_Down:
-                case Qt.Key_PageUp:
-                case Qt.Key_PageDown:
-                case Qt.Key_Home:
-                case Qt.Key_End:
-                    keyboardMove = true
+                    moveTo(currentIndex - 1)
                     break
+                case Qt.Key_Down:
+                    moveTo(currentIndex + 1)
+                    break
+                case Qt.Key_PageUp:
+                    moveTo(currentIndex - page)
+                    break
+                case Qt.Key_PageDown:
+                    moveTo(currentIndex + page)
+                    break
+                case Qt.Key_Home:
+                    moveTo(0)
+                    break
+                case Qt.Key_End:
+                    moveTo(count - 1)
+                    break
+                default:
+                    return
                 }
+                event.accepted = true
             }
-            Keys.onReleased: keyboardMove = false
 
             model: ListModel {
                 ListElement { group: "Library"; key: "songs"; label: "Songs"; iconName: "eighth-notes" }
@@ -144,13 +171,7 @@ Rectangle {
                 onClicked: nav.currentIndex = index
             }
 
-            onCurrentIndexChanged: {
-                root.currentKey = currentItem ? currentItem.key : ""
-                if (keyboardMove && currentItem && !currentItem.visualFocus) {
-                    currentItem.focus = false
-                    currentItem.forceActiveFocus(Qt.TabFocusReason)
-                }
-            }
+            onCurrentIndexChanged: root.currentKey = currentItem ? currentItem.key : ""
         }
     }
 }
