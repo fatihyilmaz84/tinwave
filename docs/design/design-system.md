@@ -100,9 +100,12 @@ Alpha colours are written here in **QML order, `#AARRGGBB`** (not CSS `#RRGGBBAA
   `#0067C0` (Windows blue), `#0B6E78` (Tin Teal), `#FFB900`, `#E3008C`, `#10893E`, `#D13438`, `#FF8C00`, `#767676`
   (Windows palette picks), `#00B7C3`, `#FFFFFF`, `#000000`, `#F0E68C`, `#7A7574`, `#5CC6CF`, `#99FF99`. For each of them
   × 2 schemes it checks the text tokens on all surfaces, `accentText` on all surfaces, `onAccent` on both fills and the
-  fixed label colour on `accentFill`; it returns `{failures, rows}` and must report `failures = 0`. Run it with `qml` on a
-  three-line harness that imports `Theme` (copy `Theme.qml` next to a `qmldir` containing `singleton Theme 1.0 Theme.qml`)
-  and logs `Theme.selfCheck().rows`.
+  fixed label colour on `accentFill`; it returns `{failures, rows}` and must report `failures = 0`. It runs in every
+  `cargo test` (debug builds): `every_check_accent_keeps_every_token_readable_in_both_schemes` in
+  `apps/tinwave-desktop/tests/qml_probes.rs` starts the app headless on `tests/qml/ContrastProbe.qml` (offscreen, no display
+  or audio, well under a second), requires the 30 rows and `failures = 0`, and on a failure prints each failing row: scheme,
+  accent, the worst text pair (e.g. `textFaint on hover/sidebar`) and the ratios. A token edit that breaks contrast therefore
+  fails the test run; no hand procedure is needed.
 - Fixed-token worst cases (Tin Teal accent; worst surface in brackets): light — `text` 13.40 (hover/sidebar),
   `textMuted` 5.09 (hover/sidebar), `textFaint` 4.57 (hover/sidebar), `srcServer` 5.03, `srcDownload` 4.58, `warning` 4.57,
   `danger` 5.13; dark — `text` 12.28 (hover/raised), `textMuted` 5.68, `textFaint` 4.56, `srcServer` 6.07,

@@ -5,75 +5,17 @@
 //!
 //! The root-URL override only exists in debug builds, so this file does too.
 #![cfg(debug_assertions)]
-// The `probe` helper is test code that is not itself a `#[test]` function (clippy.toml allows `expect` only inside those).
-#![allow(clippy::expect_used)]
 
 // Referenced so the test binary links the crate (and with it the Rust half of the CXX-Qt bridge); it never calls into it.
 use tinwave_desktop as _;
 
 mod common;
 
-use std::collections::BTreeMap;
-use std::io::Read;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use common::probe::{probe as run_probe, Run};
 
-/// What one probe run printed: the `PROBE name=value` facts and the whole stderr.
-struct Run {
-    facts: BTreeMap<String, String>,
-    stderr: String,
-}
-
-impl Run {
-    fn get(&self, name: &str) -> &str {
-        self.facts
-            .get(name)
-            .unwrap_or_else(|| panic!("no {name}; stderr was:\n{}", self.stderr))
-    }
-}
-
-/// Runs the app on the probe root with `args`.
+/// Runs the app on the platform probe root with `args`.
 fn probe(args: &[&str]) -> Run {
-    let qml = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/qml/PlatformProbe.qml");
-    let url = format!("file:///{}", qml.display().to_string().replace('\\', "/"));
-    let mut cmd = Command::new(env!("CARGO_BIN_EXE_tinwave-desktop"));
-    cmd.args(args)
-        .env("QT_QPA_PLATFORM", "offscreen")
-        .env("QT_QUICK_BACKEND", "software")
-        .env("QT_FORCE_STDERR_LOGGING", "1")
-        .env("TINWAVE_MAIN_QML", url)
-        .env_remove("QT_QUICK_CONTROLS_STYLE")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    common::add_qt_to_path(&mut cmd);
-    let mut child = cmd.spawn().expect("spawn tinwave-desktop");
-    let mut pipe = child.stderr.take().expect("piped stderr");
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = pipe.read_to_string(&mut text);
-        text
-    });
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let status = loop {
-        if let Some(status) = child.try_wait().expect("poll child") {
-            break status;
-        }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("tinwave-desktop did not exit on its own");
-        }
-        std::thread::sleep(Duration::from_millis(20));
-    };
-    let stderr = reader.join().unwrap_or_default();
-    assert!(status.success(), "exit {status}; stderr was:\n{stderr}");
-    let facts = stderr
-        .lines()
-        .filter_map(|line| line.split_once("PROBE ")?.1.split_once('='))
-        .map(|(name, value)| (name.to_owned(), value.trim().to_owned()))
-        .collect();
-    Run { facts, stderr }
+    run_probe("PlatformProbe.qml", args)
 }
 
 #[test]
