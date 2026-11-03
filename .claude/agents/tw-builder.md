@@ -39,6 +39,22 @@ The lead may send you reviewer findings. Fix every **blocking** finding, address
 re-run all checks, commit, and return a new HANDOFF. Put the complete HANDOFF in your **final text message** too:
 the handback tool rejects a second report once one was delivered, and a report that only went to the tool is lost.
 
+## Self-check before the HANDOFF (what reviewers keep finding)
+
+- **Revert test:** every new test fails when you temporarily undo the fix it covers. Say which mutation you tried.
+- **No state that outlives its event:** a flag set on key press / start must not depend on a release or stop that can
+  go elsewhere (focus change, window deactivation, early return).
+- **QML bindings vs one-shot values:** a value meant to be set once (first-start size, initial state) is an
+  assignment in `Component.onCompleted`, not a binding that re-fires on screen or property changes.
+- **Input edge cases:** modifiers (Shift/Ctrl/Alt and `KeypadModifier` on numpad/macOS arrows), key repeat, mouse vs
+  keyboard paths, top/bottom of lists, empty and oversize inputs.
+- **Build stays fresh:** a second unchanged `cargo build -p <crate>` compiles nothing (no files rewritten in OUT_DIR).
+- **Timing-dependent tests:** assert on what happened at the moment that matters, not on counters read later; they
+  must pass while a full `cargo nextest run --workspace` runs in parallel.
+- **Every claim in docs and the HANDOFF matches the code** ("handles PageUp", "byte for byte", "fixes escaping").
+- **Hard rules:** every playback/preference interaction emits its signal, including edge paths (nothing loaded,
+  no session, toggles off).
+
 ## Tooling on this machine (Windows) — read this
 
 - **Never call `python3`.** On this machine it is the Python install-manager launcher: it does not run your script, it
