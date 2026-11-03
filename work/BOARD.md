@@ -36,11 +36,10 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-reviewer r1 | `t/T-0064-signal-wipe-per-tier` @ 104f688 · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
+_none_
 
 ## Recently done
+- [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe per privacy tier (signals + context in one call), contention tests robust to load — merged 0d15216 (review r1 APPROVE + lead one-line fix).
 - [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (fallbacks never emit) — merged 4b54eb3 (review r1 APPROVE; wrapper → T-0072).
 - [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups: wipe epoch (writer CPU back to baseline), rollup plays kept, stale-start guard, checkpoint after wipe — merged 4950c97 (review r1 APPROVE).
 - [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession per heard play (stopgap hand-over), applied rate in PlaybackStatus — merged 30cfa03 (review r1 APPROVE; storage → T-0070).
@@ -55,7 +54,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | after T-0067 (controller) |
+| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | free once T-0063/T-0066 merge (playback) |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
 | [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller tests under load (P2) | chore | S | playback tests | playback slot |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
@@ -77,6 +76,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake again (P2) | — |
 | [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | T-0066, T-0067 |
+| [T-0073](tickets/T-0073-wipe-cost-and-lock-guards.md) Wipe tests pin statement count, catch a lock left open (P2) | T-0064 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |

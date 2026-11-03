@@ -375,13 +375,15 @@ impl SignalWiper {
                 })
         };
         let outcome = self.conn.busy_timeout(Duration::ZERO).and_then(|()| {
-            let (_, log, copied) = checkpoint("PASSIVE")?;
+            let (passive_busy, log, copied) = checkpoint("PASSIVE")?;
             let (busy, ..) = checkpoint("TRUNCATE")?;
             Ok(if busy == 0 {
                 Checkpoint::Done
             } else {
                 Checkpoint::Busy {
-                    main_file_current: copied >= log,
+                    // A busy PASSIVE (another checkpoint holds the lock) copied nothing and reports
+                    // -1 for both counts, so the counts alone would read as "all copied".
+                    main_file_current: passive_busy == 0 && copied >= log,
                 }
             })
         });

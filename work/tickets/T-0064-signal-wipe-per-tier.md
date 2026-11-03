@@ -3,7 +3,7 @@ id: T-0064
 title: Wipe signal events per privacy tier
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0061]
@@ -15,6 +15,7 @@ scope:
 owner: tw-builder
 branch: t/T-0064-signal-wipe-per-tier
 review_round: 1
+merge: 0d15216
 created_by: from P-0257 (T-0061 build-1)
 ---
 
@@ -47,6 +48,9 @@ events (kind.rs `tier()`) is still missing, though privacy-and-signals.md promis
 - The test-only scope extension (tests/common/mod.rs, tests/context_wipe.rs) is accepted.
 - Any signal wipe, including T1, resets `rollup_monthly.score_sum` (it blends every signal; T-0061 Q2 rule) — confirmed.
 - Wiping T0 deletes play records (PlayStarted is T0) — consistent with T-0061 Q1.
+
+## Lead fix on merge
+- wipe.rs `checkpoint_best_effort`: `main_file_current` also requires PASSIVE not busy (review-1 finding 1).
 
 ## Signals & storage
 None.

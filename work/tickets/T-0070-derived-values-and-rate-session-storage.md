@@ -40,6 +40,10 @@ values need the same path.
 - (P-0278) Consent is re-checked when a derived value is collected/stored; values queued before a Speed toggle-off
   or a wipe are dropped, not stored. Also give `Controller::take_rate_sessions` `&self`/`#[must_use]` if it survives.
 
+- (P-0296, lead decision) A derived kind is cleared by the wipe of any tier or category it is derived from
+  (PerceivedLevel by a T0 Volume wipe too), like score_sum; seed a RateSession (and PerceivedLevel) row in the wipe
+  fixtures and test it.
+
 ## Acceptance criteria
 - [ ] A heard play's RateSession ends up in its play row, quantized; none with Speed off — tests.
 - [ ] A Speed wipe clears it (signal_wipe rule table + test).
