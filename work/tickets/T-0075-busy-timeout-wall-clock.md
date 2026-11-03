@@ -3,15 +3,15 @@ id: T-0075
 title: Contention tests that do not equate the SQLite busy timeout with wall time
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P3
 size: S
 depends_on: [T-0074]
 scope:
   - crates/tinwave-db/tests/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0075-busy-timeout-wall-clock
+review_round: 1
 created_by: from P-0304 (T-0074 build-1), P-0310 (T-0074 review-1)
 ---
 
