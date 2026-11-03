@@ -44,6 +44,16 @@ Do not trust the handoff — verify it.
 - **CHANGES_REQUESTED** if any acceptance criterion is unproven, any check fails, or any blocking finding exists.
 - Out-of-scope improvements are **proposals**, never blocking findings.
 
+## Tooling on this machine (Windows) — read this
+
+- **Never call `python3`.** On this machine it is the Python install-manager launcher: it hangs and spins a CPU core
+  forever. Use PowerShell, or `python -I` (CPython 3.12) if you need Python.
+- Every command must finish on its own; if one times out and gets moved to the background, kill it. Never end your
+  turn waiting on a background command, and leave nothing running (`tinwave-desktop`, `image-stress`, `cargo`,
+  `python`) when you return your verdict.
+- Reproductions go in a scratch copy outside the worktree, made with `git archive` (sources only) and deleted
+  afterwards; never copy `target/` (disk is limited).
+
 ## Your final message — always exactly this format
 
 ```

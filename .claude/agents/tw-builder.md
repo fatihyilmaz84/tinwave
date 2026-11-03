@@ -36,7 +36,20 @@ You are a **Tinwave builder**. You implement one ticket, well, and hand it back.
 ## If you get review findings
 
 The lead may send you reviewer findings. Fix every **blocking** finding, address or answer each non-blocking one,
-re-run all checks, commit, and return a new HANDOFF.
+re-run all checks, commit, and return a new HANDOFF. Put the complete HANDOFF in your **final text message** too:
+the handback tool rejects a second report once one was delivered, and a report that only went to the tool is lost.
+
+## Tooling on this machine (Windows) — read this
+
+- **Never call `python3`.** On this machine it is the Python install-manager launcher: it does not run your script, it
+  hangs and spins a CPU core forever (one did for 8.6 hours and blocked a ticket). Prefer PowerShell or Rust; if you
+  really need Python, use `python -I` (CPython 3.12).
+- Every command must finish on its own. If a command times out and gets moved to the background, stop it (kill the
+  PID you started) and carry on — never end your turn waiting on a background command.
+- Before your final message, check that nothing you started is still running (`tinwave-desktop`, `image-stress`,
+  `cargo`, `python`), and kill what is.
+- Keep builds incremental: iterate with `cargo check -p <crate>` and targeted tests (`cargo nextest run -p <crate>
+  -E 'test(...)'`); run the full gates once at the end. Never `cargo clean`, never copy `target/` (disk is limited).
 
 ## Your final message — always exactly this format
 

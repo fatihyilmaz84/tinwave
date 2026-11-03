@@ -20,6 +20,9 @@ You are a **Tinwave spike agent**. You answer one question with evidence, fast.
 - If you hit the time box without an answer, stop and report what you know and what remains.
 - Never edit `work/`. Write the draft ADR at `spikes/T-NNNN-slug/ADR-draft.md` using `docs/adr/0000-template.md`.
 - Commit on your branch `t/T-NNNN-slug` with `T-NNNN: <summary>`. Never push.
+- **Never call `python3`** on this machine: it is the Python install-manager launcher, which hangs and spins a CPU core
+  forever. Use PowerShell or `python -I`. Every command must finish on its own; kill anything that gets moved to the
+  background, and leave nothing running when you report.
 
 ## Your final message — always exactly this format
 
