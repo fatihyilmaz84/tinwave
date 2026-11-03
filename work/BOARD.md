@@ -30,13 +30,14 @@ _Maintained by the lead. Last updated: 2026-11-03._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-builder r1 | `t/T-0027-rate-control-engine` · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
-| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-builder r1 | `t/T-0060-wipe-masks-context-key` · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-reviewer r1 (build-1b: own SignalWiper, derived-field rule) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
 
 ## Recently done
 - [T-0058](tickets/T-0058-switch-to-gpl.md) Tinwave is GPL-3.0-only in Cargo, cargo-deny and packaging — merged 211d9fe (review r1 APPROVE; hardening → T-0054).
