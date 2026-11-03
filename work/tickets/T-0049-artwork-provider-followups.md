@@ -3,8 +3,8 @@ id: T-0049
 title: Artwork provider follow-ups — one max-edge source, Image.Error for refused/missing, one-edge sourceSize
 type: feature
 epic: E-01
-status: ready
-priority: P2
+status: in_progress
+priority: P1
 size: S
 depends_on: [T-0044]
 scope:
@@ -13,10 +13,10 @@ scope:
   - apps/tinwave-desktop/src/image/
   - apps/tinwave-desktop/tests/image_provider.rs
   - apps/tinwave-desktop/tools/stress/      # a fixture scene for the size cases, if needed
-owner:
-branch:
-review_round: 0
-created_by: from P-0150, P-0151, T-0044 review-2
+owner: tw-builder
+branch: t/T-0049-artwork-provider-followups
+review_round: 1
+created_by: from P-0150, P-0151, T-0044 review-2, P-0169
 ---
 
 ## Context
@@ -41,3 +41,10 @@ T-0044 review-2 (work/reports/T-0044/review-2.md): `kMaxEdge = 1024` in cpp/imag
 
 ## Signals & storage
 None.
+
+## Added from P-0169 (T-0043 review-2) — gate flake, P1
+- `tests/image_provider.rs::cancel_storm_with_requests_in_flight_then_quit_exits_cleanly` failed 2 of 14 runs under
+  full-workspace load ("no run quit with requests still in flight (storm 4, scroll 0)"). Make the per-mode
+  "quit with requests in flight" assertion deterministic (e.g. quit on a signal once N requests are pending, or retry
+  that mode until one run qualifies, bounded) without weakening what it proves. Show 50 consecutive passes under a
+  parallel full-workspace run.

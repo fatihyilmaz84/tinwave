@@ -3,7 +3,7 @@ id: T-0042
 title: Windows packaging — windeployqt recipe, THIRD-PARTY-NOTICES (Qt LGPL-3), installer check
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0040]

@@ -30,3 +30,6 @@ Album-macOS.dc.html, others) still use #6E6E77, #E6F1F2, #2E7D46, #9A5B00, #8C8C
 
 ## Signals & storage
 None.
+
+## Added from P-0158 (T-0043 review-1)
+- Canvas nav icons are drawn at 18 px; the token `iconSize` is 20 (design-system §3.4 wins): update the canvas to 20.
