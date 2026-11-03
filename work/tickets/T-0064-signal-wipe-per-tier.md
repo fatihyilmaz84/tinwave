@@ -38,5 +38,10 @@ events (kind.rs `tier()`) is still missing, though privacy-and-signals.md promis
 - (P-0277) `signal_wipe::the_writer_thread_keeps_working_while_everything_is_wiped` failed once under parallel load
   (16.9 s); make it wait on conditions with budgets that hold under load.
 
+- (P-0280) Under 32 heavy parallel processes the category-wipe contention test fails "database is locked" (3/48 on
+  main too): assert against the measured wipe time or the writer's retry, not only the 5 s busy timeout.
+- (P-0281) wipe.rs:301-303 + privacy doc: TRUNCATE busy usually means the writer holds the lock (PASSIVE already
+  zeroed the main file; only the WAL keeps old frames); log and document both causes.
+
 ## Signals & storage
 None.

@@ -54,7 +54,10 @@ Do not trust the handoff — verify it.
 - Reproductions go in a scratch copy outside the worktree, made with `git archive` (sources only) and deleted
   afterwards; never copy `target/` (disk is limited). Build the scratch copy with its **own** `CARGO_TARGET_DIR`
   (in the scratch folder), never the worktree's: sharing it makes cargo reuse mutated binaries in the real worktree.
-  Delete that target dir when done.
+  **One target dir per copy**, even between two scratch copies (e.g. main vs branch): path packages hash the same in
+  every checkout, so a shared dir silently runs the other copy's binary. Delete that target dir when done.
+- Scratch folders live under the session scratchpad, never at a drive root (the sandbox can't remove those). In
+  PowerShell, `[IO.File]` relative paths resolve against the process directory, not `Set-Location`: use absolute paths.
 
 ## Your final message — always exactly this format
 

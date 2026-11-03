@@ -66,6 +66,11 @@ the handback tool rejects a second report once one was delivered, and a report t
   `cargo`, `python`), and kill what is.
 - Keep builds incremental: iterate with `cargo check -p <crate>` and targeted tests (`cargo nextest run -p <crate>
   -E 'test(...)'`); run the full gates once at the end. Never `cargo clean`, never copy `target/` (disk is limited).
+- When swapping a file back and forth for a mutation or revert test, make sure its mtime changes (edit it, or `touch`
+  it); `Copy-Item` keeps the old mtime and cargo then silently tests the stale build. A scratch copy needs its own
+  `CARGO_TARGET_DIR` — never share one between copies. Scratch folders go under the session scratchpad or your
+  worktree's `target/`, never a drive root. In PowerShell, `[IO.File]` relative paths ignore `Set-Location`: use
+  absolute paths. New or edited files must not start with a UTF-8 BOM.
 
 ## Your final message — always exactly this format
 

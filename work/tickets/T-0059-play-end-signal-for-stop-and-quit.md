@@ -40,5 +40,9 @@ the track was heard.
 - [ ] A failed track still writes no row — test.
 - [ ] Catalog, Signal Center list and privacy tier updated; growth test still passes.
 
+## Added from T-0065 review-1 (P-0282)
+- A stale PlayStarted with no row (stopped/failed play) can pair with an orphan outcome of the same recording while
+  Queue & library is off (play.rs ~284). With the play-end signal in place, also ignore starts older than the hot window.
+
 ## Signals & storage
 One new low-frequency event per stopped/quit play (at most one per play).

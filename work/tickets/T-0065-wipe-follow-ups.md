@@ -3,7 +3,7 @@ id: T-0065
 title: Wipe follow-ups — cache invalidation only on wipe, rollup plays kept, stale-start guard, WAL checkpoint
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0061]
@@ -13,6 +13,7 @@ scope:
 owner: tw-builder
 branch: t/T-0065-wipe-follow-ups
 review_round: 1
+merge: 4950c97
 created_by: from P-0259..P-0262 (T-0061 review-1)
 ---
 
