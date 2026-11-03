@@ -74,7 +74,9 @@ play(id, session, recording, source, started_ts, listened_ds (deciseconds), end_
 ```
 
 `context_key` is the packed taste-engine bucket (daypart, weekday type, weather bucket, device class,
-activity, place) — 32 bits instead of a full snapshot.
+activity, place) — 32 bits instead of a full snapshot. The bit layout is versioned and frozen, see
+[taste-engine.md](../guides/taste-engine.md#contextkey-layout-version-1); 0 means "nothing known" (also what a play
+whose context was never captured stores).
 
 The **monthly rollup** keeps `(month, recording, plays, completes, skips_early, skips_late, favorites_delta,
 listened_s, score_sum)`.

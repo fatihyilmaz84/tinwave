@@ -7,11 +7,14 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use tinwave_core::{DeviceId, TzOffsetMin};
-use tinwave_signals::{CounterRow, EntityKind, SignalEvent, SignalKind, SignalSink, SignalsError};
+use tinwave_signals::{
+    CounterRow, EntityKind, SignalEvent, SignalKind, SignalPayload, SignalSink, SignalsError,
+};
 
 use crate::connection;
 use crate::dict::{DictCaches, Resolver, Table};
 use crate::migrate::{migrate, Migration, MigrationReport};
+use crate::play::{self, Ending, Outcome, PlayWrite};
 use crate::DbError;
 
 /// The migrations of `signals.db`, oldest first.
@@ -146,6 +149,11 @@ pub struct BatchReport {
     pub counter_rows: usize,
     /// Counter rows dropped because a value does not fit a SQLite integer (logged).
     pub counter_rows_rejected: usize,
+    /// `play` rows written for the plays that ended in this batch (`Completed` or `Skipped`).
+    pub plays_written: usize,
+    /// Outcomes stored in this batch that wrote no `play` row because no `PlayStarted` of the
+    /// same recording precedes them on the device (logged).
+    pub plays_unpaired: usize,
 }
 
 /// The signals.db writer connection: schema, dictionaries and the batch write.
@@ -258,6 +266,9 @@ impl SignalStore {
     ///
     /// - Events use `INSERT OR IGNORE` on `(device, seq)`: a duplicate is skipped and counted.
     /// - Counter rows are deltas added to `ui_counter`.
+    /// - Each newly stored `Completed` or `Skipped` writes the `play` row of its play in the same
+    ///   transaction (see the `play` module docs for the pairing and what is written); a duplicate
+    ///   writes none.
     /// - An event whose payload cannot be encoded is skipped, counted in
     ///   [`BatchReport::events_rejected`] and logged: it cannot be fixed by retrying, and one bad
     ///   event must not block every later one.
@@ -282,6 +293,7 @@ impl SignalStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(DbError::sqlite("starting the batch transaction"))?;
         let mut resolver = Resolver::new(&mut self.caches);
+        let mut outcomes: Vec<Outcome> = Vec::new();
 
         {
             let mut insert = tx
@@ -331,6 +343,32 @@ impl SignalStore {
                     report.events_duplicate += 1;
                 } else {
                     report.events_inserted += 1;
+                    // A play ends only with an outcome stored now: a duplicate (sync, retry)
+                    // already wrote its row.
+                    if let Some(ending) = ending(&event.payload) {
+                        outcomes.push(Outcome {
+                            device,
+                            seq,
+                            ts: event.ts.as_i64(),
+                            recording,
+                            ending,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Every outcome of the batch is stored by now, so a start or an outcome that arrived in this
+        // batch in any order is visible to the lookups.
+        for outcome in &outcomes {
+            match play::write_play(&tx, outcome)? {
+                PlayWrite::Written => report.plays_written += 1,
+                PlayWrite::Unpaired => {
+                    tracing::warn!(
+                        seq = outcome.seq,
+                        "play outcome has no start of the same recording; no play record"
+                    );
+                    report.plays_unpaired += 1;
                 }
             }
         }
@@ -473,6 +511,19 @@ impl SignalSink for SignalStore {
                 Err(SignalsError::Sink { reason })
             }
         }
+    }
+}
+
+/// How an event ends a play, or `None` for every other kind.
+fn ending(payload: &SignalPayload) -> Option<Ending> {
+    match payload {
+        SignalPayload::Completed(p) => Some(Ending::Completed {
+            listened_ds: p.listened_ds.ds(),
+        }),
+        SignalPayload::Skipped(p) => Some(Ending::Skipped {
+            fraction_raw: p.fraction.raw(),
+        }),
+        _ => None,
     }
 }
 

@@ -40,18 +40,19 @@ use tinwave_db::{
     CheckpointPolicy, SignalStore, SignalWriter, StoreConfig, WriterConfig, WriterStats,
 };
 use tinwave_signals::{
-    BusConfig, CompletedPayload, ContextScope, ContextSnapshotId, CounterEntity, CrossfadePayload,
-    ElapsedDs, EntityKind, EqPayload, EventContext, ExclusiveModePayload, ExplanationOpenedPayload,
-    Fraction, GestureCoalescer, GestureTick, GestureTime, Hash32, InputSource,
-    MetadataEditedPayload, MetadataFields, MutePayload, OutputClass, OutputDevicePayload,
-    OutputTransport, PausedPayload, PlayOrigin, PlayStartedPayload, PlaylistEditPayload,
-    PlaylistKind, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload, RadioFeedbackKind,
-    RadioFeedbackPayload, Rate, RatePayload, RatedPayload, RemovedFromQueuePayload, RepeatMode,
-    RepeatModePayload, ReplayedPayload, ResumedPayload, SearchNoResultPayload,
-    SearchPerformedPayload, SearchResultOpenedPayload, SearchScope, Section, SeekPayload,
-    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
-    SignalSettings, SkipPayload, Stars, SystemVolumePayload, View, ViewOpenedPayload, Volume,
-    VolumePayload, WindowStateKind, WindowStatePayload,
+    ActivityGuess, BusConfig, CompletedPayload, ContextKey, ContextScope, ContextSnapshotId,
+    CounterEntity, CrossfadePayload, Daypart, ElapsedDs, EntityKind, EqPayload, EventContext,
+    ExclusiveModePayload, ExplanationOpenedPayload, Fraction, GestureCoalescer, GestureTick,
+    GestureTime, Hash32, InputSource, MetadataEditedPayload, MetadataFields, MutePayload,
+    OutputClass, OutputDevicePayload, OutputTransport, PausedPayload, PlaceSlot, PlayOrigin,
+    PlayStartedPayload, PlaylistEditPayload, PlaylistKind, PositionDs, QueueOrigin,
+    QueueReorderedPayload, QueuedPayload, RadioFeedbackKind, RadioFeedbackPayload, Rate,
+    RatePayload, RatedPayload, RemovedFromQueuePayload, RepeatMode, RepeatModePayload,
+    ReplayedPayload, ResumedPayload, SearchNoResultPayload, SearchPerformedPayload,
+    SearchResultOpenedPayload, SearchScope, Section, SeekPayload, SessionEndedPayload,
+    SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload, SignalSettings,
+    SkipPayload, Stars, SystemVolumePayload, TemperatureBand, View, ViewOpenedPayload, Volume,
+    VolumePayload, WeatherCondition, WeekdayType, WindowStateKind, WindowStatePayload,
 };
 
 use crate::common::{Ids, TempDb, T0};
@@ -404,6 +405,9 @@ impl Sim {
     /// events about the app).
     fn emit(&mut self, track: Option<Track>, pos_ds: Option<u32>, payload: SignalPayload) {
         self.maybe_new_context();
+        // The row exists before an event names it, as a context hub that attaches an id would have
+        // stored it: the play record reads its key from this row.
+        self.insert_pending_snapshots();
         let session = self.session;
         let ctx = ContextSnapshotId(self.ctx);
         let outcome = self.bus.emit_with(payload.kind(), |stamp| SignalEvent {
@@ -459,7 +463,6 @@ impl Sim {
                 let last = n + 1 == plays;
                 self.play(last, plays);
                 self.barrier();
-                self.insert_pending_snapshots();
             }
         }
     }
@@ -1077,11 +1080,34 @@ impl Sim {
         }
     }
 
-    /// Context snapshot rows for the ids created since the last barrier. The context hub does
-    /// not exist yet, so the harness writes the rows the schema defines (`context_snapshot`):
-    /// a 64-bit hash, the packed u32 context key and ~30 bytes of quantized fields
-    /// (`context-engine.md`). The writer is idle at a barrier, so this connection has the
-    /// database to itself.
+    /// A context as the providers would report it: the clock fields always, the others mostly.
+    fn random_context_key(&self) -> ContextKey {
+        let pick = |n: usize| usize::try_from(self.dice.below(n as u64)).unwrap();
+        let mut key = ContextKey::UNKNOWN
+            .with_daypart(Daypart::ALL[pick(Daypart::ALL.len())])
+            .with_weekday_type(WeekdayType::ALL[pick(WeekdayType::ALL.len())]);
+        if self.dice.chance(700) {
+            key = key
+                .with_condition(WeatherCondition::ALL[pick(WeatherCondition::ALL.len())])
+                .with_temperature(TemperatureBand::ALL[pick(TemperatureBand::ALL.len())]);
+        }
+        if self.dice.chance(900) {
+            key = key.with_device_class(OutputClass::ALL[pick(OutputClass::ALL.len())]);
+        }
+        if self.dice.chance(800) {
+            key = key.with_activity(ActivityGuess::ALL[pick(ActivityGuess::ALL.len())]);
+        }
+        if self.dice.chance(500) {
+            key = key.with_place(PlaceSlot::new(1 + u8::try_from(pick(8)).unwrap()).unwrap());
+        }
+        key
+    }
+
+    /// Context snapshot rows for the ids created since the last call. The context hub does not
+    /// exist yet, so the harness writes the rows the schema defines (`context_snapshot`): a 64-bit
+    /// hash, a valid packed [`ContextKey`] (the writer reads it into the play record) and ~30
+    /// bytes of quantized fields (`context-engine.md`). The writer may be committing a batch of
+    /// 256 events meanwhile; this connection waits for it (busy timeout).
     fn insert_pending_snapshots(&mut self) {
         if self.pending_snapshots.is_empty() {
             return;
@@ -1091,7 +1117,7 @@ impl Sim {
             .into_iter()
             .map(|id| {
                 let hash = i64::from_ne_bytes(self.dice.next().to_ne_bytes());
-                let key = self.dice.next() as u32;
+                let key = self.random_context_key().raw();
                 let mut fields = vec![0u8; 30];
                 for chunk in fields.chunks_mut(8) {
                     let bytes = self.dice.next().to_le_bytes();
@@ -1124,7 +1150,6 @@ pub fn run(cfg: GrowthConfig, on_day_end: &mut dyn FnMut(&DayEnd<'_>)) -> Run {
         sim.run_day(day);
         // The tail of the day: every gesture ended, everything committed.
         sim.barrier();
-        sim.insert_pending_snapshots();
         on_day_end(&DayEnd {
             day,
             db_path: &db_path,

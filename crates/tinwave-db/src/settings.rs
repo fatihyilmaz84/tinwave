@@ -297,6 +297,16 @@ mod tests {
         conn.query_row(SELECT_MASK, [], |row| row.get(0)).unwrap()
     }
 
+    /// Sends on drop, so a thread parked on the receiving end is released on every exit path.
+    struct ReleaseOnDrop(mpsc::Sender<()>);
+
+    impl Drop for ReleaseOnDrop {
+        fn drop(&mut self) {
+            // The receiver is gone only when A already finished: nothing left to release.
+            let _ = self.0.send(());
+        }
+    }
+
     /// The upsert reads the mask under the connection lock.
     ///
     /// Toggle A is held after its atomic update, just before it asks for the lock. Toggle B then
@@ -314,6 +324,10 @@ mod tests {
         }));
 
         std::thread::scope(|scope| {
+            // Releases A when this block ends, normally or by a failed assert below: A is parked
+            // in the hook, and `scope` joins it before it lets the panic out, so without the
+            // guard a failing assert would hang the test instead of failing it.
+            let release = ReleaseOnDrop(go_tx);
             let a = scope.spawn(|| settings.set_category(SignalCategory::Volume, false));
             reached_rx.recv().unwrap();
             // A's category is already off in memory; its save has not started.
@@ -322,7 +336,7 @@ mod tests {
             settings.set_tier(Tier::T2, true).unwrap();
             assert_eq!(stored(&settings), i64::from(settings.settings().mask()));
 
-            go_tx.send(()).unwrap();
+            drop(release);
             a.join().unwrap().unwrap();
         });
 
