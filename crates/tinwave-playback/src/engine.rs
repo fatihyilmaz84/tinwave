@@ -595,12 +595,19 @@ impl Engine {
     /// Move to another output device (`None` is the system default) and resume at the exact frame
     /// that was playing. Frames already in the old device's buffer are not replayed.
     ///
-    /// On error the engine has no open stream (the old one is already closed); call again.
+    /// On error the engine has no open stream (the old one is already closed); call again. The
+    /// exception is [`PlaybackError::Busy`] while a reopened stream still waits for the decoder to
+    /// take its ring: then nothing is touched and the current stream keeps playing.
     ///
     /// # Errors
     /// What the output reports; [`PlaybackError::Busy`] / [`PlaybackError::EngineStopped`].
     pub fn switch_device(&mut self, device: Option<String>) -> Result<(), PlaybackError> {
         self.poll();
+        if self.unsent_resume.is_some() {
+            // The stash belongs to the stream that is open now: closing it would leave the
+            // decoder resuming into a dead ring and the next poll reporting a reopen of nothing.
+            return Err(PlaybackError::Busy);
+        }
         // A track that is decoded but not heard yet (appended after the queue ended, within one
         // output latency): resumed from its start, and announced here because nothing else will.
         let mut unheard_start: Option<(QueueItemId, u64)> = None;
@@ -1414,5 +1421,38 @@ mod tests {
         assert!(!engine.reopen_pending());
         engine.poll();
         assert!(events.take().is_empty());
+    }
+
+    #[test]
+    fn a_device_switch_waits_while_a_resume_is_held_back() {
+        let (mut engine, handle, events) = exclusive_engine();
+        let (tx, rx) = std::sync::mpsc::sync_channel(1);
+        engine.tx = tx;
+        engine.tx.try_send(Cmd::RateTarget).expect("room for one");
+        engine.sh.park(1, 96_000, 0, false);
+        engine.poll();
+        assert!(engine.reopen_pending(), "the resume is held back");
+        let opens = handle.opens().len();
+
+        // The switch is refused and leaves the reopened stream alone.
+        assert_eq!(
+            engine.switch_device(Some("dac".into())).err(),
+            Some(PlaybackError::Busy)
+        );
+        assert!(handle.is_open(), "the reopened stream still plays");
+        assert_eq!(handle.opens().len(), opens, "no stream was opened or closed");
+        assert!(events.take().is_empty(), "no OutputLost");
+
+        // Once the decoder has its ring the reopen is reported and the switch goes through.
+        assert!(matches!(rx.try_recv(), Ok(Cmd::RateTarget)));
+        engine.poll();
+        assert!(matches!(rx.try_recv(), Ok(Cmd::Resume { id: 1, .. })));
+        assert_eq!(reopened(&events.take()), 1);
+        engine
+            .switch_device(Some("dac".into()))
+            .expect("switch after the resume");
+        assert_eq!(handle.opens().len(), opens + 1);
+        assert!(handle.is_open());
+        assert!(matches!(rx.try_recv(), Ok(Cmd::Reconfigure { .. })));
     }
 }
