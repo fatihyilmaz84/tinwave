@@ -15,7 +15,7 @@ scope:
 owner:
 branch:
 review_round: 0
-created_by: from P-0322, P-0323 (T-0068 build-1)
+created_by: from P-0322, P-0323 (T-0068 build-1), P-0324 (review-1), P-0330 (review-2)
 ---
 
 ## Context
@@ -30,6 +30,9 @@ a stream at the old successor's rate; the decoder then re-parks on `Resume`. Cor
 
 - (P-0324) Cover the engine's lost-claim branch in `service_reopen` (engine.rs ~915): the mutation
   `if !take_reopen(..) && id == u32::MAX` must fail a test.
+
+- (P-0330) A test where the engine claims right after the idle count crosses the latency, with no
+  `position()` read in between: the mutation `heard_floor.fetch_max(total)` → `let _ = total;` must fail it.
 
 ## Acceptance criteria
 - [ ] An edit sent before the drain ends never causes an open at the withdrawn rate (test).
