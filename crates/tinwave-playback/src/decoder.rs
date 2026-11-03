@@ -41,9 +41,11 @@
 //! injected clock (`Decoder::clock`, the same wall time in production), so a test ends it by
 //! moving its manual clock instead of sleeping, and a wall clock set back never holds a change up
 //! (`Decoder::throttle_wait`). While the acknowledgement of such a flush is awaited the thread
-//! polls at `FLUSH_WAIT_MIN` and does not back off (`Decoder::wait_for_ack`): the listener hears
-//! a gap until the new stream starts, and a running stream acknowledges within a callback. With
-//! nothing audible (nothing loaded, or everything has been played) there is nothing to flush and
+//! polls at `FLUSH_WAIT_MIN` for its first `RATE_ACK_FAST_POLLS` polls, with no backoff
+//! (`Decoder::wait_for_ack`): the listener hears a gap until the new stream starts, and a running
+//! stream acknowledges within a callback. A stream that does not (a failed device switch leaves a
+//! ring nobody plays) then gets the command flush's backoff, so it costs about 20 wakeups per
+//! second and not 1000. With nothing audible (nothing loaded, or everything has been played) there is nothing to flush and
 //! the rate is simply adopted.
 //!
 //! The restart reads the track again from the audible frame. An item that fails again there is
@@ -155,9 +157,30 @@ const FULL_RING_WAIT: Duration = Duration::from_millis(25);
 /// Poll interval while waiting for the renderer to acknowledge a flush: starts short (a running
 /// stream acks within a callback) and, for a command's flush, backs off, so a stream that is not
 /// running (failed device switch) costs about 20 wakeups per second instead of 1000. A rate
-/// flush never backs off (see `Decoder::wait_for_ack`).
+/// flush polls at the minimum for its first [`RATE_ACK_FAST_POLLS`] polls before it backs off too.
 const FLUSH_WAIT_MIN: Duration = Duration::from_millis(1);
 const FLUSH_WAIT_MAX: Duration = Duration::from_millis(50);
+/// Polls at `FLUSH_WAIT_MIN` that a rate flush gets before its backoff starts (30 ms on a precise
+/// timer): a running stream acknowledges within a callback, so the gap the listener hears is not
+/// stretched by a backoff, and a stream that never does is not polled 1000 times a second.
+const RATE_ACK_FAST_POLLS: u32 = 30;
+
+/// How long the next wait for a flush's acknowledgement is, and how it grows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AckPoll {
+    interval: Duration,
+    /// Timeouts left before a rate flush's interval starts doubling.
+    fast_left: u32,
+}
+
+impl AckPoll {
+    const fn new() -> Self {
+        Self {
+            interval: FLUSH_WAIT_MIN,
+            fast_left: RATE_ACK_FAST_POLLS,
+        }
+    }
+}
 /// At most one rate flush per this long (ADR 0006: 100 to 150 ms while a slider is dragged). Each
 /// flush costs the listener a 15 ms dip, so a drag must not produce one per pixel.
 pub(crate) const RATE_FLUSH_INTERVAL: Duration = Duration::from_millis(125);
@@ -316,7 +339,7 @@ impl Decoder {
             park_req: None,
             park_id: 0,
         };
-        let mut flush_wait = FLUSH_WAIT_MIN;
+        let mut flush_wait = AckPoll::new();
         loop {
             if self.sh.shutdown.load(Acquire) {
                 return;
@@ -349,7 +372,7 @@ impl Decoder {
                     }
                     continue;
                 }
-                flush_wait = FLUSH_WAIT_MIN;
+                flush_wait = AckPoll::new();
                 if let Some(awaiting) = st.awaiting.take() {
                     match awaiting.restart {
                         Restart::At { frame, gen } => self.restart(&mut st, frame, gen),
@@ -764,28 +787,27 @@ impl Decoder {
     }
 
     /// Wait for a command, or for the poll interval to pass, while the renderer's acknowledgement
-    /// of a flush is outstanding. `backoff` is the interval a command's flush has reached: it
-    /// doubles on every timeout (the stream may not be running at all) and starts over with a
-    /// command. A rate flush is always polled at the minimum: the stream is running, the listener
-    /// hears a gap until the acknowledgement is noticed, and a backoff would stretch that gap by
-    /// up to the backoff. `Ok(None)` is a timeout; `Err` means the control side is gone.
+    /// of a flush is outstanding. `poll` is the interval reached so far: it doubles on every
+    /// timeout up to `FLUSH_WAIT_MAX` (the stream may not be running at all) and starts over with a
+    /// command. A rate flush gets `RATE_ACK_FAST_POLLS` timeouts at the minimum first: the stream
+    /// is running, the listener hears a gap until the acknowledgement is noticed, and a backoff
+    /// would stretch that gap by up to the backoff. `Ok(None)` is a timeout; `Err` means the
+    /// control side is gone.
     fn wait_for_ack(
         rx: &Receiver<Cmd>,
         restart: &Restart,
-        backoff: &mut Duration,
+        poll: &mut AckPoll,
     ) -> Result<Option<Cmd>, ()> {
-        let poll = match restart {
-            Restart::At { .. } => *backoff,
-            Restart::Audible => FLUSH_WAIT_MIN,
-        };
-        match rx.recv_timeout(poll) {
+        match rx.recv_timeout(poll.interval) {
             Ok(cmd) => {
-                *backoff = FLUSH_WAIT_MIN;
+                *poll = AckPoll::new();
                 Ok(Some(cmd))
             }
             Err(RecvTimeoutError::Timeout) => {
-                if matches!(restart, Restart::At { .. }) {
-                    *backoff = (*backoff * 2).min(FLUSH_WAIT_MAX);
+                if matches!(restart, Restart::Audible) && poll.fast_left > 0 {
+                    poll.fast_left -= 1;
+                } else {
+                    poll.interval = (poll.interval * 2).min(FLUSH_WAIT_MAX);
                 }
                 Ok(None)
             }
@@ -1466,27 +1488,30 @@ mod tests {
     }
 
     #[test]
-    fn a_rate_flush_is_polled_at_the_minimum_and_a_commands_backs_off() {
+    fn a_rate_flush_is_polled_at_the_minimum_for_a_while_and_then_backs_off() {
         let (tx, rx) = std::sync::mpsc::channel();
-        // An acknowledgement that does not come: the first poll interval, then each next one.
-        let mut audible = FLUSH_WAIT_MIN;
-        let mut command = FLUSH_WAIT_MIN;
-        let mut intervals = Vec::new();
-        for _ in 0..8 {
-            assert!(Decoder::wait_for_ack(&rx, &Restart::Audible, &mut audible)
+        let command = Restart::At { frame: 0, gen: 1 };
+        let timeout = |restart: &Restart, poll: &mut AckPoll| {
+            assert!(Decoder::wait_for_ack(&rx, restart, poll)
                 .expect("connected")
                 .is_none());
-            assert!(
-                Decoder::wait_for_ack(&rx, &Restart::At { frame: 0, gen: 1 }, &mut command)
-                    .expect("connected")
-                    .is_none()
-            );
-            intervals.push(command);
+        };
+        // An acknowledgement that does not come. A rate flush: the minimum for its first polls ...
+        let mut rate = AckPoll::new();
+        for _ in 0..RATE_ACK_FAST_POLLS {
+            assert_eq!(rate.interval, FLUSH_WAIT_MIN, "a rate flush starts fast");
+            timeout(&Restart::Audible, &mut rate);
         }
-        assert_eq!(audible, FLUSH_WAIT_MIN, "a rate flush never backs off");
-        // A command's flush does, up to the maximum (a stream that is not running).
+        // ... then it backs off like a command's, up to the maximum: a stream nobody plays (a
+        // failed device switch) is not polled 1000 times a second.
+        assert_eq!(rate.interval, FLUSH_WAIT_MIN);
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            timeout(&Restart::Audible, &mut rate);
+            seen.push(rate.interval);
+        }
         assert_eq!(
-            intervals[..4],
+            seen[..4],
             [
                 Duration::from_millis(2),
                 Duration::from_millis(4),
@@ -1494,14 +1519,18 @@ mod tests {
                 Duration::from_millis(16)
             ]
         );
-        assert_eq!(command, FLUSH_WAIT_MAX);
-        // A command arriving starts the backoff over; the control side leaving ends the thread.
+        assert_eq!(rate.interval, FLUSH_WAIT_MAX);
+        // A command's flush backs off from the first timeout.
+        let mut cmd = AckPoll::new();
+        timeout(&command, &mut cmd);
+        assert_eq!(cmd.interval, Duration::from_millis(2));
+        // A command arriving starts over; the control side leaving ends the thread.
         tx.send(Cmd::RateTarget).expect("send");
-        let got = Decoder::wait_for_ack(&rx, &Restart::At { frame: 0, gen: 1 }, &mut command);
+        let got = Decoder::wait_for_ack(&rx, &Restart::Audible, &mut rate);
         assert!(matches!(got, Ok(Some(Cmd::RateTarget))));
-        assert_eq!(command, FLUSH_WAIT_MIN);
+        assert_eq!(rate, AckPoll::new());
         drop(tx);
-        assert!(Decoder::wait_for_ack(&rx, &Restart::Audible, &mut audible).is_err());
+        assert!(Decoder::wait_for_ack(&rx, &Restart::Audible, &mut rate).is_err());
     }
 
     /// A resampler that fails while flushing cannot be built (it only fails on a buffer-size bug),

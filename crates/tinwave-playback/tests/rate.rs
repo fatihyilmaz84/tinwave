@@ -1,13 +1,14 @@
 //! Playback rate (T-0027, ADR 0006): the stretch stage in the decoder thread, flush-and-restart at
 //! the audible position, the renderer's fades and counters, and the events.
 //!
-//! The test thread plays the audio callback (`ManualOutput`), so nothing here opens a device or
-//! reads a clock for an assertion: audio positions are frames, and every wait is a bounded spin
-//! on a condition. The decoder's 125 ms throttle between rate flushes is over when either the
-//! monotonic clock or the engine's injected clock (the harness's `ManualClock`) says so, so a test
-//! ends it by moving that clock by hand (`Harness::clock.advance`) instead of sleeping. Nothing
-//! the test moves it can hold a flush back; what real time adds is counted in the bounds
-//! (`a_drag_costs_...`), which a slower machine only makes wider.
+//! The test thread plays the audio callback (`ManualOutput`), so nothing here opens a device:
+//! audio positions are frames, event times come from the harness's `ManualClock`, and every wait
+//! is a bounded spin on a condition. The decoder's 125 ms throttle between rate flushes is over
+//! when either the monotonic clock or that injected clock says so, so a test ends it by moving
+//! the clock by hand (`Harness::clock.advance`) instead of sleeping: nothing the test does can
+//! hold a flush back. What real time adds is counted in the one bound that reads a clock,
+//! `a_drag_costs_...`, which bounds the flushes by `Instant` elapsed time; a slower machine only
+//! widens it (so a disabled throttle is caught on a machine that is not heavily loaded).
 #![allow(clippy::expect_used)] // test code: a failed expectation is the failure message
 
 mod common;
@@ -118,7 +119,7 @@ const RESTART_WINDOW: usize = RATE as usize * 30 / 1000;
 /// be when the rate moves by 2 %: the stretcher's own ripple is then well below 0.1 %, so what
 /// is left is the fade. A fade of 5 ms adds at most 0.3 % to a step (the fade's slope is in
 /// quadrature with the signal's), one of 2 ms up to 1.6 %.
-const FADE_TOLERANCE: f64 = 0.005;
+const FADE_TOLERANCE: f64 = 0.004;
 /// The same for steps of up to 50 % (1.0 to 1.5): the phase vocoder's ripple differs from one
 /// restart to the next by up to about 1.5 % there, which would hide a short fade, but a click
 /// (a hard cut is a step more than ten times the signal's) is still far outside.
@@ -236,20 +237,31 @@ impl Rec {
     fn change_rate(&mut self, rate: f64) {
         // Clear of the previous flush's throttle interval, so this one is immediate.
         self.h.clock.advance(PAST_THROTTLE_MS);
-        // Audio queued for the fade-out, and a callback of 4 frames every 200 us while the decoder
-        // answers: the ring then lasts seconds, and a decoder starved of CPU for longer than that
-        // is noticed below (a ring that has run dry cuts the old stream instead of fading it out).
-        // The fade plays over the callbacks that follow the first sight of the request: 60 of
-        // them, tens of milliseconds.
-        self.h.wait_buffered(RATE as usize * 5 / 6);
+        // Audio queued for the fade-out. Then the request is sent and the decoder is waited for
+        // (not the callback): commands are taken in order and a queue edit is answered when it is
+        // taken, so the answer to the first edit sent behind the rate change means the rate change
+        // was taken, and the answer to a second one that the pass of the decoder's loop that
+        // raises the flush request is over. The callbacks that follow cannot drain the ring while
+        // the decoder is slow, and are big enough (256 frames) to hold the whole 240-frame
+        // fade-out, so the first one that sees the request plays it. No pacing sleeps: the only
+        // wait is for the decoder's restart, which the callbacks cannot hurry.
+        self.h.wait_buffered(RATE as usize / 4);
         let before = self.flushes;
         let mut ran_low = false;
         self.h.engine.set_rate(rate).expect("set_rate");
+        for _ in 0..2 {
+            let edit = self
+                .h
+                .engine
+                .replace_after(QueueItemId(1), Vec::new())
+                .expect("a head to edit");
+            self.h.expect_edit_applied(edit);
+        }
         for _ in 0..200_000 {
             // Read before the callback: once the restart is complete the new stream's first frames
             // are in the ring, and those are not the old one running low.
             let queued = self.h.out.buffered_frames().expect("stream open");
-            self.step(4);
+            let real = self.step(256);
             if self.flushes > before && self.h.engine.rate_stats().applied_rate == rate {
                 if ran_low {
                     // `restarts` has the entry this change just made.
@@ -260,7 +272,10 @@ impl Rec {
             // Draining the old stream after the fade empties the ring in one go (zero); a
             // ring running dry first passes through every level below the fade's length.
             ran_low |= (1..RATE as usize / 80).contains(&queued);
-            std::thread::sleep(Duration::from_micros(200));
+            if real == 0 {
+                // Waiting for the decoder's restart.
+                std::thread::sleep(Duration::from_micros(100));
+            }
         }
         panic!("the decoder never applied rate {rate}");
     }
@@ -428,9 +443,11 @@ fn record_rate_steps(name: &str, rates: &[f64], each: usize) -> Rec {
         .expect("load");
     rec.h.settle();
     rec.play(each);
-    for &rate in rates {
+    for (i, &rate) in rates.iter().enumerate() {
         rec.change_rate(rate);
-        rec.play(each);
+        // A little more or less each time, up to one period of the 440 Hz sine, so that the
+        // restarts meet it at different phases.
+        rec.play(each + (i * 41) % 109);
     }
     assert_eq!(rec.restarts.len(), rates.len());
     // The fades really dipped: the callback played something quiet at each step.
