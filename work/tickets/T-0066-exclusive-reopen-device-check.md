@@ -3,7 +3,7 @@ id: T-0066
 title: Exclusive reopen on a real device — ignored measurement test, exclusive-only open, harness settle
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0057]
@@ -14,9 +14,9 @@ scope:
   - crates/tinwave-playback/tests/device.rs
   - crates/tinwave-playback/tests/common/mod.rs
   - spikes/T-0003-audio-backend/PO-RUNBOOK.md     # one new section
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0066-exclusive-reopen-device-check
+review_round: 1
 created_by: from P-0263, P-0264, P-0266 (T-0057 build-1)
 ---
 
