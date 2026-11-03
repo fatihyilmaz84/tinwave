@@ -3,7 +3,7 @@ id: T-0052
 title: capture.ps1 improvements — desktop-crop mode, click and key-down steps, cursor restore
 type: chore
 epic: E-01
-status: in_progress
+status: done
 priority: P2
 size: S
 depends_on: [T-0036]
@@ -33,3 +33,6 @@ covers every screen corner it is silently not parked.
 
 ## Signals & storage
 None.
+
+## Outcome
+2026-11-03: merged dba3722 (round-2 diff verified by the lead). README row updated (P-0218).

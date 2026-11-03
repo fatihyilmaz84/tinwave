@@ -25,7 +25,7 @@ Qt 6 Quick/QML window shell over thin CXX-Qt view models. Cargo-driven build, Qt
 | `qml/Tw/` | `Tw*` components (`TwIcon`) and the `TwIcons` URL helper (singleton) |
 | `icons/` | Vendored Lucide SVGs (only the used ones; `check_icon_usage` in build.rs enforces it), `VERSION`, ISC licence |
 | `tools/vendor-icons.ps1` | Dev-only: fetch and pin Lucide SVGs at stroke 1.75 (network, run by hand only) |
-| `tools/capture.ps1` | Dev-only: UI screenshots cropped to the DWM frame, keyboard steps with the window active |
+| `tools/capture.ps1` | Dev-only: UI screenshots (`-Mode window` cropped to the DWM frame, or `-Mode desktop` for Mica and native menus); keyboard, `@click`, `@down`/`@up` and `@wait` steps with a readiness check; restores the cursor; see the script header |
 | `packaging/` | Windows package: `package.ps1` (build + windeployqt + legal files + checks), `test-packaging.ps1`, generated `THIRD-PARTY-NOTICES.txt` |
 | `tests/startup.rs` | Headless start-up tests (offscreen platform, software rendering) |
 | `tests/platform_qml.rs` | Headless tests of the platform bridge as QML sees it (`tests/qml/PlatformProbe.qml`: the real shell, `Theme` bindings, developer switches); debug builds only |
