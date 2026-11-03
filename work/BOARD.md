@@ -27,9 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-| Ticket | Owner | Branch / worktree |
-|---|---|---|
-| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-builder r1 | `t/T-0064-signal-wipe-per-tier` · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
+_none_
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -37,6 +35,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-reviewer r1 | `t/T-0064-signal-wipe-per-tier` @ 104f688 · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-reviewer r1 | `t/T-0066-exclusive-reopen-device-check` @ fde6b88 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 | [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | tw-reviewer r1 | `t/T-0067-exclusive-setting-signal` @ f97fd0f · `D:\dev\Tinwave-worktrees\T-0067-exclusive-setting-signal` |
 
