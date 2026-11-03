@@ -32,5 +32,9 @@ without its signal.
 - [ ] Fallbacks and rate reopens emit nothing; the T-0057 tests still pass — tests.
 - [ ] fmt, clippy, nextest, deny pass.
 
+## Added from T-0057 review-1
+- mapper.rs:984-991: the fallback branch sets `reported_mode = info.mode` unconditionally and can erase a deferred
+  listener toggle (listener turns exclusive on outside a session, then an append reopens at a refused rate). Cover it.
+
 ## Signals & storage
 No new kind; source of an existing signal moves from stream mode to the setting.

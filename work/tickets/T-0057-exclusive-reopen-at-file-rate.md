@@ -3,7 +3,7 @@ id: T-0057
 title: Exclusive mode reopens the output at the file rate on a rate change (ADR 0005 decision 5)
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0019]
@@ -11,7 +11,7 @@ scope:
   - crates/tinwave-playback/
 owner: tw-builder
 branch: t/T-0057-exclusive-reopen-at-file-rate
-review_round: 1
+review_round: 2
 created_by: from P-0224 (T-0019 build-1)
 ---
 
