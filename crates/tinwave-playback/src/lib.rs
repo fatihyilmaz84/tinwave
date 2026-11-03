@@ -20,8 +20,8 @@
 //! extraction (T-0018), time-stretch (T-0009). Tracks must have the stream sample rate; anything
 //! else is reported as a failed track, never played wrong.
 
-// `deny`, not `forbid`: the Windows COM calls live in `output/windows/os.rs`, the only module that
-// allows `unsafe` (each block carries a SAFETY comment; see Cargo.toml).
+// `deny`, not `forbid`: the Windows COM calls (`output/windows/os.rs`) and the C++ time stretcher
+// (`stretch`) are the only modules that allow `unsafe` (each block carries a SAFETY comment; see Cargo.toml).
 #![deny(unsafe_code)]
 
 mod controller;
@@ -33,6 +33,7 @@ mod output;
 mod reader;
 mod renderer;
 mod shared;
+pub mod stretch;
 mod types;
 
 pub use controller::{
