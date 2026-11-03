@@ -3,17 +3,29 @@
 //!
 //! The test thread plays the audio callback (`ManualOutput`), so nothing here opens a device or
 //! reads a clock for an assertion: audio positions are frames, and every wait is a bounded spin
-//! on a condition. The only sleeps keep a rate change clear of the previous one's 125 ms
-//! throttle interval (a lower bound on spacing, so a slow machine only makes it safer).
+//! on a condition. The decoder's 125 ms throttle between rate flushes is over when either the
+//! monotonic clock or the engine's injected clock (the harness's `ManualClock`) says so, so a test
+//! ends it by moving that clock by hand (`Harness::clock.advance`) instead of sleeping. Nothing
+//! the test moves it can hold a flush back; what real time adds is counted in the bounds
+//! (`a_drag_costs_...`), which a slower machine only makes wider.
 #![allow(clippy::expect_used)] // test code: a failed expectation is the failure message
 
 mod common;
 
+use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::*;
-use tinwave_playback::{EventKind, LeaveCause, PlaybackError, QueueItemId};
+use symphonia::core::io::MediaSource;
+use tinwave_playback::{
+    EventKind, FsOpener, LeaveCause, PlaybackError, QueueItemId, SourceOpener, Track,
+};
+
+/// More than the decoder's rate-flush interval (125 ms), for the engine's manual clock.
+const PAST_THROTTLE_MS: i64 = 130;
 
 /// Click spacing in the test files, seconds.
 const PERIOD: f64 = 0.25;
@@ -100,6 +112,67 @@ fn click_peaks(left: &[f32]) -> Vec<usize> {
     peaks
 }
 
+/// How far from a restart a click would still be one the listener hears as the rate step: 30 ms.
+const RESTART_WINDOW: usize = RATE as usize * 30 / 1000;
+/// How much larger than the steady signal's largest step the largest step around a restart may
+/// be when the rate moves by 2 %: the stretcher's own ripple is then well below 0.1 %, so what
+/// is left is the fade. A fade of 5 ms adds at most 0.3 % to a step (the fade's slope is in
+/// quadrature with the signal's), one of 2 ms up to 1.6 %.
+const FADE_TOLERANCE: f64 = 0.005;
+/// The same for steps of up to 50 % (1.0 to 1.5): the phase vocoder's ripple differs from one
+/// restart to the next by up to about 1.5 % there, which would hide a short fade, but a click
+/// (a hard cut is a step more than ten times the signal's) is still far outside.
+const LARGE_STEP_TOLERANCE: f64 = 0.03;
+
+/// The largest sample step within [`RESTART_WINDOW`] of any of `restarts` and the largest step
+/// everywhere else, in `left`. The windows of `starved` restarts count for neither.
+fn steps_near_and_away(left: &[f32], restarts: &[usize], starved: &[usize]) -> (f64, f64) {
+    let (mut near, mut away) = (0.0f64, 0.0f64);
+    let within = |list: &[usize], i: usize| list.iter().any(|&r| i.abs_diff(r) <= RESTART_WINDOW);
+    for (i, pair) in left.windows(2).enumerate() {
+        let step = f64::from((pair[1] - pair[0]).abs());
+        if within(starved, i) {
+            continue;
+        }
+        if within(restarts, i) {
+            near = near.max(step);
+        } else {
+            away = away.max(step);
+        }
+    }
+    (near, away)
+}
+
+/// No click at a rate step: the largest step within 30 ms of a restart is no larger than the
+/// steady signal's in the same recording, within `tolerance`. Restarts in `starved` (see
+/// [`Rec::starved`]) are left out; at least half of `restarts` must be left.
+fn click_free(
+    left: &[f32],
+    restarts: &[usize],
+    starved: &[usize],
+    tolerance: f64,
+) -> Result<(), String> {
+    if starved.len() * 2 > restarts.len() {
+        return Err(format!(
+            "the decoder ran dry before {} of {} restarts: the machine is too busy to test them",
+            starved.len(),
+            restarts.len()
+        ));
+    }
+    let (near, away) = steps_near_and_away(left, restarts, starved);
+    if away <= 0.0 {
+        return Err("no audio away from the restarts to compare with".into());
+    }
+    if near <= away * (1.0 + tolerance) {
+        Ok(())
+    } else {
+        Err(format!(
+            "largest sample step near a restart {near:.5} is {:.2} % above the steady signal's {away:.5}",
+            (near / away - 1.0) * 100.0
+        ))
+    }
+}
+
 /// The test thread as audio callback, recording the left channel of every real frame and the
 /// engine's reported position after every callback.
 struct Rec {
@@ -109,6 +182,10 @@ struct Rec {
     trace: Vec<(usize, u64)>,
     /// Frames recorded when each rate flush was seen to complete.
     restarts: Vec<usize>,
+    /// The restarts (as in `restarts`) that began with a ring that had run low because the
+    /// decoder did not see the request in time (it was starved of CPU): the old stream had nothing
+    /// left to fade out, which is the machine's doing and not what a click test is about.
+    starved: Vec<usize>,
     flushes: u64,
 }
 
@@ -119,6 +196,7 @@ impl Rec {
             left: Vec::new(),
             trace: Vec::new(),
             restarts: Vec::new(),
+            starved: Vec::new(),
             flushes: 0,
         }
     }
@@ -157,19 +235,32 @@ impl Rec {
     /// Set the rate and keep playing (fade-out and all) until the new stream is running.
     fn change_rate(&mut self, rate: f64) {
         // Clear of the previous flush's throttle interval, so this one is immediate.
-        std::thread::sleep(Duration::from_millis(130));
-        // Audio queued for the fade-out, and callbacks no faster than a device's while the
-        // decoder answers (64 frames per millisecond is a little over real time): with an empty
-        // ring the fade-out would be short, and that is not what is being tested.
-        self.h.wait_buffered(RATE as usize / 2);
+        self.h.clock.advance(PAST_THROTTLE_MS);
+        // Audio queued for the fade-out, and a callback of 4 frames every 200 us while the decoder
+        // answers: the ring then lasts seconds, and a decoder starved of CPU for longer than that
+        // is noticed below (a ring that has run dry cuts the old stream instead of fading it out).
+        // The fade plays over the callbacks that follow the first sight of the request: 60 of
+        // them, tens of milliseconds.
+        self.h.wait_buffered(RATE as usize * 5 / 6);
         let before = self.flushes;
+        let mut ran_low = false;
         self.h.engine.set_rate(rate).expect("set_rate");
-        for _ in 0..100_000 {
-            let real = self.step(64);
+        for _ in 0..200_000 {
+            // Read before the callback: once the restart is complete the new stream's first frames
+            // are in the ring, and those are not the old one running low.
+            let queued = self.h.out.buffered_frames().expect("stream open");
+            self.step(4);
             if self.flushes > before && self.h.engine.rate_stats().applied_rate == rate {
+                if ran_low {
+                    // `restarts` has the entry this change just made.
+                    self.starved.extend(self.restarts.last());
+                }
                 return;
             }
-            std::thread::sleep(Duration::from_micros(if real == 0 { 100 } else { 1_000 }));
+            // Draining the old stream after the fade empties the ring in one go (zero); a
+            // ring running dry first passes through every level below the fade's length.
+            ran_low |= (1..RATE as usize / 80).contains(&queued);
+            std::thread::sleep(Duration::from_micros(200));
         }
         panic!("the decoder never applied rate {rate}");
     }
@@ -190,7 +281,7 @@ impl Rec {
 /// frames played before and after are exactly the ones the test renders, with no fade-out in
 /// between. (The fade-out is covered by `no_click_at_a_rate_step` and the renderer's tests.)
 fn change_rate_silently(h: &mut Harness, rate: f64) {
-    std::thread::sleep(Duration::from_millis(130));
+    h.clock.advance(PAST_THROTTLE_MS);
     let before = h.engine.rate_stats().flushes;
     h.engine.set_rate(rate).expect("set_rate");
     for _ in 0..100_000 {
@@ -325,48 +416,124 @@ fn time_weighted_rate_matches_the_schedule_within_a_tenth_of_a_percent() {
 // Acceptance: no click at a rate step
 // ---------------------------------------------------------------------------------------------
 
-#[test]
-fn no_click_at_a_rate_step_the_largest_sample_step_is_the_steady_signals() {
-    let dir = TempDir::new("rate-clicks");
-    let file = steady_sine(&dir, "sine.wav", 20.0);
+/// Plays the steady sine and changes the rate through `rates`, `each` frames apart; returns the
+/// recording and checks that every change dipped (the fades ran).
+fn record_rate_steps(name: &str, rates: &[f64], each: usize) -> Rec {
+    let dir = TempDir::new(name);
+    let file = steady_sine(&dir, "sine.wav", 40.0);
     let mut rec = Rec::new(Harness::new());
     rec.h
         .engine
         .load(vec![track(1, &file)], 0, 0)
         .expect("load");
     rec.h.settle();
-
-    rec.play(RATE as usize / 2);
-    for rate in [1.25, 0.75, 1.5, 1.0] {
+    rec.play(each);
+    for &rate in rates {
         rec.change_rate(rate);
-        rec.play(RATE as usize / 2);
+        rec.play(each);
     }
-    assert_eq!(rec.restarts.len(), 4);
-
-    // Everything the callback produced, fades included, joined at the (zero) ends of the silent
-    // gaps. The steady sine's largest step is `0.5 * 2 pi * 440 / rate`. A stretched sine is not
-    // quite a sine (the phase vocoder's ripple makes its steepest step up to 2 % larger, measured
-    // over many start phases), so the bound is 3 %: a hard cut at this level would be a step
-    // of 0.5, seventeen times the signal's, and a fade-out that is too short shows up in the
-    // renderer's own tests.
-    let steady = 0.5 * 2.0 * std::f64::consts::PI * 440.0 / f64::from(RATE);
-    let (at, largest) = rec
-        .left
-        .windows(2)
-        .enumerate()
-        .map(|(i, w)| (i, f64::from((w[1] - w[0]).abs())))
-        .fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
-    assert!(
-        largest <= steady * 1.03,
-        "largest sample step {largest:.5} at frame {at} against the steady sine's {steady:.5}"
-    );
-    // The fades really dipped: the callback played something quiet at each of the four steps.
+    assert_eq!(rec.restarts.len(), rates.len());
+    // The fades really dipped: the callback played something quiet at each step.
     for &r in &rec.restarts {
         let quiet = rec.left[r.saturating_sub(600)..r]
             .iter()
             .any(|s| s.abs() < 0.02);
         assert!(quiet, "no fade-out/in dip before frame {r}");
     }
+    rec
+}
+
+#[test]
+fn no_click_at_a_rate_step_the_largest_sample_step_is_the_steady_signals() {
+    // Forty restarts, 2 % apart: the stretcher barely colours the signal, so a fade that is too
+    // short stands out against the steady audio of the same recording (see [`FADE_TOLERANCE`]).
+    // The sine meets the fade at a different phase each time.
+    let rates: Vec<f64> = [1.02, 1.0, 0.98, 1.0]
+        .into_iter()
+        .cycle()
+        .take(40)
+        .collect();
+    let rec = record_rate_steps("rate-clicks", &rates, RATE as usize / 8);
+    // Everything the callback produced, fades included, joined at the (zero) ends of the silent
+    // gaps.
+    if let Err(why) = click_free(&rec.left, &rec.restarts, &rec.starved, FADE_TOLERANCE) {
+        panic!("{why}");
+    }
+}
+
+#[test]
+fn no_click_at_a_large_rate_step_the_largest_sample_step_is_the_steady_signals() {
+    // A stretched sine is not quite a sine (the phase vocoder's ripple makes its steepest step a
+    // little larger than `0.5 * 2 pi * 440 / rate`, and by a different amount at each restart),
+    // so the yardstick is this recording's own steady stretched audio, with room for the ripple.
+    let rec = record_rate_steps(
+        "rate-clicks-large",
+        &[1.25, 0.75, 1.5, 1.0],
+        RATE as usize / 2,
+    );
+    if let Err(why) = click_free(&rec.left, &rec.restarts, &rec.starved, LARGE_STEP_TOLERANCE) {
+        panic!("{why}");
+    }
+}
+
+/// A steady sine of amplitude 0.5 with a dip at each of `at`: faded out to silence over `fade`
+/// frames and back in over `fade` frames, the way the recording joins the callback's output.
+fn sine_with_dips(fade: usize, at: &[usize], len: usize) -> Vec<f32> {
+    let mut left: Vec<f32> = (0..len)
+        .map(|i| {
+            (0.5 * (2.0 * std::f64::consts::PI * 440.0 * i as f64 / f64::from(RATE)).sin()) as f32
+        })
+        .collect();
+    for &centre in at {
+        for (i, sample) in left
+            .iter_mut()
+            .enumerate()
+            .take(centre + fade)
+            .skip(centre - fade)
+        {
+            *sample *= i.abs_diff(centre) as f32 / fade as f32;
+        }
+    }
+    left
+}
+
+#[test]
+fn the_click_check_passes_a_5_ms_fade_and_fails_a_2_ms_one() {
+    // Forty dips, each meeting the 440 Hz sine at a different phase (2,003 frames apart).
+    let restarts: Vec<usize> = (0..40).map(|k| 3_000 + k * 2_003).collect();
+    let len = 3_000 + 40 * 2_003;
+    let five_ms = RATE as usize / 200;
+    let two_ms = RATE as usize / 500;
+    click_free(
+        &sine_with_dips(five_ms, &restarts, len),
+        &restarts,
+        &[],
+        FADE_TOLERANCE,
+    )
+    .expect("a 5 ms fade is not a click");
+    let why = click_free(
+        &sine_with_dips(two_ms, &restarts, len),
+        &restarts,
+        &[],
+        FADE_TOLERANCE,
+    )
+    .expect_err("a 2 ms fade is a click");
+    assert!(why.contains("above the steady signal's"), "{why}");
+    // Restarts the decoder was too slow for are left out, and too many of them is an error.
+    let hard_cut = sine_with_dips(1, &restarts, len);
+    click_free(&hard_cut, &restarts, &restarts[..], LARGE_STEP_TOLERANCE)
+        .expect_err("most restarts starved");
+    let cut_one = [restarts[7]];
+    let mut one_cut = sine_with_dips(five_ms, &restarts, len);
+    let centre = restarts[7];
+    one_cut[centre] = 0.0;
+    one_cut[centre - 1] = 0.5;
+    assert!(click_free(&one_cut, &restarts, &[], LARGE_STEP_TOLERANCE).is_err());
+    click_free(&one_cut, &restarts, &cut_one, FADE_TOLERANCE)
+        .expect("a starved restart is not judged");
+    // A hard cut to silence and back is far beyond even the large-step tolerance.
+    let hard = sine_with_dips(1, &restarts, len);
+    assert!(click_free(&hard, &restarts, &[], LARGE_STEP_TOLERANCE).is_err());
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -424,8 +591,41 @@ fn bypass_at_one_is_bit_exact_after_a_trip_through_the_stretcher() {
 // The throttle: at most one flush per interval, the final value always applied
 // ---------------------------------------------------------------------------------------------
 
+/// Keep the callback running until the decoder has applied `rate` and its audio is playing.
+fn play_until_applied(h: &mut Harness, rate: f64) {
+    for _ in 0..100_000 {
+        let (_, real) = h.render_block(480);
+        let stats = h.engine.rate_stats();
+        if stats.applied_rate == rate && stats.effective_rate == rate {
+            return;
+        }
+        if real == 0 {
+            std::thread::sleep(Duration::from_micros(200));
+        }
+    }
+    panic!("rate {rate} was never applied: {:?}", h.engine.rate_stats());
+}
+
+/// One callback of the drag; every eighth step also waits until the decoder has taken the
+/// commands sent so far and gone round its loop once. Commands are taken in order and a queue
+/// edit is answered when it is taken, so the answer to an edit sent now means the rate changes
+/// before it have been looked at. (The edit itself changes nothing.) Without these waits the
+/// whole drag could be over before the decoder looked at it, which the throttle's bound would
+/// not mind, but then a missing throttle would go unnoticed.
+fn drag_step_taken(h: &mut Harness, step: u32) {
+    h.render_block(480);
+    if step.is_multiple_of(8) {
+        let edit = h
+            .engine
+            .replace_after(QueueItemId(1), Vec::new())
+            .expect("a head to edit");
+        h.render_block(480);
+        h.expect_edit_applied(edit);
+    }
+}
+
 #[test]
-fn a_drag_costs_a_few_flushes_and_ends_on_the_final_value() {
+fn a_drag_costs_one_flush_per_interval_and_ends_on_the_final_value() {
     let dir = TempDir::new("rate-throttle");
     let file = steady_sine(&dir, "sine.wav", 20.0);
     let mut h = Harness::new();
@@ -434,46 +634,73 @@ fn a_drag_costs_a_few_flushes_and_ends_on_the_final_value() {
     h.render_exact(4_800, 480);
     h.sink.take();
 
-    // A slider drag: a new value every 10 ms for about half a second, the callback running
-    // all along. Without the throttle each would restart the stream.
+    // Before the first flush, so no interval of the decoder's can have begun earlier.
     let begun = Instant::now();
+    // The first change is flushed at once, and starts the interval.
+    let mut changes = 1;
+    h.engine.set_rate(1.01).expect("set_rate");
+    play_until_applied(&mut h, 1.01);
+    assert_eq!(h.engine.rate_stats().flushes, 1);
+
+    // A slider drag: a new value every 2 ms of the engine's clock, 48 of them (96 ms), the
+    // callback running all along. Without the throttle each step would restart the stream.
     let steps = 48;
     for i in 1..=steps {
-        std::thread::sleep(Duration::from_millis(10));
+        h.clock.advance(2);
         h.engine
-            .set_rate(1.0 + 0.5 * f64::from(i) / f64::from(steps))
+            .set_rate(if i == steps {
+                1.5
+            } else {
+                1.01 + 0.49 * f64::from(i) / f64::from(steps)
+            })
             .expect("set_rate");
-        h.render_block(480);
+        changes += 1;
+        drag_step_taken(&mut h, i);
     }
-    let dragged = begun.elapsed();
     assert_eq!(h.engine.rate(), 1.5);
-    // Keep playing until the final value is the one being played.
-    for _ in 0..100_000 {
-        let (_, real) = h.render_block(480);
-        if h.engine.rate_stats().applied_rate == 1.5 && real > 0 {
-            break;
-        }
-        std::thread::sleep(Duration::from_micros(200));
-    }
-    let stats = h.engine.rate_stats();
-    assert_eq!(stats.applied_rate, 1.5, "the final value was dropped");
-    assert_eq!(stats.effective_rate, 1.5);
+    // The interval ends on the injected clock: the value current then, the last one of the drag,
+    // is applied.
+    h.clock.advance(30);
+    play_until_applied(&mut h, 1.5);
 
-    // One immediate flush, then at most one per 125 ms, and the closing one.
-    let allowed = 2 + (dragged.as_millis() / 125) as u64;
+    // And again, against the interval that began with that flush: down the other way.
+    for i in 1..=steps {
+        h.clock.advance(2);
+        h.engine
+            .set_rate(if i == steps {
+                0.75
+            } else {
+                1.5 - 0.75 * f64::from(i) / f64::from(steps)
+            })
+            .expect("set_rate");
+        changes += 1;
+        drag_step_taken(&mut h, i);
+    }
+    h.clock.advance(30);
+    play_until_applied(&mut h, 0.75);
+    let elapsed = begun.elapsed();
+
+    // Three values were applied, so at least three flushes. Every flush after the first came at
+    // least 125 ms after the one before, on one of the two clocks: at most two such gaps on the
+    // injected clock (it moved 252 ms in all) and one per 125 ms of real time. A slower machine
+    // only widens the bound; without the throttle each of the 96 steps could restart the stream.
+    let flushes = h.engine.rate_stats().flushes;
+    let allowed = 1 + 2 + (elapsed.as_millis() / 125) as u64;
     assert!(
-        (2..=allowed).contains(&stats.flushes),
-        "{} flushes for {steps} steps over {dragged:?} (2 to {allowed} expected)",
-        stats.flushes,
+        (3..=allowed).contains(&flushes),
+        "{flushes} flushes for {} steps over {elapsed:?} (3 to {allowed} expected)",
+        2 * steps,
     );
+    assert_eq!(h.engine.rate(), 0.75);
+
     // But every step is reported, once.
-    let changes = h
+    let reported = h
         .sink
         .take()
         .into_iter()
         .filter(|k| matches!(k, EventKind::RateChanged { .. }))
         .count();
-    assert_eq!(changes, steps as usize);
+    assert_eq!(reported, changes);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -763,7 +990,7 @@ fn positions_stay_continuous_through_a_rate_change_with_device_latency() {
 
     let mut last = h.engine.position().expect("playing").frame;
     let before = h.engine.rate_stats().flushes;
-    std::thread::sleep(Duration::from_millis(130));
+    h.clock.advance(PAST_THROTTLE_MS);
     h.engine.set_rate(1.25).expect("set_rate");
     let mut after_restart = 0;
     for _ in 0..200_000 {
@@ -862,8 +1089,10 @@ fn a_deferred_change_is_applied_even_when_the_decoder_is_idle_at_the_end_of_the_
     h.render_exact(1_000, 480);
 
     change_rate_silently(&mut h, 1.5);
-    // Straight after: inside the interval, so it waits.
+    // Straight after: inside the interval, so it waits, with the decoder idle. (Real time ends the
+    // interval too: moving the engine's clock only makes it quicker.)
     h.engine.set_rate(0.75).expect("set_rate");
+    h.clock.advance(PAST_THROTTLE_MS);
     for _ in 0..30_000 {
         h.out.render(&mut [], 0).expect("stream open");
         let stats = h.engine.rate_stats();
@@ -978,4 +1207,112 @@ fn a_seek_to_the_exact_end_while_stretched_finishes_the_track() {
     h.render_exact(1_000, 500);
     assert_eq!(h.engine.position().expect("playing").item, QueueItemId(2));
     assert!(!h.saw(|k| matches!(k, EventKind::SeekFailed { .. })));
+}
+
+// ---------------------------------------------------------------------------------------------
+// A rate restart: a track that fails again
+// ---------------------------------------------------------------------------------------------
+
+/// Opens each track normally the first time and fails every later open: a file that vanished (or
+/// a share that went away) between the first read and a rate restart.
+#[derive(Debug, Default)]
+struct VanishingOpener {
+    opens: AtomicUsize,
+}
+
+impl SourceOpener for VanishingOpener {
+    fn open(&self, track: &Track) -> io::Result<Box<dyn MediaSource>> {
+        if self.opens.fetch_add(1, Ordering::SeqCst) == 0 {
+            FsOpener.open(track)
+        } else {
+            Err(io::Error::new(io::ErrorKind::NotFound, "the file is gone"))
+        }
+    }
+}
+
+fn track_failures(kinds: &[EventKind]) -> Vec<QueueItemId> {
+    kinds
+        .iter()
+        .filter_map(|k| match k {
+            EventKind::TrackFailed { item, .. } => Some(*item),
+            _ => None,
+        })
+        .collect()
+}
+
+fn left_with(kinds: &[EventKind]) -> Vec<(QueueItemId, LeaveCause)> {
+    kinds
+        .iter()
+        .filter_map(|k| match k {
+            EventKind::TrackLeft { item, cause, .. } => Some((*item, *cause)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_track_that_cannot_be_reopened_by_a_rate_restart_fails_once_and_leaves_as_failed() {
+    let dir = TempDir::new("rate-reopen-fails");
+    let file = steady_sine(&dir, "sine.wav", 10.0);
+    let mut h = Harness::with_opener(Arc::new(VanishingOpener::default()));
+    h.engine.load(vec![track(1, &file)], 0, 0).expect("load");
+    h.settle();
+    h.render_exact(4_800, 480);
+    assert!(track_failures(&h.sink.kinds()).is_empty());
+
+    change_rate_silently(&mut h, 1.25);
+    h.finish();
+
+    let kinds = h.sink.kinds();
+    assert_eq!(track_failures(&kinds), vec![QueueItemId(1)], "{kinds:?}");
+    assert_eq!(
+        left_with(&kinds),
+        vec![(QueueItemId(1), LeaveCause::Failed)],
+        "{kinds:?}"
+    );
+    assert_paired(&kinds, false);
+}
+
+#[test]
+fn a_track_that_breaks_again_at_the_same_place_after_a_rate_restart_is_reported_once() {
+    // 120,000 bytes of 8-byte float frames: the file breaks 15,000 frames in. The decoder reads
+    // that far ahead at once, reports the failure, and the track ends there. The rate restart
+    // reads it again from the audible frame and hits the same break.
+    let dir = TempDir::new("rate-breaks-again");
+    let file = steady_sine(&dir, "sine.wav", 10.0);
+    let opener = Arc::new(BreakingOpener {
+        broken: file.clone(),
+        fail_after: 120_000,
+    });
+    let mut h = Harness::with_opener(opener);
+    h.engine.load(vec![track(1, &file)], 0, 0).expect("load");
+    h.settle();
+    // The decoder reads ahead and meets the break on its own: wait for its report.
+    for _ in 0..30_000 {
+        if !track_failures(&h.sink.kinds()).is_empty() {
+            break;
+        }
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    h.render_exact(4_800, 480);
+    assert_eq!(track_failures(&h.sink.kinds()), vec![QueueItemId(1)]);
+
+    change_rate_silently(&mut h, 1.25);
+    // The rest of the track at 1.25: about 8,000 frames. Play it out.
+    h.run_until("the queue ended", |h| {
+        h.saw(|k| *k == EventKind::QueueEnded)
+    });
+
+    let kinds = h.sink.kinds();
+    assert_eq!(
+        track_failures(&kinds),
+        vec![QueueItemId(1)],
+        "one report for one failing item: {kinds:?}"
+    );
+    assert_eq!(
+        left_with(&kinds),
+        vec![(QueueItemId(1), LeaveCause::Failed)],
+        "{kinds:?}"
+    );
+    assert_paired(&kinds, false);
 }
