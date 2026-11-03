@@ -2,7 +2,7 @@
 #
 #   powershell -File tools/capture.ps1 -Scheme dark -Out shell-dark.png
 #   powershell -File tools/capture.ps1 -Scheme light -Keys "{TAB},{DOWN}" -Out kb-light.png
-#   powershell -File tools/capture.ps1 -Scheme dark -Mode desktop -Keys "@click:24;24,@wait:500" -Out menu-dark.png
+#   powershell -File tools/capture.ps1 -Scheme dark -Mode desktop -Keys "@click:30;56,@wait:500" -Out menu-dark.png
 #   powershell -File tools/capture.ps1 -Scheme light -Keys "{TAB},{TAB},@down:DOWN" -Out held-down.png
 #
 # Modes (-Mode)
@@ -19,10 +19,11 @@
 #
 # Steps (-Keys): comma separated, run in order, one step each. A step is one of
 #   SendKeys text       "{TAB}", "{DOWN}", "^a", "{TAB 3}" ... (System.Windows.Forms.SendKeys syntax; unchanged).
-#   @click:x;y          Left click at a window-relative LOGICAL point: x;y count from the top-left corner of the visible
-#                       window (the frame bounds, the same corner as the saved image) in device-independent pixels, as
-#                       QML sees them. They are converted with the window's DPI (150 % -> x1.5). A point outside the window
-#                       fails the run. The pointer is parked outside the window again after the click.
+#   @click:x;y          Left click at a window-relative LOGICAL point. x;y are IMAGE coordinates divided by the scale: pixel
+#                       positions in the saved image (window and desktop mode alike) / (DPI / 96), origin at the top-left of
+#                       the frame bounds, INCLUDING the native title bar. They are not QML scene coordinates (those start
+#                       below the title bar). Example at 150 %: the menu button at image pixel (45,84) is @click:30;56. A
+#                       point outside the window fails the run. The pointer is parked outside the window again after the click.
 #   @down:KEY           Key down only (the key stays held; no focus ring is drawn for it unless the app does).
 #   @up:KEY             Key up. A key still held when the run ends or fails is always released.
 #   @wait:ms            Pause 1..30000 ms.
@@ -31,6 +32,7 @@
 #   dedicated keys on a keyboard do (not the numpad ones). A second @down of a held key sends another key-down event
 #   (what a held physical key produces). @up of a key that is not held is refused. A SendKeys step cannot start with
 #   "@" (use "{@}"). The steps are checked before the app is started; a bad step exits 1 immediately.
+#   Every step is trimmed, so a lone space cannot be a SendKeys step: use "@down:SPACE,@up:SPACE" for the space bar.
 #
 # Behaviour
 # - Keys and clicks are sent with the window in the foreground: an inactive window does not draw its focus ring under
@@ -367,7 +369,10 @@ finally {
         $flags = 2; if ($extendedKeys -contains $vk) { $flags = 3 }
         [TwCapture]::keybd_event([byte]$vk, 0, $flags, [UIntPtr]::Zero)
     }
-    if ($proc) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+    if ($proc) {
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        $proc.WaitForExit(5000) | Out-Null   # bounded: nothing may outlive the script
+    }
     [TwCapture]::SetCursorPos($origCursor.X, $origCursor.Y) | Out-Null
 }
 if ($failed) { exit 1 }
