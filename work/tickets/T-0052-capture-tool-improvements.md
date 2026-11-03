@@ -3,15 +3,15 @@ id: T-0052
 title: capture.ps1 improvements — desktop-crop mode, click and key-down steps, cursor restore
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0036]
 scope:
   - apps/tinwave-desktop/tools/capture.ps1
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0052-capture-tool-improvements
+review_round: 1
 created_by: from P-0175, P-0182, P-0186, P-0189
 ---
 

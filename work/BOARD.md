@@ -29,6 +29,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | tw-builder r1 | `t/T-0052-capture-tool-improvements` · `D:\dev\Tinwave-worktrees\T-0052-capture-tool-improvements` |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither (E-01) | tw-builder r1 | `t/T-0019-resampler-and-dither` · `D:\dev\Tinwave-worktrees\T-0019-resampler-and-dither` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -44,7 +45,6 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 |---|---|---|---|---|
 | [T-0055](tickets/T-0055-canvas-prose-and-render-harness.md) Canvas prose + local render harness (P2) | chore | S | docs/design | free |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | after T-0019 (same engine paths) |
-| [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | chore | S | desktop tools/capture.ps1 | free |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
