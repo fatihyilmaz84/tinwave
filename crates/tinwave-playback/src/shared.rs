@@ -202,6 +202,23 @@ impl Shared {
         self.reopen.store(pack_reopen(id, 0), Ordering::Release);
     }
 
+    /// Take the request `(id, rate)` out of the slot, if it is still the one published. Exactly
+    /// one caller wins: the engine, which then reopens the output and answers with a `Resume`, or
+    /// the decoder, which withdraws the request because a queue edit changed the track it was
+    /// parked for. A decoder that loses knows the engine is reopening for the request and stays
+    /// parked for the `Resume`; an engine that loses leaves the request alone (it is gone, or a
+    /// newer one replaced it).
+    pub fn take_reopen(&self, id: u32, rate: u32) -> bool {
+        self.reopen
+            .compare_exchange(
+                pack_reopen(id, rate),
+                pack_reopen(id, 0),
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
     /// The pending reopen request as `(id, rate)`; rate 0 means none.
     pub fn reopen_request(&self) -> (u32, u32) {
         unpack_reopen(self.reopen.load(Ordering::Acquire))
@@ -258,6 +275,24 @@ mod tests {
         assert_eq!(sh.reopen_request(), (7, 0));
         sh.park(u32::MAX, u32::MAX, 0, false);
         assert_eq!(sh.reopen_request(), (u32::MAX, u32::MAX));
+    }
+
+    #[test]
+    fn a_reopen_request_is_taken_by_one_caller_and_only_while_it_is_the_published_one() {
+        let sh = Shared::new(1.0);
+        sh.park(3, 96_000, 0, true);
+        // A request that is not the published one (another id, another rate) is not taken.
+        assert!(!sh.take_reopen(2, 96_000));
+        assert!(!sh.take_reopen(3, 44_100));
+        assert_eq!(sh.reopen_request(), (3, 96_000));
+        // The first caller gets it, the second does not.
+        assert!(sh.take_reopen(3, 96_000));
+        assert_eq!(sh.reopen_request(), (3, 0));
+        assert!(!sh.take_reopen(3, 96_000));
+        // A newer request is a new slot content: the old id cannot take it.
+        sh.park(4, 44_100, 0, true);
+        assert!(!sh.take_reopen(3, 96_000));
+        assert!(sh.take_reopen(4, 44_100));
     }
 
     #[test]

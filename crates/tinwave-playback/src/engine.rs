@@ -1,6 +1,7 @@
 //! The control side of the engine: commands in, [`PlaybackEvent`]s out.
 
 use std::collections::HashSet;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
 use std::sync::Arc;
@@ -163,6 +164,13 @@ pub struct Engine {
     /// reported since then.
     grid_base: u64,
     last_grid: u64,
+    /// Output frame (the shared `consumed` count) up to which the position has been shown while an
+    /// old stream played out its buffered tail before a reopen: raised by every read of the
+    /// position during the drain and by the reopen itself. The position never goes back below it,
+    /// not when a queue edit withdraws the reopen (the credit for the tail is gone, but the tail
+    /// was heard) and not when the new stream's latency starts counting. Atomic because the
+    /// position is read through `&self`.
+    heard_floor: AtomicU64,
     reported_underruns: u64,
     output_lost_reported: bool,
 }
@@ -256,6 +264,7 @@ impl Engine {
             announced: None,
             grid_base: 0,
             last_grid: 0,
+            heard_floor: AtomicU64::new(0),
             reported_underruns: 0,
             output_lost_reported: false,
         };
@@ -336,6 +345,12 @@ impl Engine {
     ///
     /// Either way, a refused edit changes nothing, so a caller that records the edit (a signal)
     /// does so on `QueueEdited`.
+    ///
+    /// In exclusive mode the edit may change the sample rate the output has to be reopened at for
+    /// the next track. Until the engine has started reopening it, the request for the old
+    /// successor's rate is withdrawn and the new successor decides: a track at the rate of the
+    /// playing one continues gapless, any other rate asks for its own stream. The listener hears
+    /// the same as without the edit.
     ///
     /// On the last item of the queue, `items` continue the queue like [`append`](Self::append)
     /// does after the end, with the same caveat: an edit that reaches the decoder only after the
@@ -550,6 +565,10 @@ impl Engine {
     /// one audio callback. After a command this reports the command's target until the decoder has
     /// processed it.
     ///
+    /// While exclusive mode waits to replace the stream at a track boundary, the last frames of
+    /// the old track are still in the device buffer: the position goes on through them to the end
+    /// of the track, and stays there (never back) until the new stream is heard.
+    ///
     /// The position always names a track that has a `TrackStarted`:
     /// - While a track is current, it is that track's: never a later track the decoder has just
     ///   opened but [`poll`](Self::poll) has not announced yet, and it stops at the end of the
@@ -571,17 +590,21 @@ impl Engine {
                 .announced
                 .map(|(item, frame)| self.position_of(item, frame));
         }
-        let mut view = self.view();
-        if self.cursor.is_some() {
-            if let Some(seen) = self.seen_seq {
-                if let Some(next) = view.marks.iter().find(|m| m.seq > seen) {
-                    view.played = view.played.min(next.start_frame);
-                    view.marks.retain(|m| m.seq <= seen);
-                }
+        let view = self.announced(self.view());
+        let (idx, frame) = resolve(&view.marks, view.shown)?;
+        Some(self.position_of(view.marks[idx].item.id, frame))
+    }
+
+    /// `view` as far as the control side has announced it: the marks it has not turned into
+    /// events yet are left out, and the position stops at the first of them.
+    fn announced(&self, mut view: View) -> View {
+        if let Some(seen) = self.seen_seq {
+            if let Some(next) = view.marks.iter().find(|m| m.seq > seen) {
+                view.shown = view.shown.min(next.start_frame);
+                view.marks.retain(|m| m.seq <= seen);
             }
         }
-        let (idx, frame) = resolve(&view.marks, view.played)?;
-        Some(self.position_of(view.marks[idx].item.id, frame))
+        view
     }
 
     /// True from a `load`, `seek`, `stop` or `switch_device` call until the decoder thread has
@@ -785,10 +808,14 @@ impl Engine {
                 .as_ref()
                 .map_or(self.sample_rate, |c| c.out_rate);
             let rate_interval = u64::from(out_rate / POSITION_MARKS_PER_SECOND).max(1);
-            let grid = heard.saturating_sub(self.grid_base) / rate_interval;
+            // What the listener hears of the current track, including the tail of an old stream
+            // that is playing out before the output is reopened (the marks of events above still
+            // wait for the next track to be heard).
+            let view = self.announced(view);
+            let grid = view.shown.saturating_sub(self.grid_base) / rate_interval;
             if grid > self.last_grid {
                 self.last_grid = grid;
-                if let Some((idx, frame)) = resolve(&view.marks, heard) {
+                if let Some((idx, frame)) = resolve(&view.marks, view.shown) {
                     let position = self.position_of(view.marks[idx].item.id, frame);
                     self.emit(EventKind::PositionMark { position });
                 }
@@ -854,6 +881,11 @@ impl Engine {
     /// boundary. The listener hears a gap of the old device's buffer, the time the device takes to
     /// open, and up to one poll interval.
     ///
+    /// The engine takes the request (`Shared::take_reopen`) before it closes the old stream; the
+    /// decoder withdraws a request when a queue edit changed the track it was for, and whichever
+    /// takes it first wins, so a `Resume` is only ever sent for a request the decoder still waits
+    /// on.
+    ///
     /// Events: one [`EventKind::OutputReopened`] with the new stream's [`StreamInfo`] (a refused
     /// rate is in its `fallback`); [`EventKind::OutputLost`] when no stream could be opened.
     fn service_reopen(&mut self) {
@@ -870,15 +902,30 @@ impl Engine {
         if rate == 0 || id == self.reopen_done || self.stream.is_none() {
             return;
         }
-        if self.sh.consumed.load(Acquire) < self.sh.reopen_total.load(Acquire) {
+        let (total, drain) = (
+            self.sh.reopen_total.load(Acquire),
+            self.sh.reopen_drain.load(Acquire),
+        );
+        if self.sh.consumed.load(Acquire) < total {
             return;
         }
         let emptied = self.sh.idle_frames.load(Relaxed) >= self.sh.latency_frames.load(Relaxed);
-        if self.sh.reopen_drain.load(Acquire) && !emptied {
+        if drain && !emptied {
+            return;
+        }
+        // The request is the engine's before anything is closed: the decoder withdraws one when a
+        // queue edit changed the track it was parked for, and it can do that until now. Losing
+        // means it did (or a newer request is there): nothing is reopened, the next poll looks again.
+        if !self.sh.take_reopen(id, rate) {
             return;
         }
         // Answered once, whatever the outcome: a device that cannot open is not retried every poll.
         self.reopen_done = id;
+        if drain {
+            // The old stream has played to its last frame and its device buffer has emptied: all of
+            // it has been heard, whatever the latency of the stream that replaces it.
+            self.heard_floor.fetch_max(total, Relaxed);
+        }
         self.stream = None;
         let device = self.device.clone();
         match self.open_stream(device.as_deref(), rate) {
@@ -1087,9 +1134,35 @@ impl Engine {
         } else {
             consumed.saturating_sub(latency)
         };
+        // The position the listener is at: `played`, plus what the device plays of its buffered
+        // tail while the decoder waits for the stream to be replaced (no new frames are consumed
+        // then, but the old ones are still being heard), and never before the end of a stream
+        // that has been replaced (the new stream's latency starts counting there). Events keep
+        // using `played`: the next track is heard when its own frames are.
+        let (_, requested) = self.sh.reopen_request();
+        let draining = requested != 0
+            && self.sh.reopen_drain.load(Acquire)
+            && consumed >= self.sh.reopen_total.load(Acquire);
+        let credit = if draining {
+            self.sh.idle_frames.load(Relaxed).min(latency)
+        } else {
+            0
+        };
+        let shown = if ended {
+            consumed
+        } else {
+            (played + credit)
+                .min(consumed)
+                .max(self.heard_floor.load(Relaxed))
+        };
+        if draining {
+            // What has been shown stays shown, however the drain ends.
+            self.heard_floor.fetch_max(shown, Relaxed);
+        }
         View {
             consumed,
             played,
+            shown,
             eos_total,
             eos_failed,
             ended,
@@ -1147,6 +1220,9 @@ struct View {
     consumed: u64,
     /// Frames heard: consumed minus output latency, or all consumed once the stream has ended.
     played: u64,
+    /// Frames heard as far as the position is concerned: `played`, completed while an old stream
+    /// plays out its device buffer (see `Engine::view`).
+    shown: u64,
     eos_total: u64,
     eos_failed: bool,
     ended: bool,
@@ -1265,6 +1341,36 @@ mod tests {
         engine.poll();
         assert_eq!(handle.opens().len(), 2);
         assert_eq!(reopened(&events.take()), 0);
+    }
+
+    #[test]
+    fn the_engine_takes_the_request_it_answers_so_the_decoder_cannot_withdraw_it_anymore() {
+        let (mut engine, handle, events) = exclusive_engine();
+        engine.sh.park(1, 96_000, 0, false);
+        engine.poll();
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(96_000));
+        assert_eq!(reopened(&events.take()), 1);
+        // A decoder that withdraws now (a queue edit that raced the reopen) loses: the stream it
+        // would have withdrawn the request for is open, and its `Resume` is on the way.
+        assert!(!engine.sh.take_reopen(1, 96_000));
+    }
+
+    #[test]
+    fn a_request_the_decoder_withdrew_is_not_answered() {
+        let (mut engine, handle, events) = exclusive_engine();
+        engine.sh.park(1, 96_000, 0, false);
+        assert!(
+            engine.sh.take_reopen(1, 96_000),
+            "the decoder got there first"
+        );
+        engine.poll();
+        assert_eq!(handle.opens().len(), 1, "no stream was opened");
+        assert_eq!(reopened(&events.take()), 0);
+        assert!(!engine.reopen_pending());
+        // The decoder parks again, for another rate: that request is answered.
+        engine.sh.park(2, 44_100, 0, false);
+        engine.poll();
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(44_100));
     }
 
     #[test]
