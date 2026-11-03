@@ -3,7 +3,7 @@ id: T-0029
 title: Write play records live when a play ends (warm tier)
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0006, T-0024]
@@ -12,9 +12,9 @@ scope:
   - crates/tinwave-signals/src/   # ContextKey packing type only
   - docs/guides/taste-engine.md   # ContextKey layout section
   - docs/rules/storage-budget.md  # context_key line only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0029-live-play-records
+review_round: 1
 created_by: from P-0071
 ---
 

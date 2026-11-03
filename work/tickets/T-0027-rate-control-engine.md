@@ -3,15 +3,15 @@ id: T-0027
 title: Pitch-preserving rate control in the playback engine (bypass at 1.0, flush-and-restart, rate counters)
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0026]
 scope:
   - crates/tinwave-playback/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0027-rate-control-engine
+review_round: 1
 created_by: from P-0051
 ---
 

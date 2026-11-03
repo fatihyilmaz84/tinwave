@@ -29,7 +29,10 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-_none_
+| Ticket | Owner | Branch / worktree |
+|---|---|---|
+| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-builder r1 | `t/T-0027-rate-control-engine` · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
+| [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | tw-builder r1 | `t/T-0029-live-play-records` · `D:\dev\Tinwave-worktrees\T-0029-live-play-records` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -43,9 +46,7 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | next playback ticket |
-| [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | feature | M | tinwave-db, tinwave-signals (ContextKey), taste-engine.md | free: no overlap with playback |
-| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 |
+| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 (same crate) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
