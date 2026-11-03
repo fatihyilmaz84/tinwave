@@ -33,3 +33,7 @@ Token edits must not silently break contrast (text ≥ 4.5:1, UI glyphs ≥ 3:1 
 
 ## Signals & storage
 None.
+
+## Added from P-0156 (T-0043 build-1)
+- Also a headless probe that loads a `TwIcon` scene through `TINWAVE_MAIN_QML` (debug) and asserts no `qrc:` warnings,
+  so TwIcon has coverage while the app does not use it yet.

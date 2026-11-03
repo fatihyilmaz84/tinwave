@@ -3,7 +3,7 @@ id: T-0043
 title: Icon pipeline — Lucide SVGs in the Qt resource file, TwIcon component, sidebar and menu glyphs
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0040]
