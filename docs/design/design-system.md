@@ -30,9 +30,9 @@ One QML tree. The controls style is selected at startup from the OS; layout and 
 |---|---|---|---|
 | Qt Quick Controls style | `FluentWinUI3`, selected explicitly at start-up (Qt's default `Windows` style has no dark mode) | `macOS` | `Fusion` + platform palette (Breeze/Adwaita colors via the platform theme) |
 | Window chrome | System title bar + caption buttons | System title bar, traffic lights, full-size content | Server-side decorations (client-side only if the compositor forces it) |
-| Sidebar backdrop | Mica where supported (needs `QT_QPA_DISABLE_REDIRECTION_SURFACE=1`), else solid `sidebar` | Vibrancy where supported, else solid | Solid `sidebar` |
+| Sidebar backdrop | Mica where supported (Windows 11 22621+; needs `QT_QPA_DISABLE_REDIRECTION_SURFACE=1` set in the CRT environment before Qt starts), else solid `sidebar`. Solid whenever transparency effects are off or high contrast is on | Vibrancy where supported, else solid | Solid `sidebar` |
 | Menu bar | None visible; app-menu button in sidebar header | Global native menu bar (required) | None visible; app-menu button |
-| Menus / context menus | `popupType: Popup.Native` + dark-mode opt-in (`SetPreferredAppMode`, ADR 0007); `Popup.Window` if that fails | Native | Native where supported, else Fusion |
+| Menus / context menus | `popupType: Popup.Native` + dark-mode opt-in (`SetPreferredAppMode`, ADR 0007); native menus follow the app's own scheme (an in-app dark/light override forces dark/light; system default otherwise, and always under high contrast); `Popup.Window` if that fails | Native | Native where supported, else Fusion |
 | File / folder dialogs | `QtQuick.Dialogs` native | Native | XDG portal |
 | Confirmations | Qt Quick `MessageDialog` (FluentWinUI3-themed; Qt has no native one here) | Native alert/sheet | Qt Quick `MessageDialog` (Fusion-themed) |
 | Font | Segoe UI Variable (system) | SF Pro (system) | Desktop font setting |
@@ -49,7 +49,9 @@ Rules:
 - **Never restyle a native control** to look like another platform or like a web control. You may set size,
   `palette` roles from tokens, and layout — not backgrounds/contentItems of native controls.
 - Window effects (Mica, vibrancy) sit behind a `WindowEffects` trait in `apps/tinwave-desktop`
-  (`windows.rs` / `macos.rs` / `linux.rs`); unsupported returns `Unsupported` and the solid token is used.
+  (`src/platform/windows.rs` / `macos.rs` / `linux.rs`, T-0036); unsupported returns `Unsupported` and the solid token
+  is used. QML reads platform state only through the `PlatformSettings` singleton; reduced motion sets every duration
+  token to 0 and high contrast switches Theme to the system palette.
   Media-session integrations live in `tinwave-playback` behind its own trait (architecture.md boundaries).
 - Every input path (mouse, keyboard, media key/OS overlay, tray, dock, mini-player, remote) calls the same
   view-model method with its `InputSource`.

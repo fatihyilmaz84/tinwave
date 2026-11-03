@@ -3,7 +3,7 @@ id: T-0036
 title: Windows platform bridge — reduced motion, high contrast, transparency, dark menu mode, Mica (WindowEffects)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0040]
@@ -46,3 +46,6 @@ Set the app Menu (apps/tinwave-desktop/qml/Sidebar.qml) to `Popup.Native` with t
 - Acceptance additions: screenshots light + dark at 150 % with Mica on and with transparency off (solid fallback);
   a non-default accent via `--accent`; the dark native menu (or the Popup.Window fallback) open in dark mode.
 - Keep it M: if it grows past that, stop and propose a split (e.g. Mica/menus vs settings providers).
+
+## Outcome
+2026-11-03: merged 6d12d44 after review-1 APPROVE (543 tests). design-system §2 updated (P-0190). Follow-ups T-0053; live OS toggles remain the PO runbook (incl. native menu after an OS light→dark switch).

@@ -4,5 +4,5 @@ title: design-system §2/§3: backdrop blockers, menu follows app scheme
 from: T-0036 build-1
 date: 2026-11-03
 size: S
-outcome: accepted → lead applies on T-0036 merge
+outcome: accepted → done by lead on T-0036 merge (2026-11-03)
 ---
