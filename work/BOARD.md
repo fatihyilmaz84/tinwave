@@ -31,13 +31,14 @@ _Maintained by the lead. Last updated: 2026-11-03._
 |---|---|---|
 | [T-0073](tickets/T-0073-wipe-cost-and-lock-guards.md) Wipe tests pin statement count, catch a lock left open (P2) | tw-builder r1 | `t/T-0073-wipe-cost-and-lock-guards` · `D:\dev\Tinwave-worktrees\T-0073-wipe-cost-and-lock-guards` |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-builder r1 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
-| [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-builder r2 (review-1: gap metric can't see the gap; ExclusiveRefused; runbook) | `t/T-0066-exclusive-reopen-device-check` @ fde6b88 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-reviewer r2 (build-2) | `t/T-0066-exclusive-reopen-device-check` @ ca15d73 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
 ## Recently done
 - [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe per privacy tier (signals + context in one call), contention tests robust to load — merged 0d15216 (review r1 APPROVE + lead one-line fix).

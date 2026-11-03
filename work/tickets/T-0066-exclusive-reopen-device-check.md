@@ -3,7 +3,7 @@ id: T-0066
 title: Exclusive reopen on a real device — ignored measurement test, exclusive-only open, harness settle
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0057]
