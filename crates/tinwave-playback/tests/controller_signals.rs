@@ -701,7 +701,9 @@ fn repeat_mode_changed_is_emitted_once_per_change() {
 }
 
 #[test]
-fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
+fn the_mode_of_a_reopened_stream_alone_never_emits_exclusive_mode_toggled() {
+    // The listener's setting never changes (this output reports "not exclusive"), whatever the
+    // streams say: exclusive, exclusive again, then a fallback to shared.
     let mut exclusive = StreamInfo::unknown();
     exclusive.mode = StreamMode::Exclusive;
     let mut shared_fallback = StreamInfo::unknown();
@@ -719,23 +721,15 @@ fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
     rig.hear();
     rig.new_signals();
 
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    let fresh = rig.new_signals();
-    assert_eq!(kinds(&fresh), [SignalKind::ExclusiveModeToggled]);
-    let SignalPayload::ExclusiveModeToggled(p) = fresh[0].payload else {
-        panic!("kind");
-    };
-    assert!(p.on);
-
-    // Still exclusive: no toggle. Then the device refuses exclusive mode and the stream falls
-    // back to shared (`fallback` is set): the device decided, so it is no preference signal.
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    assert!(rig.new_signals().is_empty());
-    rig.ctl.switch_device(None).expect("switch");
-    assert!(
-        rig.new_signals().is_empty(),
-        "an automatic fallback emits no ExclusiveModeToggled"
-    );
+    for device in [Some("dac"), Some("dac"), None] {
+        rig.ctl
+            .switch_device(device.map(str::to_owned))
+            .expect("switch");
+        assert!(
+            rig.new_signals().is_empty(),
+            "a stream that came back {device:?} is no preference"
+        );
+    }
 }
 
 #[test]
@@ -954,12 +948,10 @@ fn a_repeat_mode_set_after_a_session_ended_is_reported_by_the_next_one() {
 }
 
 #[test]
-fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() {
-    let mut exclusive = StreamInfo::unknown();
-    exclusive.mode = StreamMode::Exclusive;
-    let (output, handle, _) = InfoOutput::new(vec![StreamInfo::unknown(), exclusive]);
-    let mut rig = Rig::with_output("sig-exclusive-no-session", Box::new(output), handle);
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
+fn an_exclusive_setting_change_outside_a_session_is_reported_by_the_next_session() {
+    let mut rig = Rig::new("sig-exclusive-no-session");
+    rig.out.set_exclusive(true);
+    rig.ctl.poll();
     assert!(rig.signals().is_empty(), "no session yet");
 
     let a = rig.wav("a.wav", 10 * SECOND);
@@ -982,12 +974,26 @@ fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() 
 }
 
 #[test]
-fn the_stream_the_engine_started_with_is_the_starting_mode_not_a_toggle() {
-    let mut exclusive = StreamInfo::unknown();
-    exclusive.mode = StreamMode::Exclusive;
-    let (output, handle, _) =
-        InfoOutput::new(vec![exclusive.clone(), exclusive, StreamInfo::unknown()]);
-    // No initial mode is passed to the controller: the engine's `OutputOpened` says it.
+fn an_exclusive_setting_changed_back_before_any_session_is_not_reported() {
+    let mut rig = Rig::new("sig-exclusive-undone");
+    rig.out.set_exclusive(true);
+    rig.ctl.poll();
+    rig.out.set_exclusive(false);
+    rig.ctl.poll();
+    let a = rig.wav("a.wav", SECOND);
+    let e = rig.entry(1, &a, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+    );
+}
+
+#[test]
+fn the_setting_the_controller_started_with_is_the_starting_state_not_a_toggle() {
+    let (output, handle) = ManualOutput::new();
+    handle.set_exclusive(true);
     let mut rig = Rig::with_output("sig-exclusive-launch", Box::new(output), handle);
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
@@ -1000,14 +1006,19 @@ fn the_stream_the_engine_started_with_is_the_starting_mode_not_a_toggle() {
     );
 
     rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    assert!(rig.new_signals().is_empty(), "still exclusive");
-    rig.ctl.switch_device(None).expect("switch");
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty(), "the setting did not move");
+    rig.out.set_exclusive(false);
+    rig.ctl.poll();
     let SignalPayload::ExclusiveModeToggled(p) =
         only(&rig.new_signals(), SignalKind::ExclusiveModeToggled).payload
     else {
         panic!("kind");
     };
-    assert!(!p.on, "compared with the stream the engine started with");
+    assert!(
+        !p.on,
+        "compared with the setting the controller started with"
+    );
 }
 
 #[test]

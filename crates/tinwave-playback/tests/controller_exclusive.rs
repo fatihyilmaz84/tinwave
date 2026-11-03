@@ -132,3 +132,92 @@ fn the_listener_turning_exclusive_mode_off_and_on_is_one_toggle_each() {
     };
     assert!(p.on);
 }
+
+/// A one-second 44.1 kHz track: the engine's rate is 48 kHz, so exclusive mode asks for a reopen.
+fn one_track(rig: &Rig) -> tinwave_playback::QueueEntry {
+    let path = rig.dir.path("t.wav");
+    write_sweep_piece(&path, 44_100, 0, 44_100, 2);
+    entry(1, &path, 2 * FRAMES, QueueOrigin::Manual)
+}
+
+fn toggled(events: &[tinwave_signals::SignalEvent]) -> bool {
+    let SignalPayload::ExclusiveModeToggled(p) =
+        only(events, SignalKind::ExclusiveModeToggled).payload
+    else {
+        panic!("kind");
+    };
+    p.on
+}
+
+#[test]
+fn turning_exclusive_off_and_on_while_the_device_has_us_in_shared_is_one_toggle_each() {
+    let mut rig = rig("excl-sig-in-fallback");
+    // The device accepts no exclusive rate: the 44.1 kHz track is played from a shared stream.
+    rig.out.set_device_rates(&[]);
+    let e = one_track(&rig);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.run_until("the track was heard", |r| {
+        !r.of_kind(SignalKind::PlayStarted).is_empty()
+    });
+    assert_eq!(
+        rig.out.opens().iter().map(|o| o.1).collect::<Vec<_>>(),
+        [48_000, 44_100, 48_000],
+        "the exclusive stream was refused and the engine fell back"
+    );
+    assert!(
+        !kinds(&rig.new_signals()).contains(&SignalKind::ExclusiveModeToggled),
+        "the fallback itself is no preference"
+    );
+
+    // The stream is shared already; the listener turns the setting off: a preference.
+    rig.out.set_exclusive(false);
+    rig.ctl.poll();
+    assert!(!toggled(&rig.new_signals()));
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty(), "one reading, one signal");
+
+    // And back on: the device still refuses, the stream stays shared, the signal is the setting's.
+    rig.out.set_exclusive(true);
+    rig.ctl.poll();
+    assert!(toggled(&rig.new_signals()));
+    rig.ctl.switch_device(Some("dac".into())).expect("switch");
+    rig.ctl.poll();
+    assert!(
+        rig.new_signals().is_empty(),
+        "a refused reopen with the setting unchanged says nothing"
+    );
+}
+
+#[test]
+fn a_toggle_made_before_a_session_survives_a_fallback_reopen() {
+    // T-0057 review: the setting was turned on outside a session and the stream reopened
+    // exclusive; then the first load reopened the output at a rate the device refused. The
+    // fallback must not erase the listener's toggle.
+    let (output, handle) = ManualOutput::new();
+    let mut rig = Rig::with_output("excl-sig-deferred-fallback", Box::new(output), handle);
+    rig.out.set_exclusive(true);
+    rig.ctl.switch_device(None).expect("switch");
+    assert!(rig.signals().is_empty(), "no session yet");
+    rig.out.set_device_rates(&[]);
+
+    let e = one_track(&rig);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.run_until("the track was heard", |r| {
+        !r.of_kind(SignalKind::PlayStarted).is_empty()
+    });
+    assert_eq!(
+        rig.out.opens().iter().map(|o| o.1).collect::<Vec<_>>(),
+        [48_000, 48_000, 44_100, 48_000],
+        "the exclusive stream was refused and the engine fell back"
+    );
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::ExclusiveModeToggled,
+            SignalKind::PlayStarted
+        ]
+    );
+    assert!(toggled(&signals));
+}

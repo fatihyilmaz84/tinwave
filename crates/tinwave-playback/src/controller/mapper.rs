@@ -22,7 +22,7 @@ use super::rate_session::RateSessionQueue;
 use super::session::Session;
 use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, RateSession, TimezoneSource};
 use crate::event::{EventKind, LeaveCause, PlaybackEvent, StartCause};
-use crate::{EditId, PlaybackError, QueueItemId, RateStats, StreamMode};
+use crate::{EditId, PlaybackError, QueueItemId, RateStats};
 
 /// A track that has played at least this percentage of its length when it is left counts as
 /// `Completed` (catalog: "reached end or within the last 3 %").
@@ -194,13 +194,16 @@ pub(super) struct Mapper {
     play: Option<Play>,
     /// The engine's pause flag as last reported (it survives a `load`).
     paused: bool,
-    mode: StreamMode,
     repeat: RepeatMode,
+    /// The listener's exclusive-mode setting as the controller last read it from the output
+    /// (T-0067). It is what the signal follows, never the mode of the stream: a device that
+    /// refuses exclusive mode leaves the setting where it was.
+    exclusive: bool,
     /// The values last put into a signal (or seen by the bus with their category off). A change
     /// made outside a session is only recorded here; the next session reports it right after
     /// `SessionStarted`, so a preference change is never lost for want of a session.
     reported_repeat: RepeatMode,
-    reported_mode: StreamMode,
+    reported_exclusive: bool,
     /// Where finished `RateSession`s wait for their consumer.
     rate_sessions: RateSessionQueue,
 }
@@ -222,6 +225,7 @@ impl Mapper {
         timezone: Arc<dyn TimezoneSource>,
         sample_rate: u32,
         initial_repeat: RepeatMode,
+        initial_exclusive: bool,
     ) -> Self {
         Self {
             coalescer: GestureCoalescer::new(bus.clone()),
@@ -237,11 +241,10 @@ impl Mapper {
             session: None,
             play: None,
             paused: false,
-            // Until the engine's `OutputOpened` (the first event it produces) says otherwise.
-            mode: StreamMode::Shared,
             repeat: initial_repeat,
+            exclusive: initial_exclusive,
             reported_repeat: initial_repeat,
-            reported_mode: StreamMode::Shared,
+            reported_exclusive: initial_exclusive,
             rate_sessions: RateSessionQueue::default(),
         }
     }
@@ -474,6 +477,21 @@ impl Mapper {
         }
     }
 
+    /// The listener's exclusive-mode setting, as the output reports it now (T-0067). Called with
+    /// every reading; a value equal to the last one does nothing. Like
+    /// [`set_repeat`](Self::set_repeat) it records the change and, in a session, reports it; outside
+    /// one the next session does. Nothing about the stream the engine opened feeds this.
+    pub fn set_exclusive_setting(&mut self, at: UtcMillis, on: bool) {
+        if on == self.exclusive {
+            return;
+        }
+        self.expire(at);
+        self.exclusive = on;
+        if self.session.is_some() {
+            self.report_exclusive(at);
+        }
+    }
+
     /// `rates` are the engine's rate counters as of the drain this event is part of (the same for
     /// every event of one drain): the book `RateSession` is derived from.
     pub fn handle(&mut self, event: PlaybackEvent, cx: Cx, rates: &RateStats) {
@@ -533,8 +551,9 @@ impl Mapper {
             EventKind::OutputLost => {
                 tracing::warn!("audio output lost");
             }
-            EventKind::OutputOpened { info, .. } => self.output_opened(&info),
-            EventKind::OutputReopened { info, .. } => self.output_reopened(at, &info),
+            EventKind::OutputOpened { info, .. } | EventKind::OutputReopened { info, .. } => {
+                Self::output_stream(&info);
+            }
         }
     }
 
@@ -608,8 +627,8 @@ impl Mapper {
         if self.repeat != self.reported_repeat {
             self.report_repeat(at);
         }
-        if self.mode != self.reported_mode {
-            self.report_mode(at);
+        if self.exclusive != self.reported_exclusive {
+            self.report_exclusive(at);
         }
     }
 
@@ -629,9 +648,11 @@ impl Mapper {
         });
     }
 
-    fn report_mode(&mut self, at: UtcMillis) {
-        let on = self.mode == StreamMode::Exclusive;
-        self.reported_mode = self.mode;
+    /// Emits `ExclusiveModeToggled` for the current setting (deferred the same way as
+    /// [`report_repeat`](Self::report_repeat) when the change was made outside a session).
+    fn report_exclusive(&mut self, at: UtcMillis) {
+        let on = self.exclusive;
+        self.reported_exclusive = on;
         self.send(
             SignalKind::ExclusiveModeToggled,
             at,
@@ -1023,30 +1044,13 @@ impl Mapper {
         });
     }
 
-    /// The stream the engine started with: the starting state, not a change, so it seeds both the
-    /// current and the reported mode and emits nothing.
-    fn output_opened(&mut self, info: &crate::StreamInfo) {
+    /// A stream the engine opened or reopened. The stream is a fact about the engine, not a
+    /// preference (an automatic fallback, a reopen at another sample rate), so it is never a
+    /// signal: `ExclusiveModeToggled` follows the listener's setting
+    /// ([`set_exclusive_setting`](Self::set_exclusive_setting)). A fallback is only logged.
+    fn output_stream(info: &crate::StreamInfo) {
         if let Some(reason) = &info.fallback {
             tracing::warn!(%reason, "the output stream is not what was asked for");
-        }
-        self.mode = info.mode;
-        self.reported_mode = info.mode;
-    }
-
-    fn output_reopened(&mut self, at: UtcMillis, info: &crate::StreamInfo) {
-        if let Some(reason) = &info.fallback {
-            tracing::warn!(%reason, "the output stream is not what was asked for");
-            // The device, not the listener, decided: an automatic fallback (exclusive refused)
-            // is a fact about the engine, not a preference, so it is no `ExclusiveModeToggled`.
-            // The mode it left us in is the new starting state for what the listener does next.
-            self.mode = info.mode;
-            self.reported_mode = info.mode;
-            return;
-        }
-        self.mode = info.mode;
-        // Outside a session the change waits for the next one (see `report_preferences`).
-        if self.mode != self.reported_mode && self.session.is_some() {
-            self.report_mode(at);
         }
     }
 
@@ -1205,6 +1209,7 @@ mod tests {
             Arc::new(FixedTimezone(TzOffsetMin::new(0).expect("offset"))),
             48_000,
             RepeatMode::Off,
+            false,
         );
         let entries: Vec<QueueEntry> = (1..=3).map(entry).collect();
         mapper.set_queue(&entries);
