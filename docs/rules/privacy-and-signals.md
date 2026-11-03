@@ -76,8 +76,11 @@ Never collect, even with consent:
   either of two things, and it is logged either way: **a reader that still holds an older snapshot** (the pages of the
   wipe cannot be copied past it, so the old content is also still in the main file), or **the signal writer holding
   the write lock** (a batch that queued behind the wipe; the wipe's pages are already in the main file, and only the
-  WAL file keeps the frames from before the wipe). In both cases the signal writer's next checkpoint finishes the job,
-  at most its idle interval (60 s) later. The signal writer keeps running: its batches
+  WAL file keeps the frames from before the wipe). In the writer case the signal writer's next checkpoint finishes the
+  job, at most its idle interval (60 s) later. In the reader case it cannot: the writer's checkpoint is blocked by the
+  same reader and retries every interval, so the deleted content stays in the main file and the WAL file for as long as
+  that reader stays open, and the first checkpoint after the reader ended its read transaction (at most one idle
+  interval later) removes it. The signal writer keeps running: its batches
   wait for the wipe and are stored after it (a batch that waits longer than the 5 s busy timeout is kept and
   retried, not lost), and wipe everything makes it drop its id caches (a category or tier wipe leaves
   the dictionaries alone, so the caches stay). A play that is in progress when its `PlayStarted` is wiped ends

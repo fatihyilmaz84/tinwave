@@ -216,6 +216,14 @@ impl SignalWiper {
         Ok(Self { conn })
     }
 
+    /// The wiper's connection, so that the integration tests can install a `trace_v2` hook and count
+    /// the statements a wipe runs (`tests/common`, `statements_of`). Not part of the API: nothing in
+    /// the product calls it, and a hidden item is not documented or supported.
+    #[doc(hidden)]
+    pub fn connection_for_tests(&mut self) -> &mut Connection {
+        &mut self.conn
+    }
+
     /// Wipes the context of `categories`: the fields they own are set to unknown in every
     /// `context_snapshot.key` and `play.context_key`. One transaction: on error nothing changed.
     ///
@@ -352,9 +360,11 @@ impl SignalWiper {
     /// - **a reader holds an older snapshot** of the database: `PASSIVE` cannot copy past it, so
     ///   the main file is not yet current either.
     ///
-    /// Either way the writer's own `TRUNCATE` checkpoint (`SignalStore::checkpoint_if_due`) finishes
-    /// on its next idle interval; until then the deleted content stays readable in the WAL file
-    /// (and, in the reader case, in the main file). A skip is logged (no values).
+    /// The writer's own `TRUNCATE` checkpoint (`SignalStore::checkpoint_if_due`) finishes it: on its
+    /// next idle interval in the writer case; in the reader case it is blocked by the same reader and
+    /// retries every interval, so it finishes on the first interval after the reader ended its read
+    /// transaction. Until then the deleted content stays readable in the WAL file (and, in the
+    /// reader case, in the main file). A skip is logged (no values).
     ///
     /// Two steps. `PASSIVE` copies the bulk of the WAL while the writer keeps committing: a
     /// `TRUNCATE` checkpoint holds the write lock for the whole copy, and a wipe of the reference
