@@ -3,7 +3,7 @@ id: T-0053
 title: Platform bridge follow-ups — portable winId, same-process window guard, menu re-flush, tighter probe test
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0036]
@@ -43,3 +43,6 @@ None.
 ## Scope note (lead, 2026-11-03)
 - cpp/ also carries `tw_qpa_name()` (QGuiApplication::platformName) next to the winId shim: needed for the QPA gate;
   accepted (ADR 0008 decision 4).
+
+## Outcome
+2026-11-03: merged 78aa25b after review-2 APPROVE; lead replaced a literal NUL byte in a windows.rs test string with `\0`. Gates on main green: 596 passed / 6 skipped.

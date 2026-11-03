@@ -27,7 +27,9 @@ _Maintained by the lead. Last updated: 2026-11-02._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-_none_
+| Ticket | Owner | Branch / worktree |
+|---|---|---|
+| [T-0055](tickets/T-0055-canvas-prose-and-render-harness.md) Canvas prose + local render harness (P2) | tw-builder r1 | `t/T-0055-canvas-prose-and-render-harness` · `D:\dev\Tinwave-worktrees\T-0055-canvas-prose-and-render-harness` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -36,12 +38,10 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither (E-01) | tw-reviewer r1 (build-1: continuous same-rate, TPDF on int outputs, 595 tests) | `t/T-0019-resampler-and-dither` @ b89cb0b · `D:\dev\Tinwave-worktrees\T-0019-resampler-and-dither` |
-| [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (P2) | tw-reviewer r2 (build-2: portable headless rule, pinned switch, FreeLibrary on miss) | `t/T-0053-platform-bridge-followups` @ 1aa919f · `D:\dev\Tinwave-worktrees\T-0053-platform-bridge-followups` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0055](tickets/T-0055-canvas-prose-and-render-harness.md) Canvas prose + local render harness (P2) | chore | S | docs/design | free |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | after T-0019 (same engine paths) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
@@ -98,6 +98,7 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (portable winId, same-process guard, re-flush) | 78aa25b | build-1/2, review-1 (changes), review-2 (approve); 596 tests |
 | [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop mode, click/key steps, readiness, cursor restore | dba3722 | build-1/2, review-1 (changes); round 2 checked by lead |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Canvas token sheets synced with §3.1, nav icons 20 px | MERGE | build-1, review-1 (approve) |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith Stretch wrapper | 26d5319 | build-1, review-1 (approve) |

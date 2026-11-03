@@ -632,7 +632,7 @@ mod tests {
             Ok("1"),
             "the OS copy is updated too"
         );
-        assert!(set_crt_env("BAD NAME", "1").is_err());
+        assert!(set_crt_env("BAD\0NAME", "1").is_err());
     }
 
     #[test]
