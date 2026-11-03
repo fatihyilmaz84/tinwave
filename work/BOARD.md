@@ -30,6 +30,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r1 | `t/T-0057-exclusive-reopen-at-file-rate` · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
+| [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-builder r1 | `t/T-0065-wipe-follow-ups` · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -48,7 +49,6 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups: cache invalidation, rollup plays, stale start, checkpoint (P1) | chore | S | tinwave-db | free: no overlap with playback |
 | [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier (P2) | feature | S | tinwave-db | after T-0065 (same files) |
 | [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | feature | S | tinwave-playback controller | after T-0057 (same crate) |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
