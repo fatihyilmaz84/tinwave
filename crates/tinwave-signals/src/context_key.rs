@@ -276,6 +276,8 @@ pub struct ContextFieldSet(u8);
 impl ContextFieldSet {
     /// No field.
     pub const EMPTY: Self = Self(0);
+    /// Every field.
+    pub const ALL: Self = Self(0b111_1111);
 
     /// This set plus `field`.
     #[must_use]
@@ -301,8 +303,10 @@ impl ContextFieldSet {
         self.0 == 0
     }
 
-    /// The bits of the fields in the set.
-    const fn bits(self) -> u32 {
+    /// The bits the fields of the set occupy in a packed key (never the version or reserved
+    /// nibbles). [`ContextFieldSet::ALL`] gives the whole field region, bits 0-23.
+    #[must_use]
+    pub const fn bits(self) -> u32 {
         let mut bits = 0;
         let mut i = 0;
         while i < ContextField::ALL.len() {
@@ -946,6 +950,14 @@ mod tests {
             seen |= f.bits();
         }
         assert_eq!(seen, FIELD_BITS);
+        assert_eq!(ContextFieldSet::ALL.bits(), FIELD_BITS);
+        assert!(ContextField::ALL
+            .iter()
+            .all(|f| ContextFieldSet::ALL.contains(*f)));
+        assert_eq!(
+            ContextFieldSet::ALL,
+            ContextField::ALL.iter().copied().collect()
+        );
     }
 
     #[test]

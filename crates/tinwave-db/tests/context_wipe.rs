@@ -7,6 +7,8 @@
 
 mod common;
 
+use std::time::{Duration, Instant};
+
 use common::{count, Ids, TempDb, T0};
 use rusqlite::{params, Connection};
 use tinwave_core::{ManualClock, SignalEventId, Tier, UtcMillis};
@@ -14,9 +16,9 @@ use tinwave_db::{
     ContextCategory, DbError, PersistentSettings, SignalStore, SignalWiper, WipeReport,
 };
 use tinwave_signals::{
-    ActivityGuess, ContextKey, ContextSnapshotId, Daypart, Fraction, InputSource, OutputClass,
-    PlaceSlot, PlayOrigin, PlayStartedPayload, QueueOrigin, Section, SignalCategory, SignalEvent,
-    SignalPayload, SkipPayload, TemperatureBand, WeatherCondition, WeekdayType,
+    ActivityGuess, ContextFieldSet, ContextKey, ContextSnapshotId, Daypart, Fraction, InputSource,
+    OutputClass, PlaceSlot, PlayOrigin, PlayStartedPayload, QueueOrigin, Section, SignalCategory,
+    SignalEvent, SignalPayload, SkipPayload, TemperatureBand, WeatherCondition, WeekdayType,
 };
 
 /// The seven fields of a `ContextKey`, by test-local name.
@@ -96,24 +98,34 @@ impl Fixture {
         let db = TempDb::new();
         SignalStore::open(&db.path).unwrap();
         let conn = db.reader();
-        for (i, key) in play_keys.iter().enumerate() {
-            let i = i64::try_from(i).unwrap();
-            conn.execute(
-                "INSERT INTO play (device, session, recording, started_ts, listened_ds, \
-                 end_reason, end_frac, flags, context_key) \
-                 VALUES (1, 1, ?1, ?2, 600, 0, 255, 5, ?3)",
-                params![100 + i, T0 + i * 1_000, key],
-            )
-            .unwrap();
+        // One transaction: the reference-size tests insert a hundred thousand rows.
+        conn.execute_batch("BEGIN;").unwrap();
+        {
+            let mut insert = conn
+                .prepare_cached(
+                    "INSERT INTO play (device, session, recording, started_ts, listened_ds, \
+                     end_reason, end_frac, flags, context_key) \
+                     VALUES (1, 1, ?1, ?2, 600, 0, 255, 5, ?3)",
+                )
+                .unwrap();
+            for (i, key) in play_keys.iter().enumerate() {
+                let i = i64::try_from(i).unwrap();
+                insert
+                    .execute(params![100 + i, T0 + i * 1_000, key])
+                    .unwrap();
+            }
+            let mut insert = conn
+                .prepare_cached(
+                    "INSERT INTO context_snapshot (id, hash, key, fields) \
+                     VALUES (?1, ?2, ?3, x'00')",
+                )
+                .unwrap();
+            for (i, key) in snapshot_keys.iter().enumerate() {
+                let i = i64::try_from(i).unwrap();
+                insert.execute(params![i + 1, (i + 1) * 7919, key]).unwrap();
+            }
         }
-        for (i, key) in snapshot_keys.iter().enumerate() {
-            let i = i64::try_from(i).unwrap();
-            conn.execute(
-                "INSERT INTO context_snapshot (id, hash, key, fields) VALUES (?1, ?2, ?3, x'00')",
-                params![i + 1, (i + 1) * 7919, key],
-            )
-            .unwrap();
-        }
+        conn.execute_batch("COMMIT;").unwrap();
         let wiper = SignalWiper::open(&db.path).unwrap();
         Self { db, wiper }
     }
@@ -542,4 +554,239 @@ fn a_real_play_loses_the_wiped_fields_and_events_and_rollups_stay() {
         603,
         "the monthly rollup carries no context and is untouched"
     );
+}
+
+// ---------------------------------------------------------------- many keys, big tables
+
+/// A small deterministic generator (xorshift), so a failure is reproducible.
+struct Rng(u64);
+
+impl Rng {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    /// A value in `0..n`.
+    fn below(&mut self, n: usize) -> usize {
+        usize::try_from(self.next() % u64::try_from(n).unwrap()).unwrap()
+    }
+}
+
+/// A valid key whose every field is random; a field is unknown one time in `len + 1`.
+fn random_key(rng: &mut Rng) -> u32 {
+    fn pick<T: Copy>(rng: &mut Rng, all: &[T]) -> Option<T> {
+        let i = rng.below(all.len() + 1);
+        all.get(i).copied()
+    }
+    let mut key = ContextKey::UNKNOWN;
+    if let Some(v) = pick(rng, Daypart::ALL) {
+        key = key.with_daypart(v);
+    }
+    if let Some(v) = pick(rng, WeekdayType::ALL) {
+        key = key.with_weekday_type(v);
+    }
+    if let Some(v) = pick(rng, WeatherCondition::ALL) {
+        key = key.with_condition(v);
+    }
+    if let Some(v) = pick(rng, TemperatureBand::ALL) {
+        key = key.with_temperature(v);
+    }
+    if let Some(v) = pick(rng, OutputClass::ALL) {
+        key = key.with_device_class(v);
+    }
+    if let Some(v) = pick(rng, ActivityGuess::ALL) {
+        key = key.with_activity(v);
+    }
+    // Slot 0 is "unknown" and cannot be constructed: the place stays unknown then.
+    let slot = u8::try_from(rng.below(64)).unwrap();
+    if let Ok(slot) = PlaceSlot::new(slot) {
+        key = key.with_place(slot);
+    }
+    key.raw()
+}
+
+/// Keys no `ContextKey` produces but a database may hold: the wipe works on bits and must agree
+/// with `ContextKey::clear_raw` on them too (a version nibble alone, reserved bits, other
+/// versions, undefined field codes).
+const ODD_KEYS: [u32; 7] = [
+    1 << 28,
+    (1 << 28) | (1 << 24),
+    3,
+    0xDEAD_BEEF,
+    0xFFFF_FFFF,
+    0x0000_0001,
+    (2 << 28) | (7 << 5),
+];
+
+/// The semantics are `ContextKey::clear_raw`, row by row: hundreds of distinct random keys (many
+/// more rows than keys) plus odd ones, for every category and every tier, in both tables.
+#[test]
+fn many_distinct_keys_are_rewritten_exactly_as_clear_raw_does() {
+    let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
+    let mut distinct: Vec<u32> = (0..600).map(|_| random_key(&mut rng)).collect();
+    distinct.extend(ODD_KEYS);
+    distinct.push(0);
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() > 400, "{} distinct keys", distinct.len());
+    // Several rows per key, in a shuffled order, and the snapshots in another one.
+    let mut rows = || -> Vec<u32> {
+        (0..3_000)
+            .map(|_| distinct[rng.below(distinct.len())])
+            .collect()
+    };
+    let plays = rows();
+    let snapshots = rows();
+
+    let mut wipes: Vec<(
+        String,
+        ContextFieldSet,
+        Option<ContextCategory>,
+        Option<Tier>,
+    )> = Vec::new();
+    for category in ContextCategory::ALL {
+        wipes.push((
+            format!("{category:?}"),
+            category.fields(),
+            Some(category),
+            None,
+        ));
+    }
+    for tier in [Tier::T1, Tier::T2, Tier::T3] {
+        wipes.push((
+            tier.to_string(),
+            ContextCategory::tier_fields(tier),
+            None,
+            Some(tier),
+        ));
+    }
+    for (name, fields, category, tier) in wipes {
+        let mut fx = Fixture::new(&plays, &snapshots);
+        let report = match (category, tier) {
+            (Some(category), _) => fx.wiper.wipe_context(&[category]).unwrap(),
+            (None, Some(tier)) => fx.wiper.wipe_context_tier(tier).unwrap(),
+            (None, None) => unreachable!(),
+        };
+        let expect = |keys: &[u32]| -> Vec<u32> {
+            keys.iter()
+                .map(|k| ContextKey::clear_raw(*k, fields))
+                .collect()
+        };
+        assert_eq!(fx.play_keys(), expect(&plays), "{name}: play rows");
+        assert_eq!(fx.snapshot_keys(), expect(&snapshots), "{name}: snapshots");
+        let changed = |keys: &[u32]| {
+            keys.iter()
+                .filter(|k| ContextKey::clear_raw(**k, fields) != **k)
+                .count()
+        };
+        assert_eq!(
+            report,
+            WipeReport {
+                plays_rewritten: changed(&plays),
+                snapshots_rewritten: changed(&snapshots),
+            },
+            "{name}"
+        );
+    }
+}
+
+/// The reference listener's `play` table (120 plays a day for 3 years, 131 400 rows) with
+/// thousands of distinct keys. A wipe must hold the write lock for about a scan, not one scan per
+/// key: with the one-statement-per-key rewrite it ran for tens of seconds, the writer's batches
+/// waited out their 5 s busy timeout and failed with "database is locked".
+///
+/// The batch is issued while the wipe runs (the probe sees its lock) and must be stored.
+#[test]
+fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
+    const PLAYS: usize = 131_400;
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    let mut distinct: Vec<u32> = (0..4_000).map(|_| random_key(&mut rng)).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() >= 1_500, "{} distinct keys", distinct.len());
+    let plays: Vec<u32> = (0..PLAYS).map(|i| distinct[i % distinct.len()]).collect();
+    let Fixture { db, mut wiper } = Fixture::new(&plays, &distinct);
+
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let mut ids = Ids::new(61);
+    let (device, session, rec, source) =
+        (ids.device(), ids.session(), ids.recording(), ids.source());
+    let make = |seq: u64, at: i64, payload: SignalPayload| SignalEvent {
+        id: SignalEventId::new(device, seq),
+        ts: UtcMillis::new(T0 + at),
+        session,
+        recording: Some(rec),
+        source: Some(source),
+        pos_ds: None,
+        payload,
+        ctx: None,
+    };
+    let events = [
+        make(
+            0,
+            0,
+            SignalPayload::PlayStarted(PlayStartedPayload {
+                origin: PlayOrigin::Queue,
+                input: InputSource::Auto,
+            }),
+        ),
+        make(
+            1,
+            90_000,
+            SignalPayload::Skipped(SkipPayload {
+                fraction: Fraction::from_raw(100),
+                input: InputSource::Mouse,
+                section: Section::UNKNOWN,
+                queue_origin: QueueOrigin::Manual,
+            }),
+        ),
+    ];
+
+    let probe = db.reader();
+    probe.busy_timeout(Duration::ZERO).unwrap();
+    let (report, wipe_time, batch_time, batch) = std::thread::scope(|scope| {
+        let wipe = scope.spawn(|| {
+            let started = Instant::now();
+            let report = wiper
+                .wipe_context(&[ContextCategory::NetworkPlace])
+                .unwrap();
+            (report, started.elapsed())
+        });
+        // Wait until the wipe holds the write lock (or has already finished).
+        while probe.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok() && !wipe.is_finished() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let started = Instant::now();
+        let batch = store.write_batch(&events, &[]);
+        let batch_time = started.elapsed();
+        let (report, wipe_time) = wipe.join().unwrap();
+        (report, wipe_time, batch_time, batch)
+    });
+
+    let batch = batch.unwrap_or_else(|e| {
+        panic!(
+            "the batch failed after {batch_time:?} (the wipe took {wipe_time:?}): {}",
+            e.chain()
+        )
+    });
+    assert_eq!(batch.plays_written, 1);
+    // The wipe did its work on the big table, and the new play is there too.
+    let conn = db.reader();
+    assert_eq!(
+        count(&conn, "SELECT count(*) FROM play"),
+        i64::try_from(PLAYS).unwrap() + 1
+    );
+    assert!(report.plays_rewritten > 0);
+    let keys = column(
+        &conn,
+        "SELECT context_key FROM play ORDER BY id LIMIT 131400",
+    );
+    let expect: Vec<u32> = plays
+        .iter()
+        .map(|k| ContextKey::clear_raw(*k, ContextCategory::NetworkPlace.fields()))
+        .collect();
+    assert_eq!(keys, expect);
 }

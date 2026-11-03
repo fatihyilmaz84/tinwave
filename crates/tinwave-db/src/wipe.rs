@@ -33,20 +33,37 @@
 //! evening. It is owned by the foreground-app category (its sensitive values come from there) and
 //! derived from the network place and the clock too, so wiping any of the three clears it.
 //! Idle, fullscreen and power (T1) also feed it but are not a modeled category, so they clear
-//! nothing. Calendar (T2) has no `ContextKey` field. T0 has none either, so wiping T0 context is
-//! a no-op. Wiping a tier clears the fields of all its categories.
+//! nothing; if one ever becomes a wipeable category it must be added to
+//! [`ContextCategory::derived_fields`] for activity. Calendar (T2) has no `ContextKey` field. T0
+//! has none either, so wiping T0 context is a no-op. Wiping a tier clears the fields of all its
+//! categories.
+//!
+//! # Cost and locking
+//!
+//! A wipe holds the write lock of `signals.db` for its whole transaction, and the signal writer's
+//! batches wait for it (5 s busy timeout) instead of failing. So the transaction is short: each
+//! of the two tables is scanned a fixed number of times (once to check the stored keys, once to
+//! rewrite them), whatever the number of distinct keys, and only rows that change are written.
+//! `play.context_key` has no index and gets none for this (`storage-budget.md`). Measured with
+//! 131 400 plays (3 years of the reference listener) and thousands of distinct keys: see the
+//! `a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved` test.
 //!
 //! # Not yet covered
 //!
 //! `context_snapshot.fields` (the quantized `ContextFields` blob) has no encoding yet, so this
 //! wipe cannot remove a category's values from it. The ticket that defines the blob must extend
 //! [`SignalWiper`] in the same transaction; until then only the keys are rewritten.
+//!
+//! `context_snapshot.hash` (a hash of the quantized fields, UNIQUE) is derived from the same
+//! values: after a wipe a row's `key` no longer matches its `hash` and `fields`. A context hub
+//! that dedupes against the database by hash must account for that; this belongs with the blob
+//! work above.
 
 use std::path::Path;
 
-use rusqlite::{Connection, Transaction, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use tinwave_core::Tier;
-use tinwave_signals::{ContextField, ContextFieldSet, ContextKey};
+use tinwave_signals::{ContextField, ContextFieldSet};
 
 use crate::connection;
 use crate::migrate::migrate;
@@ -214,49 +231,63 @@ impl SignalWiper {
     }
 }
 
-/// Rewrites `column` of `table` with the `fields` cleared, one `UPDATE` per distinct stored key
-/// that changes, and returns how many rows changed. There are few distinct keys (a key is a
-/// bucket, not a moment), so this is a handful of statements, not one per row.
+/// Rewrites `column` of `table` with the `fields` cleared and returns how many rows changed.
 ///
-/// The keys to rewrite are all read before the first update. Clearing is idempotent, so a key
-/// that an earlier update produced is its own result and never changes again.
+/// Cost: one scan of the table to look for a value that is not a `u32`, and one `UPDATE` scan
+/// that rewrites the rows that change, in the SQL below. Never one statement per distinct key:
+/// `play.context_key` has no index (the storage budget does not pay for one), so a statement per
+/// key would scan the table once per key. For the reference listener (131 400 plays in 3 years,
+/// thousands of distinct keys) that held the write lock for many seconds and made the writer's
+/// batches fail with `SQLITE_BUSY`.
+///
+/// The `UPDATE` is [`tinwave_signals::ContextKey::clear_raw`] in SQL, with `keep` the bits that stay and `region`
+/// the field bits 0-23: the result is `c & keep`, or 0 when no field bit is left in it. A row
+/// changes when it has a bit to clear, or when it is a non-zero key with no field bit at all (a
+/// version nibble alone: `clear_raw` makes it the all-unknown 0), and a test pins both against
+/// `clear_raw`. Rows that do not change are not written.
 fn rewrite_keys(
     tx: &Transaction<'_>,
     table: &'static str,
     column: &'static str,
     fields: ContextFieldSet,
 ) -> Result<usize, DbError> {
-    let keys: Vec<i64> = {
-        let mut stmt = tx
-            .prepare(&format!(
-                "SELECT DISTINCT {column} FROM {table} WHERE {column} != 0 ORDER BY {column}"
-            ))
-            .map_err(DbError::sqlite("listing the stored context keys"))?;
-        let rows = stmt
-            .query_map([], |row| row.get(0))
-            .map_err(DbError::sqlite("listing the stored context keys"))?;
-        rows.collect::<rusqlite::Result<_>>()
-            .map_err(DbError::sqlite("listing the stored context keys"))?
-    };
-    let mut update = tx
-        .prepare(&format!(
-            "UPDATE {table} SET {column} = ?1 WHERE {column} = ?2"
-        ))
-        .map_err(DbError::sqlite("preparing the context key rewrite"))?;
-    let mut rewritten = 0;
-    for old in keys {
-        let raw = u32::try_from(old).map_err(|_| DbError::OutOfRange {
+    // A key that is not an integer in `0..=u32::MAX` cannot be cleaned bit by bit; stop and roll
+    // back rather than report success with a row left behind. The check also guarantees that
+    // the `UPDATE` below sees only valid `u32` values.
+    let stray = tx
+        .query_row(
+            &format!(
+                "SELECT {column} FROM {table} \
+                 WHERE typeof({column}) != 'integer' OR {column} < 0 OR {column} > ?1 LIMIT 1"
+            ),
+            [i64::from(u32::MAX)],
+            |row| {
+                Ok(match row.get_ref(0)? {
+                    rusqlite::types::ValueRef::Integer(n) => n.unsigned_abs(),
+                    _ => u64::MAX,
+                })
+            },
+        )
+        .optional()
+        .map_err(DbError::sqlite("checking the stored context keys"))?;
+    if let Some(value) = stray {
+        return Err(DbError::OutOfRange {
             what: "stored context key",
-            value: old.unsigned_abs(),
-        })?;
-        let new = ContextKey::clear_raw(raw, fields);
-        if new != raw {
-            rewritten += update
-                .execute([i64::from(new), old])
-                .map_err(DbError::sqlite("rewriting a context key"))?;
-        }
+            value,
+        });
     }
-    Ok(rewritten)
+    let clear = i64::from(fields.bits());
+    let keep = i64::from(u32::MAX) ^ clear;
+    let region = i64::from(ContextFieldSet::ALL.bits());
+    tx.execute(
+        &format!(
+            "UPDATE {table} SET {column} = \
+                 CASE WHEN ({column} & ?1) & ?3 = 0 THEN 0 ELSE {column} & ?1 END \
+             WHERE {column} != 0 AND (({column} & ?2) != 0 OR ({column} & ?3) = 0)"
+        ),
+        [keep, clear, region],
+    )
+    .map_err(DbError::sqlite("rewriting the context keys"))
 }
 
 #[cfg(test)]
