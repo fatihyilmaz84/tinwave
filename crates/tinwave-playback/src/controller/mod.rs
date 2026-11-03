@@ -158,7 +158,8 @@
 //!   ([`ControllerDiagnostics::rate_sessions_dropped`]).
 //! - **One per heard play**, when the play ends (`Finished`, `Replaced` or `Stopped`; a play that
 //!   outlived its session still gets its value). None for a play that was never heard or that
-//!   failed (`Failed`), for a play with no counted audio, and none while the Speed category is
+//!   failed (`Failed`), for a play with no counted audio between its two readings (also a heard
+//!   play shorter than one poll, whose start and leave share one reading), and none while the Speed category is
 //!   off: the start counters are not even kept if it is off then, so a play that straddles a
 //!   toggle (on or off) has none.
 //! - **A play spent entirely at 1.0 has one**, equal to 1.0: the catalog row is "per play" with no
@@ -167,8 +168,9 @@
 //!   when they reach the speaker (ADR 0006, "Implementation (T-0027)", note 8), and the controller
 //!   reads them up to one poll after the event. A play's edges are off by about one device latency
 //!   plus one poll; consecutive plays share their boundary, so nothing is counted twice. The
-//!   value is off by at most (latency + 100 ms) x (the difference between the rates played) /
-//!   (the play's length); a play at one rate throughout is exact.
+//!   value is off by at most 2 x (latency + the poll interval, 100 ms by default) x (the
+//!   difference between the rates played) / (the play's length), one term per edge; a play at
+//!   one rate throughout is exact.
 //! - **Exclusive mode.** `wall_frames` counts frames at whichever stream rate played them (T-0057);
 //!   the time-weighted rate is a ratio of the two counters and is not affected by a reopen.
 //!
