@@ -1,33 +1,44 @@
-//! Wiping signal data: one signal category, or everything in `signals.db`.
+//! Wiping signal data: signal categories, privacy tiers, or everything in `signals.db`.
 //!
 //! The statements of the wipes of [`SignalWiper`](crate::SignalWiper); this module owns the rule
 //! for **what is derived from what** (`docs/rules/privacy-and-signals.md`, "Wipe"), written as
 //! tables so the rule is read, reviewed and tested in one place.
 //!
-//! # A category wipe
+//! # A wipe of signal kinds
 //!
-//! A [`SignalCategory`] is a catalog section (`SignalCategory::of` maps every kind to one). Wiping
-//! it deletes, in one transaction:
+//! Every wipe of signals is a wipe of a **set of [`SignalKind`]s**: a category wipe is the kinds
+//! of a [`SignalCategory`] (a catalog section, `SignalCategory::of` maps every kind to one), a
+//! tier wipe is the kinds whose `SignalKind::tier` is in the wiped tiers. It deletes, in one
+//! transaction:
 //!
-//! - its `signal_event` rows and its `ui_counter` rows (the counters of the Browsing category);
+//! - those kinds' `signal_event` rows and `ui_counter` rows (the counters of the Browsing category);
 //! - **what is derived from them**. The play table and the monthly rollups are folded from the
-//!   signals of several categories. The rule is the one of the context wipe: **a column is cleared
-//!   by the wipe of every category it is derived from, and nothing else changes**. A derived
-//!   column that blends several categories (a score) is cleared by each of them, like the activity
-//!   guess of the context key. A row is deleted when what identifies it was wiped, or when its
-//!   cleared columns were all that it carried.
+//!   signals of several kinds. The rule is the one of the context wipe: **a column is cleared by
+//!   the wipe of any signal it is derived from, and nothing else changes**. A derived column that
+//!   blends many signals (a score) is cleared by each of them, like the activity guess of the
+//!   context key. A row is deleted when what identifies it was wiped, or when its cleared columns
+//!   were all that it carried.
 //!
-//! | table | derived from | cleared by the wipe of | cleared to |
-//! |---|---|---|---|
-//! | `play` row (its existence, `recording`, `source`, `started_ts`, `session`) | `PlayStarted` | queue and library | the row is **deleted** |
-//! | `play.listened_ds`, `end_reason`, `end_frac` | `Completed`, `Skipped`, `Paused`, `Resumed` | seek, skip, replay | 0, [`EndReason::Unknown`], 0 |
-//! | `play.flags` | one flag per source signal, see [`FLAG_SOURCES`] | the flag's category | the bit is 0 |
-//! | `play.peak_section` | section-carrying signals | volume, speed, seek/skip/replay | NULL |
-//! | `rollup_monthly` row | `PlayStarted` | queue and library | the row is **deleted** |
-//! | `rollup_monthly.plays` | `PlayStarted` | queue and library | 0 |
-//! | `completes`, `skips_early`, `skips_late`, `listened_s` | `Completed`, `Skipped` | seek, skip, replay | 0 |
-//! | `fav_delta` | `Favorited`, `Unfavorited` | queue and library | 0 |
-//! | `score_sum` | every category (the weights of the catalog) | **every** category | 0 |
+//! The sources are kinds (not categories) so that a tier, which cuts across categories, clears
+//! exactly what its own signals feed. A category wipe gives the same result as it did when the
+//! sources were categories, because it wipes all of the category's kinds.
+//!
+//! | table | derived from (kinds) | cleared to |
+//! |---|---|---|
+//! | `play` row (its existence, `recording`, `source`, `started_ts`, `session`) | `PlayStarted` | the row is **deleted** |
+//! | `play.listened_ds`, `end_reason`, `end_frac` | [`OUTCOME`]: `Completed`, `Skipped`, `Paused`, `Resumed` | 0, [`EndReason::Unknown`], 0 |
+//! | `play.flags` | one flag per source signal, see [`FLAG_SOURCES`] | the bit is 0 |
+//! | `play.peak_section` | [`SECTIONED`]: the signals that carry a section | NULL |
+//! | `rollup_monthly` row | `PlayStarted` | the row is **deleted** |
+//! | `rollup_monthly.plays` | `PlayStarted` | 0 |
+//! | `completes`, `skips_early`, `skips_late`, `listened_s` | [`OUTCOME`] | 0 |
+//! | `fav_delta` | `Favorited`, `Unfavorited` | 0 |
+//! | `score_sum` | every kind (the weights of the catalog) | 0 |
+//!
+//! For a tier wipe the sets are small today: T0 is every kind except `WindowState`,
+//! `OutputDeviceChanged` and the derived `PerceivedLevel` (T1); T2 and T3 have no signal kind, so
+//! the signal part of their wipe changes nothing (the context fields of the tier are wiped in the
+//! same transaction, `SignalWiper::wipe_tiers`).
 //!
 //! `play.context_key` and `context_snapshot.key` are context, wiped by the context categories
 //! (`SignalWiper::wipe_context`), not by a signal category. The wipe of a category does not touch
@@ -90,6 +101,7 @@
 //! right after the commit (best effort, `SignalWiper`).
 
 use rusqlite::{Connection, Transaction};
+use tinwave_core::Tier;
 use tinwave_signals::{SignalCategory, SignalKind};
 
 use crate::DbError;
@@ -117,20 +129,37 @@ pub struct SignalWipeReport {
     pub dictionary_rows_deleted: usize,
 }
 
-/// The category whose `PlayStarted` identifies a `play` row and a `rollup_monthly` row: wiping it
+/// The signal whose `PlayStarted` identifies a `play` row and a `rollup_monthly` row: wiping it
 /// deletes them (module docs).
-const ROW_IDENTITY: SignalCategory = SignalCategory::QueueLibrary;
+const ROW_IDENTITY: SignalKind = SignalKind::PlayStarted;
+
+/// How a play ended: the signals the outcome columns are folded from.
+const OUTCOME: &[SignalKind] = &[
+    SignalKind::Completed,
+    SignalKind::Skipped,
+    SignalKind::Paused,
+    SignalKind::Resumed,
+];
+
+/// The signals whose payload carries a section of the recording; the audio analysis fills
+/// `play.peak_section` from them.
+const SECTIONED: &[SignalKind] = &[
+    SignalKind::VolumeChanged,
+    SignalKind::SystemVolumeChanged,
+    SignalKind::RateChanged,
+    SignalKind::Skipped,
+    SignalKind::SeekForward,
+    SignalKind::SeekBack,
+];
 
 /// A column that is derived from signals and the value it takes when they are wiped.
 struct Derived {
     column: &'static str,
     /// SQL literal the column is set to.
     cleared: &'static str,
-    /// The wipe of any of these categories clears it.
-    from: &'static [SignalCategory],
+    /// The wipe of any of these kinds clears it.
+    from: &'static [SignalKind],
 }
-
-const SEEK: SignalCategory = SignalCategory::SeekSkipReplay;
 
 /// The derived columns of `play` (not `flags`, see [`FLAG_SOURCES`]; not `context_key`, which is
 /// context). `end_reason` is [`EndReason::Unknown`]'s code, pinned by a test.
@@ -138,46 +167,41 @@ const PLAY_COLUMNS: &[Derived] = &[
     Derived {
         column: "listened_ds",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
     Derived {
         column: "end_reason",
         cleared: "6",
-        from: &[SEEK],
+        from: OUTCOME,
     },
     Derived {
         column: "end_frac",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
-    // Filled by the audio analysis from the sections of volume, rate and seek signals.
     Derived {
         column: "peak_section",
         cleared: "NULL",
-        from: &[
-            SignalCategory::Volume,
-            SignalCategory::Speed,
-            SignalCategory::SeekSkipReplay,
-        ],
+        from: SECTIONED,
     },
 ];
 
-/// The category whose signals set each `play.flags` bit: the bit order of
-/// `docs/rules/storage-budget.md`. A wipe of the category clears the bit. The three flags of the
-/// queue and library category go with their row ([`ROW_IDENTITY`]); they are listed so that no
-/// documented bit is without an owner, which a test checks.
-const FLAG_SOURCES: [(u8, SignalCategory); 11] = [
-    (0, SignalCategory::QueueLibrary),   // favorited: Favorited
-    (1, SignalCategory::SeekSkipReplay), // replayed: Replayed
-    (2, SignalCategory::SeekSkipReplay), // seek_back: SeekBack
-    (3, SignalCategory::SeekSkipReplay), // seek_fwd_intro: SeekForward
-    (4, SignalCategory::Volume),         // vol_up_early: VolumeChanged
-    (5, SignalCategory::Volume),         // vol_down: VolumeChanged
-    (6, SignalCategory::Speed),          // rate_up: RateChanged
-    (7, SignalCategory::Speed),          // rate_down: RateChanged
-    (8, SignalCategory::Browsing),       // lyrics: ViewOpened
-    (9, SignalCategory::QueueLibrary),   // queued: QueuedNext, QueuedLater
-    (10, SignalCategory::QueueLibrary),  // removed_after: RemovedFromQueue
+/// The signals that set each `play.flags` bit: the bit order of `docs/rules/storage-budget.md`. A
+/// wipe of any of them clears the bit. The three flags of the queue and library category go with
+/// their row when the row's start is wiped ([`ROW_IDENTITY`]); they are listed so that no
+/// documented bit is without a source, which a test checks.
+const FLAG_SOURCES: [(u8, &[SignalKind]); 11] = [
+    (0, &[SignalKind::Favorited]),                           // favorited
+    (1, &[SignalKind::Replayed]),                            // replayed
+    (2, &[SignalKind::SeekBack]),                            // seek_back
+    (3, &[SignalKind::SeekForward]),                         // seek_fwd_intro
+    (4, &[SignalKind::VolumeChanged]),                       // vol_up_early
+    (5, &[SignalKind::VolumeChanged]),                       // vol_down
+    (6, &[SignalKind::RateChanged]),                         // rate_up
+    (7, &[SignalKind::RateChanged]),                         // rate_down
+    (8, &[SignalKind::ViewOpened]),                          // lyrics
+    (9, &[SignalKind::QueuedNext, SignalKind::QueuedLater]), // queued
+    (10, &[SignalKind::RemovedFromQueue]),                   // removed_after
 ];
 
 /// The derived columns of `rollup_monthly`.
@@ -191,33 +215,33 @@ const ROLLUP_COLUMNS: &[Derived] = &[
     Derived {
         column: "completes",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
     Derived {
         column: "skips_early",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
     Derived {
         column: "skips_late",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
     Derived {
         column: "fav_delta",
         cleared: "0",
-        from: &[ROW_IDENTITY],
+        from: &[SignalKind::Favorited, SignalKind::Unfavorited],
     },
     Derived {
         column: "listened_s",
         cleared: "0",
-        from: &[SEEK],
+        from: OUTCOME,
     },
-    // The sum of the weights of every signal: it cannot be split by category.
+    // The sum of the weights of every signal: it cannot be split by kind.
     Derived {
         column: "score_sum",
         cleared: "0.0",
-        from: &SignalCategory::ALL,
+        from: SignalKind::ALL,
     },
 ];
 
@@ -240,30 +264,54 @@ pub(crate) fn wipe_categories(
     tx: &Transaction<'_>,
     categories: &[SignalCategory],
 ) -> Result<SignalWipeReport, DbError> {
+    let kinds: Vec<SignalKind> = SignalKind::ALL
+        .iter()
+        .copied()
+        .filter(|kind| categories.contains(&SignalCategory::of(*kind)))
+        .collect();
+    wipe_kinds(tx, &kinds)
+}
+
+/// Wipes the signals of every kind whose tier is in `tiers` and what is derived from them, in
+/// `tx`. A tier without a signal kind (T2, T3 today) changes nothing.
+pub(crate) fn wipe_tiers(
+    tx: &Transaction<'_>,
+    tiers: &[Tier],
+) -> Result<SignalWipeReport, DbError> {
+    let kinds: Vec<SignalKind> = SignalKind::ALL
+        .iter()
+        .copied()
+        .filter(|kind| tiers.contains(&kind.tier()))
+        .collect();
+    wipe_kinds(tx, &kinds)
+}
+
+/// Wipes the signals of `kinds` and what is derived from them (module docs), in `tx`.
+fn wipe_kinds(tx: &Transaction<'_>, kinds: &[SignalKind]) -> Result<SignalWipeReport, DbError> {
     let mut report = SignalWipeReport::default();
-    if categories.is_empty() {
+    if kinds.is_empty() {
         return Ok(report);
     }
-    let kinds = kind_codes(categories);
+    let codes = kind_codes(kinds);
     report.events_deleted = tx
         .execute(
-            &format!("DELETE FROM signal_event WHERE kind IN ({kinds})"),
+            &format!("DELETE FROM signal_event WHERE kind IN ({codes})"),
             [],
         )
-        .map_err(DbError::sqlite("deleting the events of a category"))?;
+        .map_err(DbError::sqlite("deleting the events of the wiped kinds"))?;
     report.counter_rows_deleted = tx
         .execute(
-            &format!("DELETE FROM ui_counter WHERE kind IN ({kinds})"),
+            &format!("DELETE FROM ui_counter WHERE kind IN ({codes})"),
             [],
         )
-        .map_err(DbError::sqlite("deleting the counters of a category"))?;
+        .map_err(DbError::sqlite("deleting the counters of the wiped kinds"))?;
 
-    if categories.contains(&ROW_IDENTITY) {
+    if kinds.contains(&ROW_IDENTITY) {
         report.plays_deleted = delete_all(tx, "play")?;
         report.rollups_deleted = delete_all(tx, "rollup_monthly")?;
     } else {
-        report.plays_cleared = clear_plays(tx, categories)?;
-        let (deleted, cleared) = clear_rollups(tx, categories)?;
+        report.plays_cleared = clear_plays(tx, kinds)?;
+        let (deleted, cleared) = clear_rollups(tx, kinds)?;
         report.rollups_deleted = deleted;
         report.rollups_cleared = cleared;
     }
@@ -313,37 +361,36 @@ fn delete_all(tx: &Transaction<'_>, table: &'static str) -> Result<usize, DbErro
         .map_err(DbError::sqlite("emptying a signal table"))
 }
 
-/// The `kind` codes of every kind of `categories`, as a comma-separated list for `IN (...)`.
-fn kind_codes(categories: &[SignalCategory]) -> String {
-    SignalKind::ALL
+/// The `kind` codes of `kinds`, as a comma-separated list for `IN (...)`.
+fn kind_codes(kinds: &[SignalKind]) -> String {
+    kinds
         .iter()
-        .filter(|kind| categories.contains(&SignalCategory::of(**kind)))
         .map(|kind| kind.discriminant().to_string())
         .collect::<Vec<_>>()
         .join(",")
 }
 
-/// The columns of `table` that a wipe of `categories` clears.
-fn cleared<'a>(table: &'a [Derived], categories: &[SignalCategory]) -> Vec<&'a Derived> {
+/// The columns of `table` that a wipe of `kinds` clears.
+fn cleared<'a>(table: &'a [Derived], kinds: &[SignalKind]) -> Vec<&'a Derived> {
     table
         .iter()
-        .filter(|d| d.from.iter().any(|c| categories.contains(c)))
+        .filter(|d| d.from.iter().any(|k| kinds.contains(k)))
         .collect()
 }
 
-/// `play.flags` bits that a wipe of `categories` clears.
-fn flag_mask(categories: &[SignalCategory]) -> u16 {
+/// `play.flags` bits that a wipe of `kinds` clears.
+fn flag_mask(kinds: &[SignalKind]) -> u16 {
     FLAG_SOURCES
         .iter()
-        .filter(|(_, owner)| categories.contains(owner))
+        .filter(|(_, sources)| sources.iter().any(|k| kinds.contains(k)))
         .fold(0, |mask, (bit, _)| mask | (1u16 << bit))
 }
 
 /// Clears the derived columns of the `play` rows that have any, in one `UPDATE` that writes only
 /// the rows that change. Returns how many.
-fn clear_plays(tx: &Transaction<'_>, categories: &[SignalCategory]) -> Result<usize, DbError> {
-    let columns = cleared(PLAY_COLUMNS, categories);
-    let mask = flag_mask(categories);
+fn clear_plays(tx: &Transaction<'_>, kinds: &[SignalKind]) -> Result<usize, DbError> {
+    let columns = cleared(PLAY_COLUMNS, kinds);
+    let mask = flag_mask(kinds);
     if columns.is_empty() && mask == 0 {
         return Ok(0);
     }
@@ -374,11 +421,8 @@ fn clear_plays(tx: &Transaction<'_>, categories: &[SignalCategory]) -> Result<us
 
 /// Clears the derived columns of `rollup_monthly`. First deletes the rows that carried nothing
 /// else (every column that stays is 0), then clears the rest. Returns `(deleted, cleared)`.
-fn clear_rollups(
-    tx: &Transaction<'_>,
-    categories: &[SignalCategory],
-) -> Result<(usize, usize), DbError> {
-    let columns = cleared(ROLLUP_COLUMNS, categories);
+fn clear_rollups(tx: &Transaction<'_>, kinds: &[SignalKind]) -> Result<(usize, usize), DbError> {
+    let columns = cleared(ROLLUP_COLUMNS, kinds);
     if columns.is_empty() {
         return Ok((0, 0));
     }
@@ -433,51 +477,75 @@ mod tests {
         assert_eq!(column.cleared, EndReason::Unknown.code().to_string());
     }
 
-    /// Every flag bit of `storage-budget.md` (0 to 10) has exactly one owning category, and the
-    /// two flags the play writer sets today are owned by the category of the signal they come from.
+    /// Every flag bit of `storage-budget.md` (0 to 10) has at least one source signal, and the two
+    /// flags the play writer sets today come from the signal they are named after.
     #[test]
-    fn every_documented_play_flag_has_one_owner() {
+    fn every_documented_play_flag_has_a_source() {
         let bits: Vec<u8> = FLAG_SOURCES.iter().map(|(bit, _)| *bit).collect();
         assert_eq!(bits, (0..=10).collect::<Vec<u8>>());
-        let owner = |flag: crate::PlayFlags| {
+        assert!(FLAG_SOURCES.iter().all(|(_, kinds)| !kinds.is_empty()));
+        let sources = |flag: crate::PlayFlags| {
             FLAG_SOURCES
                 .iter()
                 .find(|(bit, _)| 1u16 << bit == flag.bits())
-                .map(|(_, c)| *c)
+                .map(|(_, kinds)| *kinds)
         };
         assert_eq!(
-            owner(crate::PlayFlags::FAVORITED),
-            Some(SignalCategory::of(SignalKind::Favorited))
+            sources(crate::PlayFlags::FAVORITED),
+            Some(&[SignalKind::Favorited][..])
         );
         assert_eq!(
-            owner(crate::PlayFlags::SEEK_BACK),
-            Some(SignalCategory::of(SignalKind::SeekBack))
+            sources(crate::PlayFlags::SEEK_BACK),
+            Some(&[SignalKind::SeekBack][..])
         );
     }
 
-    /// The outcome signals are all seek/skip/replay, the start is the row identity: the two facts
-    /// the module docs build the play-row rule on.
+    /// Every source is a stored kind (an event: a derived or counter kind feeds nothing here) and
+    /// the sources are in the categories the category wipe tests expect, so a category wipe clears
+    /// what it always did: the outcome signals are all seek/skip/replay, the start is queue and
+    /// library, and the sectioned signals reach volume, speed and seek/skip/replay.
     #[test]
-    fn the_outcome_signals_belong_to_the_category_that_clears_the_outcome_columns() {
-        for kind in [
-            SignalKind::Completed,
-            SignalKind::Skipped,
-            SignalKind::Paused,
-            SignalKind::Resumed,
-        ] {
-            assert_eq!(SignalCategory::of(kind), SEEK, "{kind}");
+    fn the_source_signals_sit_in_the_categories_the_rule_documents() {
+        let all_sources = PLAY_COLUMNS
+            .iter()
+            .chain(ROLLUP_COLUMNS)
+            .filter(|d| d.column != "score_sum")
+            .flat_map(|d| d.from.iter())
+            .chain(FLAG_SOURCES.iter().flat_map(|(_, kinds)| kinds.iter()));
+        for kind in all_sources {
+            assert!(kind.is_event(), "{kind}");
+        }
+        for kind in OUTCOME {
+            assert_eq!(
+                SignalCategory::of(*kind),
+                SignalCategory::SeekSkipReplay,
+                "{kind}"
+            );
         }
         assert_eq!(
-            SignalCategory::of(SignalKind::PlayStarted),
-            ROW_IDENTITY,
+            SignalCategory::of(ROW_IDENTITY),
+            SignalCategory::QueueLibrary,
             "the start identifies the row"
         );
+        let section_categories: Vec<_> = SECTIONED.iter().map(|k| SignalCategory::of(*k)).collect();
+        for category in [
+            SignalCategory::Volume,
+            SignalCategory::Speed,
+            SignalCategory::SeekSkipReplay,
+        ] {
+            assert!(section_categories.contains(&category), "{category:?}");
+        }
     }
 
     #[test]
-    fn every_category_has_kinds_and_the_codes_are_a_plain_list() {
+    fn the_kind_codes_are_a_plain_list() {
         for category in SignalCategory::ALL {
-            let codes = kind_codes(&[category]);
+            let kinds: Vec<_> = SignalKind::ALL
+                .iter()
+                .copied()
+                .filter(|k| SignalCategory::of(*k) == category)
+                .collect();
+            let codes = kind_codes(&kinds);
             assert!(!codes.is_empty(), "{category:?}");
             assert!(codes.bytes().all(|b| b.is_ascii_digit() || b == b','));
         }

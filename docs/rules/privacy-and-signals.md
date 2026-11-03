@@ -63,16 +63,26 @@ Never collect, even with consent:
   rollups, context snapshots, sessions and the dictionaries; the schema and the Signal Center toggles
   (`signal_settings`, a preference) stay. It covers `signals.db` only: `taste.db` does not exist yet, and the change
   that creates it must add its own wipe (the promise above that wiping signals clears the derived taste data applies
-  from then on). Each wipe is one transaction, and right after it commits the wiper folds the WAL into the main
+  from then on). **Wiping a tier** deletes the signals whose kind is of that tier (`SignalKind::tier`; today
+  `WindowState` and `OutputDeviceChanged` are T1, every other stored kind is T0, and T2 and T3 have no signal
+  kind) with the same derived-data rule, computed from the wiped kinds: a column is cleared when any signal it is
+  folded from is wiped (the start of a play, `PlayStarted`, is T0, so wiping T0 deletes the play records), and the
+  score, which blends every signal, is reset by any signal wipe. Wiping a tier in the Signal Center is one call
+  (`SignalWiper::wipe_tiers`): the tier's signals, their derived data and the tier's context fields (T1: clock and
+  output device, T2: foreground app and network place, T3: weather) go in **one transaction**.
+  Each wipe is one transaction, and right after it commits the wiper folds the WAL into the main
   database file (a best-effort checkpoint that never waits and never fails the wipe), so the deleted content, zeroed
-  in the pages (`secure_delete`), is gone from the file when the wipe returns. If a reader still holds an older
-  snapshot of the database the checkpoint is skipped (logged) and the content leaves the file at the signal
-  writer's next checkpoint, at most its idle interval (60 s) later. The signal writer keeps running: its batches
-  wait for the wipe and are stored after it, and wipe everything makes it drop its id caches (a category wipe leaves
+  in the pages (`secure_delete`), is gone from the file when the wipe returns. The checkpoint can be blocked by
+  either of two things, and it is logged either way: **a reader that still holds an older snapshot** (the pages of the
+  wipe cannot be copied past it, so the old content is also still in the main file), or **the signal writer holding
+  the write lock** (a batch that queued behind the wipe; the wipe's pages are already in the main file, and only the
+  WAL file keeps the frames from before the wipe). In both cases the signal writer's next checkpoint finishes the job,
+  at most its idle interval (60 s) later. The signal writer keeps running: its batches
+  wait for the wipe and are stored after it (a batch that waits longer than the 5 s busy timeout is kept and
+  retried, not lost), and wipe everything makes it drop its id caches (a category or tier wipe leaves
   the dictionaries alone, so the caches stay). A play that is in progress when its `PlayStarted` is wiped ends
   without a play record; so does an outcome whose own `PlayStarted` was never stored when an earlier play of the
-  same recording already has its record. A wipe of
-  the *events* of a tier (as opposed to the context of a tier, above) is not implemented yet.
+  same recording already has its record.
 - No telemetry, no analytics SDKs, no crash reporters that upload by default (spec §15).
 - Never put signal data, recording names or file paths in logs above `debug`, URLs, or crash reports.
 - Hashing for places: `blake3(device_secret || ssid || gateway_mac)`, `device_secret` in the OS keychain.
