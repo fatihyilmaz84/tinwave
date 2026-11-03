@@ -194,8 +194,7 @@ impl Shared {
     pub fn park(&self, id: u32, rate: u32, total: u64, drain: bool) {
         self.reopen_total.store(total, Ordering::Release);
         self.reopen_drain.store(drain, Ordering::Release);
-        self.reopen
-            .store(pack_reopen(id, rate), Ordering::Release);
+        self.reopen.store(pack_reopen(id, rate), Ordering::Release);
     }
 
     /// The decoder is no longer waiting for a new stream.

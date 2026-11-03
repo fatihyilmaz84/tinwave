@@ -296,7 +296,10 @@ fn render_never_allocates_across_exclusive_reopens() {
         "the render callback allocated or freed {} times",
         rig.allocs
     );
-    assert!(rig.starved_callbacks > 0, "callbacks with nothing to play are covered");
+    assert!(
+        rig.starved_callbacks > 0,
+        "callbacks with nothing to play are covered"
+    );
 }
 
 /// The same guarantee across playback-rate changes: the fade-out flush (several callbacks long),

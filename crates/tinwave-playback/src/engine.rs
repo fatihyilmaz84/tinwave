@@ -224,8 +224,10 @@ impl Engine {
             }
         };
         let info = stream.info();
-        sh.follow
-            .store(output.wants_exclusive() && info.mode == StreamMode::Exclusive, Release);
+        sh.follow.store(
+            output.wants_exclusive() && info.mode == StreamMode::Exclusive,
+            Release,
+        );
         let engine = Self {
             sh,
             tx,
@@ -765,7 +767,10 @@ impl Engine {
                 self.emit(EventKind::QueueEnded);
             }
         } else if self.cursor.is_some() && !self.sh.paused.load(Relaxed) {
-            let out_rate = self.cursor.as_ref().map_or(self.sample_rate, |c| c.out_rate);
+            let out_rate = self
+                .cursor
+                .as_ref()
+                .map_or(self.sample_rate, |c| c.out_rate);
             let rate_interval = u64::from(out_rate / POSITION_MARKS_PER_SECOND).max(1);
             let grid = heard.saturating_sub(self.grid_base) / rate_interval;
             if grid > self.last_grid {
@@ -915,10 +920,9 @@ impl Engine {
             }
             self.stream_rate = rate;
             self.sh.refused().clone_from(&self.refused);
-            self.sh.follow.store(
-                exclusive && info.mode == StreamMode::Exclusive,
-                Release,
-            );
+            self.sh
+                .follow
+                .store(exclusive && info.mode == StreamMode::Exclusive, Release);
             return Ok(OpenedStream {
                 stream,
                 producer,
@@ -1201,7 +1205,11 @@ mod tests {
         engine.sh.consumed.store(1_000, Release);
         engine.sh.idle_frames.store(479, Relaxed);
         engine.poll();
-        assert_eq!(handle.opens().len(), 1, "the tail is still in the device buffer");
+        assert_eq!(
+            handle.opens().len(),
+            1,
+            "the tail is still in the device buffer"
+        );
         // The buffer has emptied.
         engine.sh.idle_frames.store(480, Relaxed);
         engine.poll();

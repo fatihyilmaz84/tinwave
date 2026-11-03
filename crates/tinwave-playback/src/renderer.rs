@@ -106,8 +106,7 @@ impl Renderer {
         let frames = popped_len / CHANNELS;
         if frames == 0 {
             // The device buffer is emptying: the engine waits for it before it replaces a stream.
-            sh.idle_frames
-                .fetch_add((len / CHANNELS) as u64, Relaxed);
+            sh.idle_frames.fetch_add((len / CHANNELS) as u64, Relaxed);
             self.gain = sh.volume();
             self.pause_level = pause_target;
             return 0;

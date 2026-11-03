@@ -499,7 +499,10 @@ impl Decoder {
                 // The engine only answers the request of its latest command, and only commands
                 // cancel a request: this cannot happen. The stream it opened has nobody to feed it.
                 st.parked = other;
-                tracing::error!(id, "the output was reopened for a request that is not pending");
+                tracing::error!(
+                    id,
+                    "the output was reopened for a request that is not pending"
+                );
                 return;
             }
         };
@@ -1253,7 +1256,11 @@ mod tests {
         assert_eq!(decoder.reopen_target(&st, 96_000), None);
         decoder.sh.follow.store(true, Release);
         assert_eq!(decoder.reopen_target(&st, 96_000), Some(96_000));
-        assert_eq!(decoder.reopen_target(&st, 44_100), None, "the stream already has it");
+        assert_eq!(
+            decoder.reopen_target(&st, 44_100),
+            None,
+            "the stream already has it"
+        );
     }
 
     #[test]

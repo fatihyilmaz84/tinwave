@@ -177,15 +177,25 @@ fn a_rate_change_reopens_the_output_at_the_file_rate_and_both_tracks_are_bit_exa
     }
     // The track events are the ones of any gapless hand-off, in timeline frames (48 kHz).
     let kinds = h.sink.kinds();
-    assert_eq!(left_after(&kinds, 1), Some((SECOND as u64, LeaveCause::Finished)));
-    assert_eq!(left_after(&kinds, 2), Some((SECOND as u64, LeaveCause::Finished)));
+    assert_eq!(
+        left_after(&kinds, 1),
+        Some((SECOND as u64, LeaveCause::Finished))
+    );
+    assert_eq!(
+        left_after(&kinds, 2),
+        Some((SECOND as u64, LeaveCause::Finished))
+    );
     assert_eq!(underruns(&kinds), 0, "underruns");
     assert_paired(&kinds, false);
     let order: Vec<&str> = kinds
         .iter()
         .filter_map(|k| match k {
-            EventKind::TrackStarted { item, .. } => Some(if item.0 == 1 { "start 1" } else { "start 2" }),
-            EventKind::TrackLeft { item, .. } => Some(if item.0 == 1 { "left 1" } else { "left 2" }),
+            EventKind::TrackStarted { item, .. } => {
+                Some(if item.0 == 1 { "start 1" } else { "start 2" })
+            }
+            EventKind::TrackLeft { item, .. } => {
+                Some(if item.0 == 1 { "left 1" } else { "left 2" })
+            }
             EventKind::OutputReopened { .. } => Some("reopened"),
             EventKind::QueueEnded => Some("ended"),
             _ => None,
@@ -199,8 +209,14 @@ fn a_rate_change_reopens_the_output_at_the_file_rate_and_both_tracks_are_bit_exa
     // The old stream is not closed under the end of the first track: it has played its last
     // frame and its device buffer (480 frames of latency here) has emptied.
     let (wall, silence) = played.at_reopen[1];
-    assert_eq!(wall, R44 as u64, "the first track had been played to its last frame");
-    assert!(silence >= 480, "reopened with {silence} silent frames played; the tail was cut");
+    assert_eq!(
+        wall, R44 as u64,
+        "the first track had been played to its last frame"
+    );
+    assert!(
+        silence >= 480,
+        "reopened with {silence} silent frames played; the tail was cut"
+    );
 }
 
 #[test]
@@ -211,7 +227,13 @@ fn same_rate_tracks_in_exclusive_mode_never_reopen_and_stay_gapless() {
     let cuts = [0, 30_001, 61_777, 2 * R44 as usize];
     let files: Vec<_> = (0..3).map(|i| dir.path(&format!("p{i}.wav"))).collect();
     for (i, file) in files.iter().enumerate() {
-        write_wav(file, R44, 24, &l[cuts[i]..cuts[i + 1]], &r[cuts[i]..cuts[i + 1]]);
+        write_wav(
+            file,
+            R44,
+            24,
+            &l[cuts[i]..cuts[i + 1]],
+            &r[cuts[i]..cuts[i + 1]],
+        );
     }
     let expected = interleave(&reference(&l, &r, 24));
 
@@ -228,7 +250,11 @@ fn same_rate_tracks_in_exclusive_mode_never_reopen_and_stay_gapless() {
     let rec = h.render_exact(2 * R44 as usize, 441);
     h.finish();
     assert!(rec == expected, "samples differ from the files");
-    assert_eq!(rates(&h), [48_000, R44], "one reopen, for the first track only");
+    assert_eq!(
+        rates(&h),
+        [48_000, R44],
+        "one reopen, for the first track only"
+    );
     assert_eq!(reopened(&h).len(), 1);
     assert_eq!(underruns(&h.sink.kinds()), 0, "underruns");
 }
@@ -247,7 +273,11 @@ fn shared_mode_keeps_one_stream_at_the_engine_rate_and_resamples() {
     let played = play_to_end(&mut h, 2 * SECOND - BLOCK);
     assert_eq!(rates(&h), [48_000]);
     assert!(reopened(&h).is_empty());
-    assert_eq!(played.audio.len() / 2, 2 * SECOND, "both tracks at the stream rate");
+    assert_eq!(
+        played.audio.len() / 2,
+        2 * SECOND,
+        "both tracks at the stream rate"
+    );
 }
 
 #[test]
@@ -268,17 +298,30 @@ fn a_load_and_a_seek_into_a_track_of_another_rate_reopen_and_start_at_the_right_
     h.settle_polling();
     assert_eq!(rates(&h), [48_000, R44, R96]);
     let rec = h.render_exact(9_600, 480);
-    assert!(rec == ref_b[2 * 48_000..2 * (48_000 + 9_600)], "load into the 96 kHz file");
+    assert!(
+        rec == ref_b[2 * 48_000..2 * (48_000 + 9_600)],
+        "load into the 96 kHz file"
+    );
     let position = h.engine.position().expect("playing");
-    assert_eq!((position.item, position.frame), (QueueItemId(2), 24_000 + 4_800));
+    assert_eq!(
+        (position.item, position.frame),
+        (QueueItemId(2), 24_000 + 4_800)
+    );
     assert_eq!(position.position_ms, (24_000 + 4_800) * 1000 / 48_000);
 
     // A seek inside the file needs no new stream.
     h.engine.seek(36_000).expect("seek");
     h.settle_polling();
     let rec = h.render_exact(4_800, 480);
-    assert!(rec == ref_b[2 * 72_000..2 * (72_000 + 4_800)], "seek in the 96 kHz file");
-    assert_eq!(rates(&h), [48_000, R44, R96], "no reopen for a seek in the same file");
+    assert!(
+        rec == ref_b[2 * 72_000..2 * (72_000 + 4_800)],
+        "seek in the 96 kHz file"
+    );
+    assert_eq!(
+        rates(&h),
+        [48_000, R44, R96],
+        "no reopen for a seek in the same file"
+    );
 
     // A seek back to the first file (another rate) does.
     h.engine.load(queue(), 0, 0).expect("load");
@@ -304,7 +347,10 @@ fn positions_and_marks_continue_across_the_reopen() {
     let mut block = vec![0.0f32; BLOCK * 2];
     for _ in 0..60_000 {
         let want = BLOCK.min(target - got);
-        let real = h.out.render(&mut block[..want * 2], 0).expect("stream open");
+        let real = h
+            .out
+            .render(&mut block[..want * 2], 0)
+            .expect("stream open");
         got += real;
         h.engine.poll();
         if got == target {
@@ -436,7 +482,10 @@ fn a_device_that_refuses_exclusive_altogether_falls_back_to_shared_once() {
     assert!(note.contains("96000 Hz refused"), "{note}");
     assert!(note.contains("48000 Hz"), "{note}");
     let kinds = h.sink.kinds();
-    assert_eq!(left_after(&kinds, 3).map(|l| l.1), Some(LeaveCause::Finished));
+    assert_eq!(
+        left_after(&kinds, 3).map(|l| l.1),
+        Some(LeaveCause::Finished)
+    );
     assert_eq!(underruns(&kinds), 0, "underruns");
 }
 
@@ -459,8 +508,15 @@ fn a_device_switch_keeps_the_rate_of_the_playing_file_or_falls_back() {
     h.settle_polling();
     assert_eq!(h.engine.position().expect("position").frame, 4_800);
     let rec = h.render_exact(4_800, 480);
-    assert!(rec == ref_b[2 * 9_600..2 * (9_600 + 4_800)], "resumed in the 96 kHz file");
-    assert_eq!(rates(&h), [48_000, R96, R96], "one open per stream, no second reopen");
+    assert!(
+        rec == ref_b[2 * 9_600..2 * (9_600 + 4_800)],
+        "resumed in the 96 kHz file"
+    );
+    assert_eq!(
+        rates(&h),
+        [48_000, R96, R96],
+        "one open per stream, no second reopen"
+    );
 
     // This one does not: 96 kHz refused, 48 kHz taken, the track resampled from then on.
     h.out.set_device_rates(&[48_000]);
@@ -468,7 +524,10 @@ fn a_device_switch_keeps_the_rate_of_the_playing_file_or_falls_back() {
     h.settle_polling();
     assert_eq!(rates(&h), [48_000, R96, R96, R96, 48_000]);
     let infos = reopened(&h);
-    let note = infos.last().and_then(|i| i.fallback.clone()).expect("a reason");
+    let note = infos
+        .last()
+        .and_then(|i| i.fallback.clone())
+        .expect("a reason");
     assert!(note.contains("96000 Hz refused"), "{note}");
     assert_eq!(infos.last().map(|i| i.mode), Some(StreamMode::Exclusive));
     // 4,800 timeline frames at the first switch and 4,800 output frames (2,400) since.
@@ -487,7 +546,11 @@ fn a_new_load_while_the_output_is_being_reopened_wins() {
     h.settle_polling();
     let rec = h.render_exact(4_800, 480);
     assert!(rec == ref_b[..2 * 4_800]);
-    assert_eq!(rates(&h), [48_000, R96], "nothing was opened for the load that was replaced");
+    assert_eq!(
+        rates(&h),
+        [48_000, R96],
+        "nothing was opened for the load that was replaced"
+    );
 }
 
 #[test]
@@ -508,7 +571,10 @@ fn a_rate_change_in_the_playback_speed_composes_with_the_reopen() {
     assert_eq!(rates(&h), [48_000, R44, R96]);
     let expected = (R44 as f64 / 1.25 + R96 as f64 / 1.25) as usize;
     let got = played.audio.len() / 2;
-    assert!(got.abs_diff(expected) < 4_000, "{got} frames, expected about {expected}");
+    assert!(
+        got.abs_diff(expected) < 4_000,
+        "{got} frames, expected about {expected}"
+    );
     // The books: the whole run was played at 1.25, and the control side saw both tracks end at
     // their timeline length.
     let stats = h.engine.rate_stats();
@@ -518,7 +584,10 @@ fn a_rate_change_in_the_playback_speed_composes_with_the_reopen() {
     for item in [1, 2] {
         let (frame, cause) = left_after(&kinds, item).expect("left");
         assert_eq!(cause, LeaveCause::Finished);
-        assert!(frame.abs_diff(SECOND as u64) <= 16, "item {item} left at {frame}");
+        assert!(
+            frame.abs_diff(SECOND as u64) <= 16,
+            "item {item} left at {frame}"
+        );
     }
     assert_paired(&kinds, false);
 }
@@ -540,7 +609,10 @@ fn a_speed_change_during_the_second_file_restarts_inside_its_own_stream() {
     let mut block = vec![0.0f32; BLOCK * 2];
     while got < target {
         let want = BLOCK.min(target - got);
-        let real = h.out.render(&mut block[..want * 2], 0).expect("stream open");
+        let real = h
+            .out
+            .render(&mut block[..want * 2], 0)
+            .expect("stream open");
         got += real;
         h.engine.poll();
         if real < want {
@@ -595,17 +667,27 @@ fn a_24_bit_pair_reaches_the_device_as_the_files_integers() {
         }
         std::thread::sleep(Duration::from_micros(100));
     }
-    assert!(sink.kinds().contains(&EventKind::QueueEnded), "{:?}", sink.kinds());
-    let streams: Vec<_> = dev.streams().into_iter().filter(|s| !s.1.is_empty()).collect();
+    assert!(
+        sink.kinds().contains(&EventKind::QueueEnded),
+        "{:?}",
+        sink.kinds()
+    );
+    let streams: Vec<_> = dev
+        .streams()
+        .into_iter()
+        .filter(|s| !s.1.is_empty())
+        .collect();
     assert_eq!(streams.len(), 2, "one stream per rate");
     assert_eq!(streams[0].0, R44);
     assert_eq!(streams[1].0, R96);
     for ((_, bytes), reference) in streams.iter().zip([&ref_a, &ref_b]) {
         let got = decode_device_bytes(SampleFormat::I24In32, bytes);
         let (audio, tail) = got.split_at(reference.len());
-        assert!(audio == reference.as_slice(), "the device received other samples than the file holds");
+        assert!(
+            audio == reference.as_slice(),
+            "the device received other samples than the file holds"
+        );
         // What follows is the padding of the last, partial callback.
         assert!(tail.len() < BLOCK * 2 && tail.iter().all(|&s| s == 0.0));
     }
 }
-
