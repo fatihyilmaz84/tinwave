@@ -414,3 +414,45 @@ impl Listener {
         out
     }
 }
+
+/// Makes one statement of `on` (for example `"UPDATE ON play"`) hold the write lock for a few
+/// hundred milliseconds: a trigger that fires once, for the row with `id = 1`, and burns time in
+/// a cross join of a 3 000-row helper table. A test that must see a wipe's lock then does not
+/// depend on how fast the machine is: the lock is held for at least as long as the burn. The
+/// table must have an `id` column.
+pub fn burn_in_trigger(conn: &Connection, on: &str) {
+    conn.execute_batch(&format!(
+        "CREATE TABLE burn (x INTEGER NOT NULL);
+         WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3000)
+           INSERT INTO burn SELECT x FROM c;
+         CREATE TRIGGER burn_in_trigger BEFORE {on} WHEN OLD.id = 1
+         BEGIN SELECT count(*) FROM burn a, burn b WHERE a.x + b.x = -1; END;"
+    ))
+    .unwrap();
+}
+
+/// Runs `wipe` on a thread and calls `during` once a second connection sees the wipe holding the
+/// write lock (a probe with no busy timeout fails on `BEGIN IMMEDIATE`). Returns both results
+/// and whether the lock was seen; a test must assert it, so a fast machine that finishes the
+/// wipe before the first probe cannot silently skip the contention.
+pub fn during_a_wipe<W: Send, D>(
+    db: &TempDb,
+    wipe: impl FnOnce() -> W + Send,
+    during: impl FnOnce() -> D,
+) -> (W, D, bool) {
+    let probe = db.reader();
+    probe.busy_timeout(std::time::Duration::ZERO).unwrap();
+    std::thread::scope(|scope| {
+        let wipe = scope.spawn(wipe);
+        let mut seen = false;
+        while !wipe.is_finished() {
+            if probe.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_err() {
+                seen = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let result = during();
+        (wipe.join().unwrap(), result, seen)
+    })
+}

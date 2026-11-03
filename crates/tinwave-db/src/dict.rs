@@ -71,6 +71,14 @@ impl DictCaches {
             sessions: Lru::new(session_capacity),
         }
     }
+
+    /// Forgets every cached id. The cache is only a shortcut for a lookup, so forgetting is always
+    /// safe; it is required when another connection may have deleted the rows the ids point to
+    /// (a wipe), because the integers can then be handed to other UUIDs.
+    pub(crate) fn clear(&mut self) {
+        self.dict.clear();
+        self.sessions.clear();
+    }
 }
 
 /// Resolves UUIDs inside one transaction. See the module docs for why `fresh` exists.

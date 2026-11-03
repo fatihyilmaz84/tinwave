@@ -7,9 +7,9 @@
 
 mod common;
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use common::{count, Ids, TempDb, T0};
+use common::{burn_in_trigger, count, during_a_wipe, Ids, TempDb, T0};
 use rusqlite::{params, Connection};
 use tinwave_core::{ManualClock, SignalEventId, Tier, UtcMillis};
 use tinwave_db::{
@@ -745,26 +745,28 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
         ),
     ];
 
-    let probe = db.reader();
-    probe.busy_timeout(Duration::ZERO).unwrap();
-    let (report, wipe_time, batch_time, batch) = std::thread::scope(|scope| {
-        let wipe = scope.spawn(|| {
+    // The wipe holds the lock for at least the burn of this trigger (it fires once, on the first
+    // row it rewrites), so the probe below cannot miss it on a fast machine.
+    burn_in_trigger(&db.reader(), "UPDATE ON play");
+    let ((report, wipe_time), (batch, batch_time), lock_seen) = during_a_wipe(
+        &db,
+        || {
             let started = Instant::now();
             let report = wiper
                 .wipe_context(&[ContextCategory::NetworkPlace])
                 .unwrap();
             (report, started.elapsed())
-        });
-        // Wait until the wipe holds the write lock (or has already finished).
-        while probe.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_ok() && !wipe.is_finished() {
-            std::thread::sleep(Duration::from_millis(1));
-        }
-        let started = Instant::now();
-        let batch = store.write_batch(&events, &[]);
-        let batch_time = started.elapsed();
-        let (report, wipe_time) = wipe.join().unwrap();
-        (report, wipe_time, batch_time, batch)
-    });
+        },
+        || {
+            let started = Instant::now();
+            let batch = store.write_batch(&events, &[]);
+            (batch, started.elapsed())
+        },
+    );
+    assert!(
+        lock_seen,
+        "the probe never saw the wipe's lock: the contention was not exercised"
+    );
 
     let batch = batch.unwrap_or_else(|e| {
         panic!(
