@@ -17,7 +17,7 @@ use common::*;
 use tinwave_core::{ManualClock, UtcMillis};
 use tinwave_playback::{
     Engine, EngineConfig, EventKind, FsOpener, LeaveCause, PumpStep, QueueItemId, SampleFormat,
-    StreamInfo, StreamMode,
+    StreamInfo, StreamMode, Track,
 };
 
 const R44: u32 = 44_100;
@@ -1088,4 +1088,87 @@ fn the_position_follows_the_device_buffer_while_the_old_stream_plays_out_and_nev
         "the end of the first file is heard before the stream is replaced"
     );
     assert!(frames.iter().all(|&f| f <= SECOND as u64));
+}
+
+/// Park for B at the end of A, play A out, let the device play 200 of its 480 buffered frames, and
+/// edit what follows A (`tail` builds the new items in the directory): the position is where it
+/// was shown before the edit or later, never back. The edit withdraws the request for the reopen,
+/// and with it the drain; what the listener heard of A's tail stays heard.
+fn position_across_an_edit_in_the_drain(tag: &str, tail: impl FnOnce(&TempDir) -> Vec<Track>) {
+    let dir = TempDir::new(tag);
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    half_second_file(&a);
+    sweep_file(&b, R96);
+    let new_tail = tail(&dir);
+    let ends = new_tail.is_empty();
+
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    wait_parked(&mut h);
+    // All of A is consumed (the poll announces it), then the device plays 200 frames of its tail.
+    let _ = h.render_exact(22_050, 441);
+    let mut block = vec![0.0f32; 100 * 2];
+    for _ in 0..2 {
+        assert_eq!(h.out.render(&mut block, h.latency), Some(0));
+        h.engine.poll();
+    }
+    let before = h.engine.position().expect("playing");
+    assert!(
+        before.frame > 22_050 * 48_000 / R44 as u64 - 480 * 48_000 / R44 as u64,
+        "the drain was credited before the edit: {before:?}"
+    );
+
+    let edit = h
+        .engine
+        .replace_after(QueueItemId(1), new_tail)
+        .expect("edit");
+    h.expect_edit_applied(edit);
+    let after = h.engine.position().expect("playing");
+    assert!(
+        (before.item, before.frame) <= (after.item, after.frame),
+        "the position went back: {before:?} then {after:?}"
+    );
+    // And it stays so while the device finishes the tail.
+    let mut last = (after.item, after.frame);
+    for _ in 0..4 {
+        h.out.render(&mut block, h.latency).expect("stream open");
+        h.engine.poll();
+        let Some(now) = h.engine.position() else {
+            // With nothing after A, the queue has ended: no current track, no position.
+            assert!(ends, "the position vanished");
+            break;
+        };
+        assert!(
+            last <= (now.item, now.frame),
+            "went back: {last:?} then {now:?}"
+        );
+        last = (now.item, now.frame);
+    }
+}
+
+#[test]
+fn a_same_rate_edit_in_the_drain_does_not_put_the_position_back() {
+    position_across_an_edit_in_the_drain("excl-edit-drain-same", |dir| {
+        let c = dir.path("c.wav");
+        sweep_file(&c, R44);
+        vec![track(3, &c)]
+    });
+}
+
+#[test]
+fn an_edit_to_another_rate_in_the_drain_does_not_put_the_position_back() {
+    position_across_an_edit_in_the_drain("excl-edit-drain-other", |dir| {
+        let d = dir.path("d.wav");
+        sweep_file(&d, 88_200);
+        vec![track(3, &d)]
+    });
+}
+
+#[test]
+fn removing_the_tail_in_the_drain_does_not_put_the_position_back() {
+    position_across_an_edit_in_the_drain("excl-edit-drain-remove", |_| Vec::new());
 }

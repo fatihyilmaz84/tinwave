@@ -703,6 +703,12 @@ impl Decoder {
     /// Nothing is pushed or opened at a boundary park (the tails were pushed before it parked), so
     /// there is nothing to undo. If the engine took the request first it is reopening the stream,
     /// and the park stays: the `Resume` for it is answered like any other.
+    ///
+    /// One consequence for a refused rate (a resampled stream): the head's resampler was flushed
+    /// when the park was requested, so a successor at the head's file rate starts a new resampler
+    /// instead of sharing the old one. The join is a flush plus a new priming, not the usual
+    /// shared-resampler hand-off; the frame count is the same, and a resampled join is not
+    /// bit-exact anyway.
     fn reconsider_park(&mut self, st: &mut State) {
         if st.park_req.take().is_some() {
             // Not published yet: the tail of the head is still being pushed.

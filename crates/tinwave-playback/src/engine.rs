@@ -1,6 +1,7 @@
 //! The control side of the engine: commands in, [`PlaybackEvent`]s out.
 
 use std::collections::HashSet;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::{Acquire, Relaxed, Release};
 use std::sync::mpsc::{sync_channel, SyncSender, TrySendError};
 use std::sync::Arc;
@@ -163,10 +164,13 @@ pub struct Engine {
     /// reported since then.
     grid_base: u64,
     last_grid: u64,
-    /// Output frame (the shared `consumed` count) up to which the listener has heard the old
-    /// stream: set when a stream is replaced at a track boundary, whose tail was played out first.
-    /// The device latency of the new stream must not put the position back before it.
-    heard_floor: u64,
+    /// Output frame (the shared `consumed` count) up to which the position has been shown while an
+    /// old stream played out its buffered tail before a reopen: raised by every read of the
+    /// position during the drain and by the reopen itself. The position never goes back below it,
+    /// not when a queue edit withdraws the reopen (the credit for the tail is gone, but the tail
+    /// was heard) and not when the new stream's latency starts counting. Atomic because the
+    /// position is read through `&self`.
+    heard_floor: AtomicU64,
     reported_underruns: u64,
     output_lost_reported: bool,
 }
@@ -260,7 +264,7 @@ impl Engine {
             announced: None,
             grid_base: 0,
             last_grid: 0,
-            heard_floor: 0,
+            heard_floor: AtomicU64::new(0),
             reported_underruns: 0,
             output_lost_reported: false,
         };
@@ -920,7 +924,7 @@ impl Engine {
         if drain {
             // The old stream has played to its last frame and its device buffer has emptied: all of
             // it has been heard, whatever the latency of the stream that replaces it.
-            self.heard_floor = total;
+            self.heard_floor.fetch_max(total, Relaxed);
         }
         self.stream = None;
         let device = self.device.clone();
@@ -1147,8 +1151,14 @@ impl Engine {
         let shown = if ended {
             consumed
         } else {
-            (played + credit).min(consumed).max(self.heard_floor)
+            (played + credit)
+                .min(consumed)
+                .max(self.heard_floor.load(Relaxed))
         };
+        if draining {
+            // What has been shown stays shown, however the drain ends.
+            self.heard_floor.fetch_max(shown, Relaxed);
+        }
         View {
             consumed,
             played,
