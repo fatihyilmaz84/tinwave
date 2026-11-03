@@ -1,5 +1,12 @@
 // Teardown stress scene (dev-only, see main.rs): a scroll / cancel / churn storm against the artwork provider, then
-// Qt.quit() after --exit-ms=<ms> (default 600) while requests are still in flight.
+// Qt.quit() while requests are still in flight. The quit waits on conditions, not only on the clock (T-0071): on a
+// loaded machine the thread that hands requests to the provider can be starved for longer than any fixed time, and a
+// quit before the provider saw a request or a cancellation tests nothing. In order:
+//   1. the "canary" (see below) is answered: the provider is receiving requests; --exit-ms=<ms> (default 600) starts;
+//   2. --exit-ms has passed AND the grid has jumped at least minJumps times since (each jump drops its requests).
+// Then Qt.quit(), with the other requests still queued, running or being cancelled. What the scene cannot see is
+// whether the provider has already handled those cancellations (the thread that does is saturated by a storm), so a
+// run that quit before any was counted is possible on a starved machine; the test treats it as such (cancels = 0).
 // --mode=storm (default): everything at once; nearly every request is cancelled before a worker starts it.
 // --mode=scroll: only the grid jumping every 30 ms, so many more requests really run when the scene quits.
 // Raw numbers are fine here: this file is a test fixture, not app UI (qml-ui.md applies to qml/).
@@ -40,7 +47,13 @@ Window {
             interval: win.storm ? 4 : 30
             running: true
             repeat: true
-            onTriggered: grid.contentY = Math.max(0, Math.random() * (grid.contentHeight - grid.height))
+            onTriggered: {
+                grid.contentY = Math.max(0, Math.random() * (grid.contentHeight - grid.height))
+                if (win.armed) {
+                    win.jumps++
+                    win.maybeQuit()
+                }
+            }
         }
     }
 
@@ -92,9 +105,40 @@ Window {
         onTriggered: churn.active = !churn.active
     }
 
+    // The quit sequence (see the top of the file). The canary asks for a thumbnail above the edge limit, which the
+    // provider refuses at once on the thread that hands it requests (no worker involved): its Image.Error means that
+    // thread is running and has taken a request.
+    readonly property int minJumps: 3
+    property bool armed: false
+    property bool timeUp: false
+    property int jumps: 0
+
+    function maybeQuit() {
+        if (timeUp && jumps >= minJumps) {
+            Qt.quit()
+        }
+    }
+
+    Image {
+        id: canary
+        visible: false
+        asynchronous: true
+        cache: false
+        sourceSize: Qt.size(100000, 100000)
+        source: "image://art/canary"
+        onStatusChanged: {
+            if (status === Image.Error && !win.armed) {
+                win.armed = true
+                quitTimer.start()
+            }
+        }
+    }
     Timer {
+        id: quitTimer
         interval: Math.max(50, parseInt(win.argValue("exit-ms", "600")))
-        running: true
-        onTriggered: Qt.quit()
+        onTriggered: {
+            win.timeUp = true
+            win.maybeQuit()
+        }
     }
 }

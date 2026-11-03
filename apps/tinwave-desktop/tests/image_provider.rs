@@ -149,7 +149,9 @@ fn every_response_gets_exactly_one_finished_and_the_cache_serves_repeats() {
     assert_eq!(c["misses"], 8, "{c:?}");
 }
 
-/// Runs `Storm.qml` once in `mode`, quitting after `exit_ms`, and checks what every such run must show.
+/// Runs `Storm.qml` once in `mode`, waiting `exit_ms` after the provider's first answer, and checks what every such run
+/// must show, however loaded the machine: a clean exit and consistent counters. Whether the run also quit with
+/// requests in flight and cancellations done is up to [`quit_in_flight`].
 fn storm_run(mode: &str, exit_ms: u32) -> HashMap<String, u64> {
     let run = run_stress(&[
         format!("--qml={}", scene("Storm.qml")),
@@ -159,32 +161,38 @@ fn storm_run(mode: &str, exit_ms: u32) -> HashMap<String, u64> {
     ]);
     let c = run.expect_clean_exit();
     assert!(
-        c["responses"] > 0,
-        "{mode} {exit_ms} ms: no requests at all: {c:?}"
-    );
-    assert!(
-        c["cancels"] > 0,
-        "{mode} {exit_ms} ms: nothing was cancelled: {c:?}"
-    );
-    assert!(
         c["finished"] <= c["responses"],
         "{mode} {exit_ms} ms: more finished() than responses: {c:?}"
     );
     c
 }
 
+/// Whether a storm run quit with requests still in flight after cancellations had happened: the only runs that say
+/// anything about quitting in the middle of a cancel storm. "In flight" is `in_flight_at_quit`, read at the instant the
+/// event loop ended (before the quiesce), not derived from the final counters: once the providers are quiesced the
+/// queued tasks drain within microseconds, and how many of them the reader thread has already delivered by the time the
+/// counters are read depends on CPU load (T-0049: this test failed 2 of 14 runs under a loaded full-workspace run when
+/// it compared the final counters).
+fn quit_in_flight(c: &HashMap<String, u64>) -> bool {
+    c["in_flight_at_quit"] > 0 && c["cancels"] > 0
+}
+
 #[test]
 fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
     // What this proves: quitting while requests are queued, running or being cancelled tears down cleanly (exit 0, the
-    // engine is destroyed, no second finished()). It only proves that if a run really quit with requests in flight, so
-    // each mode must produce at least one such run.
+    // engine is destroyed, no second finished()). It only proves that if a run really quit with requests in flight and
+    // after cancellations, so each mode must produce at least one such run.
     //
-    // "In flight" is measured at the instant the event loop ended (`in_flight_at_quit`, before the quiesce), not by
-    // comparing the final counters: once the providers are quiesced the queued tasks drain within microseconds, and
-    // how many of them the reader thread has already delivered by the time the counters are read depends on CPU load
-    // (this test failed 2 of 14 runs under a loaded full-workspace run when it compared the final counters).
+    // Every run must be clean; only the "really was in flight" part is a precondition that load can spoil, so it is
+    // checked per mode over all runs, not per run. A run's exit time is not fixed (T-0071: a fixed 150 ms from scene
+    // load produced "no requests at all" and "nothing was cancelled" when the machine was too loaded to run the
+    // provider's reader thread in time): `Storm.qml` starts its exit timer only after the provider answered a first
+    // request and quits only after the grid jumped a few times since. That makes "no requests at all" impossible, and
+    // "nothing was cancelled" a matter of the reader thread lagging behind the jumps; if load still spoils a mode's
+    // runs, it gets a few more attempts.
     //
-    // (mode, ms until Qt.quit()): the quit lands while hundreds of requests are queued, running or being cancelled.
+    // (mode, ms to wait after the first answer): the quit lands while hundreds of requests are queued, running or
+    // being cancelled.
     let cases = [
         ("storm", 150),
         ("storm", 300),
@@ -194,39 +202,51 @@ fn cancel_storm_with_requests_in_flight_then_quit_exits_cleanly() {
         ("scroll", 450),
         ("scroll", 700),
     ];
-    // A mode with no qualifying run yet gets this many more attempts (bounded, never open-ended) before failing.
+    // Attempts after the listed cases, spent on whatever is still missing (bounded, never open-ended) before failing.
     const EXTRA_ATTEMPTS: u32 = 6;
 
-    let mut tasks_run = 0;
-    let mut qualifying: HashMap<&str, u32> = HashMap::from([("storm", 0), ("scroll", 0)]);
-    for (mode, exit_ms) in cases {
-        let c = storm_run(mode, exit_ms);
-        tasks_run += c["tasks_run"];
-        if c["in_flight_at_quit"] > 0 {
-            *qualifying.entry(mode).or_default() += 1;
+    #[derive(Default)]
+    struct Covered {
+        storm: u32,
+        scroll: u32,
+        tasks_run: u64,
+    }
+    impl Covered {
+        fn add(&mut self, mode: &str, c: &HashMap<String, u64>) {
+            self.tasks_run += c["tasks_run"];
+            if quit_in_flight(c) {
+                match mode {
+                    "storm" => self.storm += 1,
+                    _ => self.scroll += 1,
+                }
+            }
         }
     }
-    for (mode, exit_ms) in [("storm", 500), ("scroll", 450)] {
-        for _ in 0..EXTRA_ATTEMPTS {
-            if qualifying[mode] > 0 {
-                break;
-            }
-            let c = storm_run(mode, exit_ms);
-            tasks_run += c["tasks_run"];
-            if c["in_flight_at_quit"] > 0 {
-                *qualifying.entry(mode).or_default() += 1;
-            }
-        }
+
+    let mut covered = Covered::default();
+    for (mode, exit_ms) in cases {
+        covered.add(mode, &storm_run(mode, exit_ms));
+    }
+    for _ in 0..EXTRA_ATTEMPTS {
+        // A scroll run is also the likeliest to have a worker run a task.
+        let (mode, exit_ms) = if covered.storm == 0 {
+            ("storm", 500)
+        } else if covered.scroll == 0 || covered.tasks_run == 0 {
+            ("scroll", 450)
+        } else {
+            break;
+        };
+        covered.add(mode, &storm_run(mode, exit_ms));
     }
     assert!(
-        qualifying["storm"] > 0 && qualifying["scroll"] > 0,
-        "no run quit with requests still in flight (storm {}, scroll {}) even after {EXTRA_ATTEMPTS} extra attempts",
-        qualifying["storm"],
-        qualifying["scroll"]
+        covered.storm > 0 && covered.scroll > 0,
+        "no run quit with requests in flight after cancellations (storm {}, scroll {}) even after {EXTRA_ATTEMPTS} extra attempts",
+        covered.storm,
+        covered.scroll
     );
     assert!(
-        tasks_run > 0,
-        "the workers never ran a task, so nothing was in flight"
+        covered.tasks_run > 0,
+        "the workers never ran a task, even after {EXTRA_ATTEMPTS} extra attempts, so no task was running at a quit"
     );
 }
 
