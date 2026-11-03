@@ -54,7 +54,8 @@ Never collect, even with consent:
   `peak_section` that come from those signals; a flag bit is cleared by the category of the signal that sets it
   (volume: `vol_*`, speed: `rate_*`, browsing: `lyrics`, seek/skip/replay: `replayed`, `seek_back`, `seek_fwd_intro`).
   Monthly rollup counters follow their sources the same way (`completes`, `skips_*`, `listened_s`: seek/skip/replay;
-  `plays`: seek/skip/replay and queue and library; `fav_delta`: queue and library), and `score_sum`, a blend of every
+  `plays`: queue and library only, because it counts starts, so the seek/skip/replay wipe keeps it, like the play
+  rows; `fav_delta`: queue and library), and `score_sum`, a blend of every
   category's weights that cannot be split, is reset to 0 by **every** category wipe; a rollup row left with only zero
   counters is deleted. A wipe of a signal category does not touch `context_snapshot`, `session` or the id
   dictionaries (shared by every category, no signal of their own) or the context fields (wiped by the context
@@ -62,10 +63,15 @@ Never collect, even with consent:
   rollups, context snapshots, sessions and the dictionaries; the schema and the Signal Center toggles
   (`signal_settings`, a preference) stay. It covers `signals.db` only: `taste.db` does not exist yet, and the change
   that creates it must add its own wipe (the promise above that wiping signals clears the derived taste data applies
-  from then on). Each wipe is one transaction, deleted content is zeroed in the file (`secure_delete`; in the main database file once the WAL is next checkpointed,
-  at most the writer's idle interval later — T-0065 makes the wipe checkpoint itself), and the signal
-  writer keeps running: its batches wait for the wipe and are stored after it, and it drops its id caches when a
-  wipe committed. A play that is in progress when its `PlayStarted` is wiped ends without a play record. A wipe of
+  from then on). Each wipe is one transaction, and right after it commits the wiper folds the WAL into the main
+  database file (a best-effort checkpoint that never waits and never fails the wipe), so the deleted content, zeroed
+  in the pages (`secure_delete`), is gone from the file when the wipe returns. If a reader still holds an older
+  snapshot of the database the checkpoint is skipped (logged) and the content leaves the file at the signal
+  writer's next checkpoint, at most its idle interval (60 s) later. The signal writer keeps running: its batches
+  wait for the wipe and are stored after it, and wipe everything makes it drop its id caches (a category wipe leaves
+  the dictionaries alone, so the caches stay). A play that is in progress when its `PlayStarted` is wiped ends
+  without a play record; so does an outcome whose own `PlayStarted` was never stored when an earlier play of the
+  same recording already has its record. A wipe of
   the *events* of a tier (as opposed to the context of a tier, above) is not implemented yet.
 - No telemetry, no analytics SDKs, no crash reporters that upload by default (spec §15).
 - Never put signal data, recording names or file paths in logs above `debug`, URLs, or crash reports.

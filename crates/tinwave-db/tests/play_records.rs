@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 use common::{count, Ids, TempDb, T0};
 use rusqlite::Connection;
 use tinwave_core::{DeviceId, RecordingId, SessionId, SignalEventId, SourceId, UtcMillis};
-use tinwave_db::{EndReason, PlayFlags, SignalStore, SignalWriter, WriterConfig};
+use tinwave_db::{EndReason, PlayFlags, SignalStore, SignalWiper, SignalWriter, WriterConfig};
 use tinwave_signals::{
     BusConfig, CompletedPayload, ContextKey, ContextSnapshotId, Daypart, Fraction, InputSource,
     PausedPayload, PlayOrigin, PlayStartedPayload, PositionDs, QueueOrigin, ResumedPayload,
-    Section, SeekPayload, SignalBus, SignalEvent, SignalKind, SignalPayload, SignalSettings,
-    SkipPayload, WeekdayType,
+    Section, SeekPayload, SignalBus, SignalCategory, SignalEvent, SignalKind, SignalPayload,
+    SignalSettings, SkipPayload, WeekdayType,
 };
 
 fn start() -> SignalPayload {
@@ -429,6 +429,51 @@ fn an_outcome_in_a_later_session_pairs_by_device_not_session() {
     assert_eq!(rows[0].end_reason, EndReason::SkippedMid.code());
     assert_eq!(rows[1].recording, *b.as_bytes());
     assert_eq!(rows[1].session, *second_session.as_bytes());
+}
+
+/// A seek/skip/replay wipe deletes every stored outcome and keeps the play rows, so an old start is
+/// the nearest boundary of its recording again. With the queue and library category off the new
+/// start of the same recording is never stored, and its outcome would pair with the old start and
+/// write a second row (old `started_ts`, inflated `listened_ds`). A start that has a row is not
+/// paired again (T-0065); a later play of the recording still pairs.
+#[test]
+fn an_outcome_cannot_pair_with_a_start_that_already_has_its_row_after_an_outcome_wipe() {
+    let mut rig = Rig::new();
+    let a = rig.ids.recording();
+    let events = [rig.ev(1_000, a, start()), rig.ev(61_000, a, skip(100))];
+    assert_eq!(rig.write(&events).plays_written, 1);
+
+    let mut wiper = SignalWiper::open(&rig.db.path).unwrap();
+    wiper
+        .wipe_signal_categories(&[SignalCategory::SeekSkipReplay])
+        .unwrap();
+    let conn = rig.db.reader();
+    assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 1);
+    assert_eq!(rig.plays().len(), 1, "the wipe keeps the play row");
+
+    // The listener plays `a` again, but its PlayStarted is not stored (its category is off); only
+    // the outcome, 10 minutes later, is.
+    let orphan = [rig.ev(600_000, a, skip(100))];
+    let report = rig.write(&orphan);
+    assert_eq!(
+        (
+            report.events_inserted,
+            report.plays_written,
+            report.plays_unpaired
+        ),
+        (1, 0, 1)
+    );
+    let rows = rig.plays();
+    assert_eq!(rows.len(), 1, "no duplicate row from the stale start");
+    assert_eq!(rows[0].started_ts, T0 + 1_000);
+
+    // A play whose start is stored still pairs, with its own start.
+    let again = [rig.ev(700_000, a, start()), rig.ev(730_000, a, skip(100))];
+    assert_eq!(rig.write(&again).plays_written, 1);
+    let rows = rig.plays();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[1].started_ts, T0 + 700_000);
+    assert_eq!(rows[1].listened_ds, 300);
 }
 
 /// Two devices write into one database (sync): each outcome pairs with the start of its own
