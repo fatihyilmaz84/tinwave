@@ -25,7 +25,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus, --accent) | tw-builder r1 | `t/T-0036-windows-platform-bridge` · `D:\dev\Tinwave-worktrees\T-0036-windows-platform-bridge` |
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1, before release) | tw-builder r1 | `t/T-0051-packaging-hardening` · `D:\dev\Tinwave-worktrees\T-0051-packaging-hardening` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -34,11 +33,13 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0036](tickets/T-0036-windows-platform-bridge.md) Windows platform bridge (motion, contrast, Mica, dark menus, --accent) | tw-reviewer r1 (build-1: platform layer, CRT env fix for Mica, 543 tests) | `t/T-0036-windows-platform-bridge` @ bde9a72 · `D:\dev\Tinwave-worktrees\T-0036-windows-platform-bridge` |
 | [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-reviewer r1 (build-1 + 1b: deferred no-session queue acts) | `t/T-0023-live-queue-edits` @ 57aca71 · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
+| [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | chore | S | desktop tools/capture.ps1 | after T-0036 |
 | [T-0046](tickets/T-0046-canvas-token-sync.md) Sync canvas token sheets with §3.1 (P2) | chore | S | docs/design/canvas | free |
 | [T-0045](tickets/T-0045-contrast-selfcheck-test.md) Theme.selfCheck as a committed test (P2) | feature | S | desktop tests/ | free |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper | feature | S | new crate / playback | after T-0023 if it touches tinwave-playback |
@@ -121,5 +122,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0186 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query), P-0184 (image-stress relink), P-0185 (visible-rows paging), P-0186 (capture cursor restore).
+Proposals P-0001..P-0190 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query), P-0184 (image-stress relink), P-0185 (visible-rows paging), P-0187 (Settings-driven appearance), P-0188 (other-OS probes).
