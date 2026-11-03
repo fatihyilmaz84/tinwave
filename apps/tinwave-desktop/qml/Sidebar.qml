@@ -71,18 +71,18 @@ Rectangle {
             keyNavigationEnabled: true
 
             model: ListModel {
-                ListElement { group: "Library"; key: "songs"; label: "Songs"; iconName: "eighth-note" }
-                ListElement { group: "Library"; key: "albums"; label: "Albums"; iconName: "disc-album" }
-                ListElement { group: "Library"; key: "artists"; label: "Artists"; iconName: "mic-vocal" }
-                ListElement { group: "Library"; key: "genres"; label: "Genres"; iconName: "tags" }
+                ListElement { group: "Library"; key: "songs"; label: "Songs"; iconName: "eighth-notes" }
+                ListElement { group: "Library"; key: "albums"; label: "Albums"; iconName: "disc" }
+                ListElement { group: "Library"; key: "artists"; label: "Artists"; iconName: "user-round" }
+                ListElement { group: "Library"; key: "genres"; label: "Genres"; iconName: "layout-grid" }
                 ListElement { group: "Listen"; key: "radio"; label: "Smart Radio"; iconName: "radio" }
                 ListElement { group: "Listen"; key: "insights"; label: "Insights"; iconName: "chart-column" }
-                ListElement { group: "Sources"; key: "this-computer"; label: "This computer"; iconName: "monitor" }
-                ListElement { group: "Sources"; key: "downloads"; label: "Downloads"; iconName: "download" }
-                ListElement { group: "Manage"; key: "import"; label: "Import & organize"; iconName: "folder-input" }
-                ListElement { group: "Manage"; key: "ripping"; label: "CD ripping"; iconName: "disc" }
+                ListElement { group: "Sources"; key: "this-computer"; label: "This computer"; iconName: "folder" }
+                ListElement { group: "Sources"; key: "downloads"; label: "Downloads"; iconName: "arrow-down-to-line" }
+                ListElement { group: "Manage"; key: "import"; label: "Import & organize"; iconName: "upload" }
+                ListElement { group: "Manage"; key: "ripping"; label: "CD ripping"; iconName: "disc-3" }
                 ListElement { group: "Manage"; key: "signal-center"; label: "Signal Center"; iconName: "activity" }
-                ListElement { group: "Manage"; key: "settings"; label: "Settings"; iconName: "settings" }
+                ListElement { group: "Manage"; key: "settings"; label: "Settings"; iconName: "sliders-horizontal" }
             }
 
             section.property: "group"
@@ -108,12 +108,12 @@ Rectangle {
                 height: Theme.sidebarRowHeight
                 // `&` marks a mnemonic in button text; show it literally.
                 text: label.replace(/&/g, "&&")
-                // Native icon slot (tinted from tokens): `text` while selected, `textMuted` otherwise.
+                // Native icon slot, tinted from tokens: `text` for every row (canvas "Library - Windows"), gap `Theme.m`.
                 icon.source: TwIcons.source(iconName)
                 icon.width: Theme.iconSize
                 icon.height: Theme.iconSize
-                icon.color: highlighted ? Theme.text : Theme.textMuted
-                spacing: Theme.s
+                icon.color: Theme.text
+                spacing: Theme.m
                 // One tab stop for the whole list (the current item); Up/Down move the selection.
                 focusPolicy: ListView.isCurrentItem ? Qt.StrongFocus : Qt.ClickFocus
                 highlighted: ListView.isCurrentItem

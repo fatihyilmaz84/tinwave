@@ -1,56 +1,121 @@
 // A build script reports every failure by panicking: that is its error channel, so `expect` is the right tool here.
 #![allow(clippy::expect_used)]
 
-use cxx_qt_build::{CxxQtBuilder, QmlFile, QmlModule};
+use cxx_qt_build::{CxxQtBuilder, QResource, QResources, QmlFile, QmlModule};
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-/// Writes a Qt resource file with every vendored Lucide icon plus the licence text, under the QML module's resource prefix
-/// as `icons/<file>`: QML reaches them at `qrc:/qt/qml/Tinwave/Desktop/icons/<name>.svg`. The set is whatever sits in
-/// `icons/`; `check_icon_usage` fails the build when it differs from what the QML references, so an unused icon cannot ship.
-fn write_icon_qrc() -> PathBuf {
-    let dir = Path::new("icons");
-    // Cargo reruns this script when the directory listing or any file in it changes.
-    println!("cargo::rerun-if-changed={}", dir.display());
-    let mut names: Vec<String> = std::fs::read_dir(dir)
+/// File names in `icons/` that pass `keep`, sorted.
+fn icon_files(keep: impl Fn(&str) -> bool) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir("icons")
         .expect("read the icons directory")
-        .map(|entry| entry.expect("read an icons directory entry").file_name())
-        .filter_map(|name| name.into_string().ok())
-        .filter(|name| name.ends_with(".svg") || name == "LICENSE-lucide.txt")
+        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter(|name| keep(name))
         .collect();
     names.sort();
-    let abs = std::fs::canonicalize(dir).expect("resolve the icons directory");
+    names
+}
 
-    let mut xml = String::from("<RCC>\n  <qresource prefix=\"/qt/qml/Tinwave/Desktop\">\n");
-    for name in &names {
-        let path = abs.join(name);
-        writeln!(
-            xml,
-            "    <file alias=\"icons/{name}\">{}</file>",
-            path.display()
-        )
-        .expect("write to a String");
+/// Every vendored Lucide icon plus the licence text, as resources `icons/<file>` of the QML module (`CxxQtBuilder`
+/// prefixes them with `/qt/qml/Tinwave/Desktop`): QML reaches them at `qrc:/qt/qml/Tinwave/Desktop/icons/<name>.svg`.
+/// The set is whatever sits in `icons/`; `check_icon_usage` fails the build when it differs from what the QML references,
+/// so an unused icon cannot ship. Cargo watches each file (and the directory, for added or removed ones).
+fn icon_resources() -> QResources {
+    println!("cargo::rerun-if-changed=icons");
+    let files = icon_files(|name| name.ends_with(".svg") || name == "LICENSE-lucide.txt");
+    // The resource path is the path as written (forward slashes); `CxxQtBuilder` resolves the file itself.
+    QResources::new()
+        .resource(QResource::new().files(files.iter().map(|name| format!("icons/{name}"))))
+}
+
+/// Removes every `//` and `/* */` comment from QML source (string literals are left alone).
+fn strip_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut in_string = false;
+    while let Some(c) = chars.next() {
+        if in_string {
+            out.push(c);
+            if c == '\\' {
+                out.extend(chars.next());
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+            out.push(c);
+        } else if c == '/' && chars.peek() == Some(&'/') {
+            while chars.peek().is_some_and(|&n| n != '\n') {
+                chars.next();
+            }
+        } else if c == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            while let Some(n) = chars.next() {
+                if n == '*' && chars.peek() == Some(&'/') {
+                    chars.next();
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
     }
-    xml.push_str("  </qresource>\n</RCC>\n");
-
-    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by Cargo"))
-        .join("icons.qrc");
-    std::fs::write(&out, xml).expect("write icons.qrc");
     out
 }
 
-/// Names of the vendored icons: the `*.svg` files in `icons/`.
-fn vendored_icons(dir: &Path) -> BTreeSet<String> {
-    std::fs::read_dir(dir)
-        .expect("read the icons directory")
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .filter_map(|file| file.strip_suffix(".svg").map(str::to_owned))
-        .collect()
+fn is_identifier_char(c: char) -> bool {
+    c == '_' || c == '.' || c.is_alphanumeric()
 }
 
-/// Icon names QML refers to. QML writes them only in three forms, always as string literals: `iconName: "x"` (model roles
-/// and properties), `TwIcons.source("x")` and `name: "x"` inside a `TwIcon { ... }` block.
+/// Collects the string literal in `key <ws> sep <ws> "literal"` for every occurrence of `key` that starts a name (not
+/// preceded by an identifier character or `.`, so `Accessible.name:` is not `name:`).
+fn literals_after(text: &str, key: &str, sep: char, out: &mut BTreeSet<String>) {
+    for (at, _) in text.match_indices(key) {
+        if text[..at].ends_with(is_identifier_char) {
+            continue;
+        }
+        let rest = text[at + key.len()..].trim_start();
+        let Some(rest) = rest.strip_prefix(sep) else {
+            continue;
+        };
+        let Some(rest) = rest.trim_start().strip_prefix('"') else {
+            continue;
+        };
+        if let Some(end) = rest.find('"') {
+            out.insert(rest[..end].to_owned());
+        }
+    }
+}
+
+/// The text between the braces of every `TwIcon { ... }` (nested braces included).
+fn twicon_blocks(text: &str) -> Vec<&str> {
+    let mut blocks = Vec::new();
+    for (at, _) in text.match_indices("TwIcon") {
+        let after = &text[at + "TwIcon".len()..];
+        if text[..at].ends_with(is_identifier_char) || after.starts_with(is_identifier_char) {
+            continue; // part of another name, e.g. TwIcons
+        }
+        let Some(body) = after.trim_start().strip_prefix('{') else {
+            continue;
+        };
+        let mut depth = 1;
+        for (i, c) in body.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => depth -= 1,
+                _ => {}
+            }
+            if depth == 0 {
+                blocks.push(&body[..i]);
+                break;
+            }
+        }
+    }
+    blocks
+}
+
+/// Icon names QML refers to. QML writes them only in three forms, always as string literals (whitespace and comments do not
+/// matter): `iconName: "x"` (model roles and properties), `TwIcons.source("x")` and `name: "x"` inside a `TwIcon { ... }`.
 fn referenced_icons(qml_dir: &Path, out: &mut BTreeSet<String>) {
     let mut entries: Vec<_> = std::fs::read_dir(qml_dir)
         .expect("read the qml directory")
@@ -61,29 +126,12 @@ fn referenced_icons(qml_dir: &Path, out: &mut BTreeSet<String>) {
         if path.is_dir() {
             referenced_icons(&path, out);
         } else if path.extension().is_some_and(|ext| ext == "qml") {
-            let text = std::fs::read_to_string(&path).expect("read a QML file");
-            literals_after(&text, "iconName: \"", out);
-            literals_after(&text, "TwIcons.source(\"", out);
-            // `name: "x"` is only an icon name inside a `TwIcon { ... }` block (not `Accessible.name:`).
-            for (start, _) in text.match_indices("TwIcon {") {
-                let block = text[start..].split('}').next().unwrap_or_default();
-                for (at, _) in block.match_indices("name: \"") {
-                    if !block[..at].ends_with(|c: char| c == '.' || c == '_' || c.is_alphanumeric())
-                    {
-                        literals_after(&block[at..], "name: \"", out);
-                    }
-                }
+            let text = strip_comments(&std::fs::read_to_string(&path).expect("read a QML file"));
+            literals_after(&text, "iconName", ':', out);
+            literals_after(&text, "TwIcons.source", '(', out);
+            for block in twicon_blocks(&text) {
+                literals_after(block, "name", ':', out);
             }
-        }
-    }
-}
-
-/// Collects the string literal that follows every occurrence of `prefix` (which ends in the opening quote).
-fn literals_after(text: &str, prefix: &str, out: &mut BTreeSet<String>) {
-    for (at, _) in text.match_indices(prefix) {
-        let rest = &text[at + prefix.len()..];
-        if let Some(end) = rest.find('"') {
-            out.insert(rest[..end].to_owned());
         }
     }
 }
@@ -91,7 +139,10 @@ fn literals_after(text: &str, prefix: &str, out: &mut BTreeSet<String>) {
 /// Unused icons are not shipped (design-system.md 3.4): every vendored icon must be referenced from QML, and every icon QML
 /// names must exist. Runs on every build, so the vendored set is always exactly the used set.
 fn check_icon_usage() {
-    let vendored = vendored_icons(Path::new("icons"));
+    let vendored: BTreeSet<String> = icon_files(|name| name.ends_with(".svg"))
+        .into_iter()
+        .filter_map(|file| file.strip_suffix(".svg").map(str::to_owned))
+        .collect();
     let mut referenced = BTreeSet::new();
     referenced_icons(Path::new("qml"), &mut referenced);
     let unused: Vec<_> = vendored.difference(&referenced).collect();
@@ -112,7 +163,7 @@ fn main() {
         QmlFile::from("qml/Main.qml"),
         QmlFile::from("qml/Sidebar.qml"),
     ]))
-    .qrc(write_icon_qrc())
+    .qrc_resources(icon_resources())
     .qt_module("Quick")
     .qt_module("QuickControls2")
     .files(["src/app/app_info.rs", "src/app/artwork_bridge.rs"])

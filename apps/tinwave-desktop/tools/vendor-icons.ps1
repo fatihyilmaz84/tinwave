@@ -4,7 +4,7 @@
 #   powershell -File tools/vendor-icons.ps1 -Add a-icon,b-icon   add icons to the set
 #   powershell -File tools/vendor-icons.ps1 -Version 1.70.0      bump the pinned version (re-fetches the whole set)
 #
-# Only icons that QML references are vendored (tests/icons.rs enforces both directions). The pinned version lives in
+# Only icons that QML references are vendored (`check_icon_usage` in build.rs enforces both directions). The pinned version lives in
 # icons/VERSION. Each SVG is fetched from the tagged Lucide source and gets one change: stroke-width 2 -> 1.75, the
 # design-system stroke for 20 px icons (Lucide's own default is 2; the value is baked in because an SVG in the
 # Qt resource file cannot take it from a token at run time). The licence text is refreshed from the same tag.

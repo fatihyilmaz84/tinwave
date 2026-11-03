@@ -160,7 +160,7 @@ How it is built (T-0043):
 - **Stroke.** `Theme.iconStroke` (1.75) is baked into each vendored SVG by the vendoring script (an SVG in the resource file
   cannot read a token); the same file serves 20 px and 16 px. Size comes from `Theme.iconSize` / `Theme.iconSizeDense`.
 - **Native controls keep their own icon slot**: `icon.source: TwIcons.source("<name>")`, `icon.width/height: Theme.iconSize`,
-  `icon.color: Theme.text` (`Theme.textMuted` for resting nav items). `TwIcon { name; size; color }` exists only for places
+  `icon.color: Theme.text` (every sidebar nav glyph, resting and selected, as in the canvas; icon-to-label gap `Theme.m`). `TwIcon { name; size; color }` exists only for places
   with no such slot. Both take the glyph as a string literal so the build check can see it; both tint through Qt's own
   `IconImage`, which rasterises at size x device pixel ratio (crisp at 100 / 150 / 200 %).
 - A glyph is decorative: the control carries `Accessible.name` (an icon-only control also shows its name as a tooltip).
