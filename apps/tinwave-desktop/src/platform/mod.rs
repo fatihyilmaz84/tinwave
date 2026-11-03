@@ -56,6 +56,21 @@ impl Default for SystemSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NativeWindow(pub usize);
 
+/// Whether the windows of the Qt platform plugin `qpa` (`QGuiApplication::platformName()`) carry the OS handle that
+/// [`NativeWindow`] stands for. Qt's `winId()` is only a real handle with the plugin of the OS itself: the `offscreen`
+/// plugin (headless tests) numbers its windows with a counter, which must never reach an OS call as if it were a handle.
+///
+/// Windows: only the `windows` plugin. Other OSes have no provider yet (every call answers
+/// [`PlatformError::Unsupported`] and ignores the handle), so they pass; T-0038/T-0039 narrow this to their plugins
+/// when they add real providers.
+pub fn has_native_window_handles(qpa: &str) -> bool {
+    if cfg!(windows) {
+        qpa == "windows"
+    } else {
+        true
+    }
+}
+
 /// Which colour scheme native menus draw in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MenuScheme {
@@ -180,6 +195,19 @@ mod tests {
             MenuScheme::FollowSystem
         );
         assert_eq!(MenuScheme::from_override("bogus"), MenuScheme::FollowSystem);
+    }
+
+    #[test]
+    fn only_the_windows_plugin_hands_out_hwnds_on_windows() {
+        if cfg!(windows) {
+            assert!(has_native_window_handles("windows"));
+            for qpa in ["offscreen", "minimal", "xcb", "cocoa", ""] {
+                assert!(!has_native_window_handles(qpa), "{qpa}");
+            }
+        } else {
+            // No real provider yet: the Unsupported ones ignore the handle.
+            assert!(has_native_window_handles("xcb"));
+        }
     }
 
     #[test]

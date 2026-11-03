@@ -16,8 +16,14 @@ pub mod qobject {
         include!(<QtQuick/QQuickWindow>);
         /// The window QML passes in. Only its native handle is read.
         type QQuickWindow;
-        /// `QWindow::winId()`: the `HWND` on Windows (creates the native window if it does not exist yet).
-        fn winId(self: &QQuickWindow) -> usize;
+        include!("platform_window.h");
+        /// `QWindow::winId()`: the `HWND` on Windows (creates the native window if it does not exist yet). A shim
+        /// (`cpp/platform_window.cpp`) because `WId` is `quint64` and cxx's `usize` is `size_t`: those are different
+        /// C++ types on 64-bit Linux and macOS, so a direct binding would not compile there.
+        fn tw_native_window_handle(window: &QQuickWindow) -> usize;
+        /// `QGuiApplication::platformName()`: "windows", "offscreen"... Only some Qt platform plugins hand out real
+        /// OS window handles.
+        fn tw_qpa_name() -> String;
         /// `QQuickWindow::setDefaultAlphaBuffer`: windows created afterwards get an alpha channel.
         #[Self = "QQuickWindow"]
         #[rust_name = "set_default_alpha_buffer"]
@@ -226,7 +232,17 @@ impl qobject::PlatformSettings {
             eprintln!("tinwave: attachWindow was called without a window");
             return;
         };
-        let handle = NativeWindow(window.winId());
+        // The offscreen plugin's winId is a counter, not an OS window: never hand such a number to the providers.
+        let qpa = qobject::tw_qpa_name();
+        if !platform::has_native_window_handles(&qpa) {
+            self.as_mut()
+                .rust_mut()
+                .controller
+                .window_not_attached(&qpa);
+            self.publish_state();
+            return;
+        }
+        let handle = NativeWindow(qobject::tw_native_window_handle(window));
 
         // The OS tells the window procedure (on this thread); the work is queued to the event loop. A burst of
         // messages (an accent change sends several) collapses into one refresh.

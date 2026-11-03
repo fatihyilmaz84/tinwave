@@ -24,7 +24,7 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::mem::size_of;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
 use ::windows::core::{w, PCSTR, PWSTR};
 use ::windows::Wdk::System::SystemServices::RtlGetVersion;
@@ -44,8 +44,8 @@ use ::windows::Win32::System::SystemInformation::OSVERSIONINFOW;
 use ::windows::Win32::UI::Accessibility::{HCF_HIGHCONTRASTON, HIGHCONTRASTW, HIGHCONTRASTW_FLAGS};
 use ::windows::Win32::UI::Controls::MARGINS;
 use ::windows::Win32::UI::WindowsAndMessaging::{
-    CallWindowProcW, DefWindowProcW, IsWindow, SetWindowLongPtrW, SystemParametersInfoW,
-    GWLP_WNDPROC, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST,
+    CallWindowProcW, DefWindowProcW, GetWindowThreadProcessId, IsWindow, SetWindowLongPtrW,
+    SystemParametersInfoW, GWLP_WNDPROC, SPI_GETCLIENTAREAANIMATION, SPI_GETHIGHCONTRAST,
     SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, WM_NCDESTROY, WM_SETTINGCHANGE, WM_SYSCOLORCHANGE,
     WM_THEMECHANGED, WNDPROC,
 };
@@ -177,16 +177,31 @@ fn os_build() -> Option<u32> {
     status.is_ok().then_some(info.dwBuildNumber)
 }
 
-/// The window behind `window`, or a [`PlatformError::Failed`] when it is not a live window of this process's
-/// thread-agnostic handle table (a stale or foreign number must not reach DWM).
+/// The window behind `window`, or a [`PlatformError::Failed`] unless it is a live window **owned by this process**.
+///
+/// `IsWindow` alone says yes to a window of any process (the desktop, another application's window), and subclassing
+/// or changing the DWM attributes of those is not ours to do; a stale number or a counter that merely looks like a
+/// handle must not reach DWM either. Windows refuses to subclass a foreign process's window anyway; checking first
+/// gives a clear error and guarantees no foreign window is ever the target of a call.
 fn live_window(window: NativeWindow) -> Result<HWND, PlatformError> {
     let hwnd = HWND(window.0 as *mut c_void);
     // SAFETY: IsWindow accepts any value and only answers whether it is a window handle.
-    if unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+    if !unsafe { IsWindow(Some(hwnd)) }.as_bool() {
+        return Err(PlatformError::Failed {
+            call: "IsWindow",
+            code: 1400, // ERROR_INVALID_WINDOW_HANDLE
+        });
+    }
+    let mut owner: u32 = 0;
+    // SAFETY: `hwnd` was just confirmed to be a window handle (a window destroyed since only makes the call return 0);
+    // `owner` is a live u32 the call writes the owning process id into. Nothing is sent to the window.
+    let thread = unsafe { GetWindowThreadProcessId(hwnd, Some(&raw mut owner)) };
+    // `std::process::id()` is `GetCurrentProcessId()`.
+    if thread != 0 && owner == std::process::id() {
         Ok(hwnd)
     } else {
         Err(PlatformError::Failed {
-            call: "IsWindow",
+            call: "window owned by another process",
             code: 1400, // ERROR_INVALID_WINDOW_HANDLE
         })
     }
@@ -434,37 +449,63 @@ fn export_by_ordinal(
     unsafe { GetProcAddress(module, PCSTR(usize::from(ordinal) as *const u8)) }
 }
 
+/// The two undocumented `uxtheme` entry points, resolved once.
+#[derive(Debug)]
+struct MenuApi {
+    set_preferred_app_mode: SetPreferredAppModeFn,
+    flush_menu_themes: FlushMenuThemesFn,
+}
+
+/// Loads `uxtheme.dll` and looks up both ordinals. Only called on builds >= [`MENU_OPT_IN_MIN_BUILD`].
+fn resolve_menu_api() -> Result<MenuApi, PlatformError> {
+    // SAFETY: a fixed system DLL name, searched in System32 only (no DLL planting); uxtheme is already loaded by
+    // Qt, so this only adds a reference that lives as long as the process (the pointers below stay valid). It runs
+    // once (see `menu_api`), so that is one reference in total.
+    let uxtheme = unsafe { LoadLibraryExW(w!("uxtheme.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32) }
+        .map_err(|e| failed("LoadLibraryExW(uxtheme.dll)", &e))?;
+    let set_mode = export_by_ordinal(uxtheme, 135).ok_or_else(|| {
+        PlatformError::unsupported("uxtheme.dll has no export 135 (SetPreferredAppMode)")
+    })?;
+    let flush = export_by_ordinal(uxtheme, 136).ok_or_else(|| {
+        PlatformError::unsupported("uxtheme.dll has no export 136 (FlushMenuThemes)")
+    })?;
+    // SAFETY: on builds >= MENU_OPT_IN_MIN_BUILD (the caller checked) ordinal 135 is `int SetPreferredAppMode(int)`
+    // and 136 is `void FlushMenuThemes(void)`, both __stdcall (= "system" on x64/arm64). This is undocumented
+    // and the reason for the module-level risk note.
+    Ok(unsafe {
+        MenuApi {
+            set_preferred_app_mode: std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                SetPreferredAppModeFn,
+            >(set_mode),
+            flush_menu_themes: std::mem::transmute::<
+                unsafe extern "system" fn() -> isize,
+                FlushMenuThemesFn,
+            >(flush),
+        }
+    })
+}
+
+/// The resolved entry points, looked up on first success and kept for the life of the process. A failure is not
+/// remembered: the controller retries a failed opt-in on the next OS change, and that retry should really look again.
+fn menu_api() -> Result<&'static MenuApi, PlatformError> {
+    static API: OnceLock<MenuApi> = OnceLock::new();
+    if let Some(api) = API.get() {
+        return Ok(api);
+    }
+    let resolved = resolve_menu_api()?;
+    Ok(API.get_or_init(|| resolved))
+}
+
 impl MenuStyle for WindowsPlatform {
     fn set_menu_scheme(&self, scheme: MenuScheme) -> Result<(), PlatformError> {
         build_supports(self.build, MENU_OPT_IN_MIN_BUILD, "dark native menus")?;
-        // SAFETY: a fixed system DLL name, searched in System32 only (no DLL planting); uxtheme is already loaded by
-        // Qt, so this only adds a reference that lives as long as the process (the pointers below stay valid).
-        let uxtheme =
-            unsafe { LoadLibraryExW(w!("uxtheme.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32) }
-                .map_err(|e| failed("LoadLibraryExW(uxtheme.dll)", &e))?;
-        let set_mode = export_by_ordinal(uxtheme, 135).ok_or_else(|| {
-            PlatformError::unsupported("uxtheme.dll has no export 135 (SetPreferredAppMode)")
-        })?;
-        let flush = export_by_ordinal(uxtheme, 136).ok_or_else(|| {
-            PlatformError::unsupported("uxtheme.dll has no export 136 (FlushMenuThemes)")
-        })?;
-        // SAFETY: on builds >= MENU_OPT_IN_MIN_BUILD (checked above) ordinal 135 is `int SetPreferredAppMode(int)`
-        // and 136 is `void FlushMenuThemes(void)`, both __stdcall (= "system" on x64/arm64). This is undocumented
-        // and the reason for the module-level risk note.
-        let (set_mode, flush) = unsafe {
-            (
-                std::mem::transmute::<unsafe extern "system" fn() -> isize, SetPreferredAppModeFn>(
-                    set_mode,
-                ),
-                std::mem::transmute::<unsafe extern "system" fn() -> isize, FlushMenuThemesFn>(
-                    flush,
-                ),
-            )
-        };
-        // SAFETY: the signatures were established above; the mode is one of the four documented-by-use values.
+        let api = menu_api()?;
+        // SAFETY: the signatures were established when the pointers were resolved; the mode is one of the four
+        // values known from use. Both calls change only this process's menu theme state.
         unsafe {
-            set_mode(preferred_app_mode(scheme));
-            flush();
+            (api.set_preferred_app_mode)(preferred_app_mode(scheme));
+            (api.flush_menu_themes)();
         }
         Ok(())
     }
@@ -477,8 +518,8 @@ mod tests {
     use std::sync::Arc;
 
     use ::windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, SendMessageW, HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE,
-        WM_NULL,
+        CreateWindowExW, DestroyWindow, GetDesktopWindow, GetShellWindow, SendMessageW,
+        HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_NULL,
     };
 
     /// A message-only window of the system `STATIC` class: invisible, never on the desktop, owned by the test thread.
@@ -661,6 +702,139 @@ mod tests {
             })
         );
         assert!(platform.watch(NativeWindow(0), Arc::new(|| {})).is_err());
+    }
+
+    #[test]
+    fn only_a_window_of_this_process_is_accepted() {
+        let window = TestWindow::new();
+        assert_eq!(live_window(window.native()), Ok(window.0));
+
+        // Windows of other processes, to read their owner only: nothing is ever sent to them, and none is changed.
+        // SAFETY: both calls take no arguments and only return handles (null when there is none).
+        let (desktop, shell) = unsafe { (GetDesktopWindow(), GetShellWindow()) };
+        let mut foreign = vec![("the desktop window", desktop)];
+        if !shell.0.is_null() {
+            foreign.push(("the shell window", shell));
+        }
+        for (name, hwnd) in foreign {
+            assert_eq!(
+                live_window(NativeWindow(hwnd.0 as usize)),
+                Err(PlatformError::Failed {
+                    call: "window owned by another process",
+                    code: 1400
+                }),
+                "{name} is a window, but not ours"
+            );
+        }
+    }
+
+    #[test]
+    fn a_foreign_window_is_neither_watched_nor_given_a_backdrop() {
+        // SAFETY: returns the desktop window handle; it is only compared and read, never sent a message.
+        let desktop = NativeWindow(unsafe { GetDesktopWindow() }.0 as usize);
+        let platform = WindowsPlatform::with_build(Some(26200));
+        let hooked = || hooks().iter().any(|h| h.hwnd == desktop.0 as isize);
+        assert!(platform.watch(desktop, Arc::new(|| {})).is_err());
+        assert!(!hooked(), "the desktop window was not subclassed");
+        assert_eq!(
+            platform.set_backdrop(desktop, true),
+            Err(PlatformError::Failed {
+                call: "window owned by another process",
+                code: 1400
+            })
+        );
+    }
+
+    #[test]
+    fn the_uxtheme_entry_points_are_resolved_once() {
+        let first = menu_api().expect("ordinals 135 and 136 exist on this Windows build");
+        let second = menu_api().expect("resolved");
+        assert!(std::ptr::eq(first, second), "the same resolved pair");
+    }
+
+    /// The real Windows providers, counting the menu scheme calls that reach `uxtheme`.
+    #[derive(Default)]
+    struct CountingPlatform {
+        os: WindowsPlatform,
+        menu_calls: Mutex<Vec<MenuScheme>>,
+    }
+
+    impl SettingsReader for CountingPlatform {
+        fn read(&self) -> Result<SystemSettings, PlatformError> {
+            self.os.read()
+        }
+    }
+    impl SettingsWatcher for CountingPlatform {
+        fn watch(
+            &self,
+            window: NativeWindow,
+            on_change: ChangeCallback,
+        ) -> Result<(), PlatformError> {
+            self.os.watch(window, on_change)
+        }
+    }
+    impl WindowEffects for CountingPlatform {
+        fn prepare_process(&self) -> Result<(), PlatformError> {
+            self.os.prepare_process()
+        }
+        fn set_backdrop(&self, window: NativeWindow, on: bool) -> Result<(), PlatformError> {
+            self.os.set_backdrop(window, on)
+        }
+    }
+    impl MenuStyle for CountingPlatform {
+        fn set_menu_scheme(&self, scheme: MenuScheme) -> Result<(), PlatformError> {
+            self.menu_calls.lock().expect("calls").push(scheme);
+            self.os.set_menu_scheme(scheme)
+        }
+    }
+
+    #[test]
+    fn an_os_scheme_message_reflushes_native_menus_that_follow_the_system() {
+        use crate::platform::controller::Controller;
+
+        let platform = Arc::new(CountingPlatform::default());
+        let controller = Arc::new(Mutex::new(Controller::new(Arc::<CountingPlatform>::clone(
+            &platform,
+        ))));
+        let calls = || platform.menu_calls.lock().expect("calls").clone();
+        assert_eq!(calls(), vec![MenuScheme::FollowSystem], "start-up opt-in");
+
+        // The real watcher on a window of our own; messages are sent to that window only, never broadcast.
+        let window = TestWindow::new();
+        let on_os_change = Arc::clone(&controller);
+        platform
+            .watch(
+                window.native(),
+                Arc::new(move || {
+                    on_os_change.lock().expect("controller").refresh();
+                }),
+            )
+            .expect("watch the window");
+
+        window.send(WM_NULL);
+        assert_eq!(calls().len(), 1, "unrelated messages change nothing");
+        window.send(WM_SETTINGCHANGE);
+        assert_eq!(
+            calls(),
+            vec![MenuScheme::FollowSystem, MenuScheme::FollowSystem],
+            "the opt-in and the flush ran again"
+        );
+        window.send(WM_THEMECHANGED);
+        assert_eq!(calls().len(), 3);
+
+        // A forced scheme ignores the OS scheme.
+        controller
+            .lock()
+            .expect("controller")
+            .set_menu_scheme(MenuScheme::Dark);
+        assert_eq!(calls().len(), 4);
+        window.send(WM_SETTINGCHANGE);
+        assert_eq!(calls().len(), 4, "forced dark is not re-flushed");
+        // Leave this test process's menu mode as a fresh process has it.
+        controller
+            .lock()
+            .expect("controller")
+            .set_menu_scheme(MenuScheme::FollowSystem);
     }
 
     #[test]

@@ -65,6 +65,8 @@ pub struct Controller {
     settings_status: Result<(), PlatformError>,
     transparency_allowed: bool,
     window: Option<NativeWindow>,
+    /// Why there is no window to attach to (its Qt platform plugin has no OS handles); `None` while simply waiting.
+    detached: Option<String>,
     backdrop: Backdrop,
     scheme: MenuScheme,
     applied_scheme: MenuScheme,
@@ -94,6 +96,7 @@ impl Controller {
             settings_status,
             transparency_allowed: true,
             window: None,
+            detached: None,
             backdrop: Backdrop::Solid("no window yet".to_owned()),
             scheme: MenuScheme::FollowSystem,
             applied_scheme: MenuScheme::FollowSystem,
@@ -123,9 +126,11 @@ impl Controller {
                 transparency_effects: self.os.transparency_effects && self.transparency_allowed,
                 ..self.os
             },
-            settings_status: match &self.settings_status {
-                Ok(()) => "live".to_owned(),
-                Err(error) => error.to_string(),
+            settings_status: match (&self.settings_status, &self.detached) {
+                (Err(error), _) => error.to_string(),
+                // The values were read, but nothing watches the OS for changes.
+                (Ok(()), Some(reason)) => reason.clone(),
+                (Ok(()), None) => "live".to_owned(),
             },
             backdrop: self.backdrop.clone(),
             native_menus: self.menus.is_ok(),
@@ -143,9 +148,21 @@ impl Controller {
     pub fn attach_window(&mut self, window: NativeWindow, on_change: ChangeCallback) -> bool {
         let before = self.state();
         self.window = Some(window);
+        self.detached = None;
         if let Err(error) = self.platform.watch(window, on_change) {
             self.settings_status = Err(error);
         }
+        self.apply_backdrop();
+        self.state() != before
+    }
+
+    /// The main window exists, but it is not an OS window (`qpa` is the Qt platform plugin, e.g. `offscreen`): nothing
+    /// is watched and the backdrop stays solid, and [`state`](Self::state) says so instead of reporting a failed OS
+    /// call. Returns whether the state changed.
+    pub fn window_not_attached(&mut self, qpa: &str) -> bool {
+        let before = self.state();
+        self.window = None;
+        self.detached = Some(format!("not attached (QPA {qpa})"));
         self.apply_backdrop();
         self.state() != before
     }
@@ -161,7 +178,7 @@ impl Controller {
             // Keep the last known values; the status tells why they may be stale.
             Err(error) => self.settings_status = Err(error),
         }
-        self.apply_menu_scheme();
+        self.apply_menu_scheme(true);
         self.apply_backdrop();
         self.state() != before
     }
@@ -180,7 +197,7 @@ impl Controller {
     pub fn set_menu_scheme(&mut self, scheme: MenuScheme) -> bool {
         let before = self.state();
         self.scheme = scheme;
-        self.apply_menu_scheme();
+        self.apply_menu_scheme(false);
         self.state() != before
     }
 
@@ -194,10 +211,16 @@ impl Controller {
         }
     }
 
-    fn apply_menu_scheme(&mut self) {
+    /// `os_changed`: the OS reported a change (settings, theme or colours, which includes its light/dark scheme).
+    fn apply_menu_scheme(&mut self, os_changed: bool) {
         let wanted = self.wanted_menu_scheme();
-        // Retry while the opt-in has not worked; otherwise only when the scheme changed.
-        if wanted == self.applied_scheme && self.menus.is_ok() {
+        // While menus follow the OS, an OS change is applied again: the menu themes the OS cached for the old scheme
+        // are flushed (`FlushMenuThemes`), so an open-later native menu is not light inside a dark app. A forced
+        // Dark/Light ignores the OS scheme, so it needs nothing. The OS message does not say what changed and the
+        // call is cheap and idempotent, so every OS change counts.
+        let reflush = os_changed && wanted == MenuScheme::FollowSystem;
+        // Retry while the opt-in has not worked; otherwise only when the scheme changed (or must be re-flushed).
+        if wanted == self.applied_scheme && self.menus.is_ok() && !reflush {
             return;
         }
         self.menus = self.platform.set_menu_scheme(wanted);
@@ -221,7 +244,12 @@ impl Controller {
 
     fn apply_backdrop(&mut self) {
         let Some(window) = self.window else {
-            self.backdrop = Backdrop::Solid("no window yet".to_owned());
+            // Without a window there is nothing to turn on or off: that is the reason, whatever the OS settings say.
+            self.backdrop = Backdrop::Solid(
+                self.detached
+                    .clone()
+                    .unwrap_or_else(|| "no window yet".to_owned()),
+            );
             return;
         };
         if let Some(reason) = self.backdrop_blocker() {
@@ -420,6 +448,72 @@ mod tests {
             fake.get(|i| i.menu_calls.last().copied()),
             Some(MenuScheme::Dark)
         );
+    }
+
+    #[test]
+    fn an_os_change_while_menus_follow_the_system_flushes_them_again() {
+        let fake = Arc::new(Fake::default());
+        let mut c = attached(&fake);
+        assert_eq!(
+            fake.get(|i| i.menu_calls.clone()),
+            vec![MenuScheme::FollowSystem]
+        );
+        // The OS switched light/dark: its message reaches the callback, the controller refreshes.
+        c.refresh();
+        assert_eq!(
+            fake.get(|i| i.menu_calls.clone()),
+            vec![MenuScheme::FollowSystem, MenuScheme::FollowSystem],
+            "the opt-in and flush are applied again for the new OS scheme"
+        );
+        c.refresh();
+        assert_eq!(fake.get(|i| i.menu_calls.len()), 3, "every OS change");
+        assert!(c.state().native_menus, "still native");
+    }
+
+    #[test]
+    fn an_os_change_does_not_touch_menus_forced_to_a_scheme() {
+        let fake = Arc::new(Fake::default());
+        let mut c = attached(&fake);
+        c.set_menu_scheme(MenuScheme::Dark);
+        assert_eq!(fake.get(|i| i.menu_calls.len()), 2);
+        c.refresh();
+        c.refresh();
+        assert_eq!(
+            fake.get(|i| i.menu_calls.len()),
+            2,
+            "a forced scheme ignores the OS scheme"
+        );
+    }
+
+    #[test]
+    fn a_window_that_is_not_an_os_window_is_reported_not_attached_and_nothing_is_called() {
+        let fake = Arc::new(Fake::default());
+        let mut c = controller(&fake);
+        assert!(c.window_not_attached("offscreen"));
+        let state = c.state();
+        assert_eq!(state.settings_status, "not attached (QPA offscreen)");
+        assert_eq!(
+            state.backdrop,
+            Backdrop::Solid("not attached (QPA offscreen)".to_owned())
+        );
+        assert!(c.failures().is_empty(), "expected, not a failure");
+        assert!(fake.get(|i| i.watched.is_empty() && i.backdrop_calls.is_empty()));
+        // Refreshing keeps the reason; the OS is still read.
+        c.refresh();
+        assert_eq!(c.state().settings_status, "not attached (QPA offscreen)");
+        assert_eq!(
+            c.state().backdrop.describe(),
+            "solid: not attached (QPA offscreen)"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_os_is_reported_before_not_attached() {
+        let fake = Arc::new(Fake::default());
+        fake.set(|i| i.settings = Err(PlatformError::unsupported("no bridge")));
+        let mut c = controller(&fake);
+        c.window_not_attached("offscreen");
+        assert_eq!(c.state().settings_status, "unsupported: no bridge");
     }
 
     #[test]
