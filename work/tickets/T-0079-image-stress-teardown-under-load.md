@@ -3,17 +3,18 @@ id: T-0079
 title: image-stress teardown under extreme load — slow or hung; then HANG_AFTER
 type: chore
 epic: E-01
-status: backlog
+status: ready
 priority: P3
 size: S
 depends_on: [T-0071]
 scope:
   - apps/tinwave-desktop/tests/image_provider.rs
   - apps/tinwave-desktop/tools/stress/
+  - docs/adr/0008-*.md   # rule 6 wording only
 owner:
 branch:
 review_round: 0
-created_by: from P-0314, P-0315 (T-0071 build-1)
+created_by: from P-0314, P-0315 (T-0071 build-1), P-0317, P-0318 (T-0071 review-1)
 ---
 
 ## Context
@@ -26,6 +27,10 @@ hang class.
   STRESS_TEARDOWN_COMPLETE; a stack dump if one passes, say, 120 s) under the T-0071 heavy-load recipe.
 - If it is only slow: raise `HANG_AFTER` (~180 s) with the measured reason in a comment.
 - If it is a real hang: stop and report with the evidence (it becomes a provider/bridge ticket).
+
+- (P-0317) `run_stress`: no STRESS_DONE means "the scene never quit", reported as such, not as a teardown hang.
+- (P-0318) `run-stress.ps1` header and `-ExitMin` help, and ADR 0008 rule 6's "random exit 200-900 ms": the quit
+  time now counts from the provider's first answer (canary) plus at least 3 jumps.
 
 ## Acceptance criteria
 - [ ] The handoff states slow or hung, with timings from at least 20 slow teardowns.

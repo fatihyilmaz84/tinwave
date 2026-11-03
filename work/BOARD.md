@@ -37,12 +37,11 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake (P2) | tw-reviewer r1 | `t/T-0071-cancel-storm-flake-again` · `D:\dev\Tinwave-worktrees\T-0071-cancel-storm-flake-again` |
-| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-reviewer r2 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
+_none_
 
 ## Recently done
+- [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate flush fast-polls then backs off, relative click test, TrackFailed once across a rate restart — merged 57dba25 (review r2 APPROVE).
+- [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm flake: exit clock starts after the provider's first answer — merged b5bfef5 (review r1 APPROVE).
 - [T-0074](tickets/T-0074-test-only-connection-access.md) Raw DB connection only behind `test-support`; write_batch statement count pinned; fixtures copied — merged 1de23a8 (review r1 APPROVE).
 - [T-0073](tickets/T-0073-wipe-cost-and-lock-guards.md) Wipe statement counts pinned, lock-left-open check — merged fc84f02 (review r1 APPROVE).
 - [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive-only opens, ExclusiveRefused, ignored DAC gap test + PO-RUNBOOK §7 — merged 9f60086 (review r2 + lead fix). **PO: run §7 when convenient.**
@@ -64,6 +63,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | free once T-0063 merges (playback) |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
 | [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller tests under load (P2) | chore | S | playback tests | playback slot |
+| [T-0079](tickets/T-0079-image-stress-teardown-under-load.md) image-stress teardown under load: slow or hung; HANG_AFTER; stress docs (P3) | chore | S | desktop tests, tools/stress | free |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
@@ -82,10 +82,10 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | playback slot |
-| [T-0079](tickets/T-0079-image-stress-teardown-under-load.md) image-stress teardown under extreme load: slow or hung (P3) | after T-0071 |
-| [T-0076](tickets/T-0076-rate-throttle-clock.md) Rate-throttle clock in EngineConfig (P3) | after T-0063 |
-| [T-0077](tickets/T-0077-dedupe-corrupt-packets-rate-restart.md) Corrupt packets reported once across a rate restart (P3) | after T-0063 |
-| [T-0078](tickets/T-0078-playback-harness-load-timeouts.md) Playback harness waits that survive load (P3) | after T-0063 |
+| [T-0076](tickets/T-0076-rate-throttle-clock.md) Rate-throttle clock in EngineConfig (P3) | playback slot |
+| [T-0077](tickets/T-0077-dedupe-corrupt-packets-rate-restart.md) Corrupt packets reported once across a rate restart (P3) | playback slot |
+| [T-0078](tickets/T-0078-playback-harness-load-timeouts.md) Playback harness waits that survive load (P3) | playback slot |
+| [T-0080](tickets/T-0080-rate-test-pins.md) Pin flush-poll ack reset; restart index before new audio (P3) | playback slot |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |

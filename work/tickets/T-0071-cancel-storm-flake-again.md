@@ -3,7 +3,7 @@ id: T-0071
 title: cancel_storm image-provider test flaked again ("nothing was cancelled")
 type: fix
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: []
@@ -14,6 +14,7 @@ scope:
 owner: tw-builder
 branch: t/T-0071-cancel-storm-flake-again
 review_round: 1
+merge: b5bfef5
 created_by: from P-0283 (T-0065 review-1)
 ---
 
