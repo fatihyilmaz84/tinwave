@@ -234,7 +234,8 @@ function New-SourceOffer([string]$TemplatePath, [string]$Version, $Repos, [strin
 # Who holds the copyright of Tinwave's own code and where the Qt written source offer can be answered are PO decisions
 # (work/decisions/D-0007). Until they are made, release-identity.json holds `null` and every generated file carries
 # a marker "[D-0007 PENDING: ...]" instead of an invented name. check-bundle reports the marker and, without -Release, does
-# not fail on it. Deciding = filling in the two values (and adding LICENSE-MIT / LICENSE-APACHE at the repo root).
+# not fail on it. Deciding = filling in the two values. Tinwave's licence itself (GPL-3.0-only, ADR 0009) is decided; its
+# text is the LICENSE file in the repository root and package.ps1 fails without it.
 function Get-ReleaseIdentity([string]$Path = '') {
     if (-not $Path) { $Path = Join-Path $script:PackagingDir 'release-identity.json' }
     $j = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json
@@ -243,9 +244,6 @@ function Get-ReleaseIdentity([string]$Path = '') {
     $pending = New-Object Collections.Generic.List[string]
     if (-not $holder) { $pending.Add('copyright holder of Tinwave''s own code (release-identity.json copyrightHolder)') }
     if (-not $contact) { $pending.Add('contact for the Qt written source offer (release-identity.json offerContact)') }
-    foreach ($lf in 'LICENSE-MIT', 'LICENSE-APACHE') {
-        if (-not (Test-Path (Join-Path $script:RepoRoot $lf))) { $pending.Add("$lf at the repository root") }
-    }
     [pscustomobject]@{
         Holder = $holder; Contact = $contact; Pending = @($pending)
         HolderText = $(if ($holder) { $holder } else { '[D-0007 PENDING: copyright holder not decided]' })

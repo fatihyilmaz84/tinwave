@@ -26,6 +26,11 @@ allow = [
 ]
 # GPL / AGPL / LGPL and anything not listed above is denied by default.
 
+# Our own crates are GPL-3.0-only (ADR 0009) and unpublished (`publish = false`): `cargo deny` does not check them against
+# the allow-list above, which stays closed-source-safe and applies to every dependency.
+[licenses.private]
+ignore = true
+
 # MPL-2.0 is file-level copyleft. PO decision D-0003 (ADR 0005) allows it ONLY for Symphonia, used
 # unmodified (fixes go upstream or around it in our own code). No global MPL-2.0 allow: any other
 # MPL-2.0 crate is still rejected. A new symphonia-* crate needs an entry here on purpose.

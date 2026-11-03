@@ -69,7 +69,12 @@ try {
     # 1. the good bundle passes
     $r = Invoke-Script $check @('-Bundle', $Bundle, '-QtDir', $kit.Root)
     Assert-Case 'good bundle passes check-bundle (exit 0)' ($r.Code -eq 0) $r.Out
-    Assert-Case 'good bundle: D-0007 is reported as pending, not as a failure' ($r.Code -eq 0 -and $r.Out -match 'PENDING d0007\s+D-0007 pending') $r.Out
+    Assert-Case 'good bundle: D-0007 is pending on holder and contact only (no LICENSE-MIT / LICENSE-APACHE), not a failure' `
+        ($r.Code -eq 0 -and $r.Out -match 'PENDING d0007\s+D-0007 pending.*copyright holder.*contact for the Qt written source offer' -and $r.Out -notmatch 'LICENSE-MIT|LICENSE-APACHE') $r.Out
+    Assert-Case 'good bundle: ships the GPL-3.0 text as Tinwave''s license, states GPL-3.0-only, no Apache/MIT file as Tinwave''s' `
+        ($r.Out -match 'PASS legal' -and (Test-Path (Join-Path $Bundle 'licenses\Tinwave-LICENSE-GPL-3.0.txt')) -and -not (Test-Path (Join-Path $Bundle 'licenses\Apache-2.0.txt')) -and `
+         (Get-FileHash (Join-Path $Bundle 'licenses\Tinwave-LICENSE-GPL-3.0.txt')).Hash -eq (Get-FileHash (Join-Path $repo 'LICENSE')).Hash -and `
+         (Read-TextFile (Join-Path $Bundle 'THIRD-PARTY-NOTICES.txt')) -match "Tinwave's own source code is licensed under: GPL-3\.0-only\.") $r.Out
     Assert-Case 'good bundle: Qt files byte-identical to the kit, link-libs and source-offer pass' `
         ($r.Out -match 'PASS qt-unmodified' -and $r.Out -match 'PASS link-libs' -and $r.Out -match 'PASS source-offer') $r.Out
 
@@ -162,6 +167,22 @@ try {
     Remove-Item (Join-Path $d 'SOURCE-OFFER-Qt.txt')
     Test-CheckFails 'missing Qt source offer fails the check' $d 'FAIL legal .*SOURCE-OFFER-Qt.txt'
 
+    # 9b. Tinwave's own license (GPL-3.0-only, ADR 0009): missing, the wrong text, a stale Apache/MIT file, a notices file
+    #     that names another license
+    $d = New-Fixture 'no-gpl'
+    Remove-Item (Join-Path $d 'licenses\Tinwave-LICENSE-GPL-3.0.txt')
+    Test-CheckFails 'missing GPL-3.0 text of Tinwave fails the check' $d 'FAIL legal .*Tinwave-LICENSE-GPL-3.0.txt is missing'
+    $d = New-Fixture 'mit-as-own'
+    Write-TextFile (Join-Path $d 'licenses\Tinwave-LICENSE-GPL-3.0.txt') ((Read-TextFile (Join-Path $PSScriptRoot 'license-texts\MIT.txt')) + ('x' * 1000))
+    Test-CheckFails 'an MIT text instead of the GPL-3.0 as Tinwave''s license fails the check' $d 'FAIL legal .*is not the GNU GPL version 3 text'
+    $d = New-Fixture 'apache-as-own'
+    Copy-Item (Join-Path $PSScriptRoot 'license-texts\Apache-2.0.txt') (Join-Path $d 'licenses\Apache-2.0.txt')
+    Test-CheckFails 'licenses\Apache-2.0.txt shipped as if it were Tinwave''s license fails the check' $d 'FAIL legal .*Apache-2.0.txt is in the bundle'
+    $d = New-Fixture 'notices-apache'
+    $np = Join-Path $d 'THIRD-PARTY-NOTICES.txt'
+    Write-TextFile $np ((Read-TextFile $np).Replace("licensed under: GPL-3.0-only.", "licensed under: MIT OR Apache-2.0."))
+    Test-CheckFails 'notices that name another license for Tinwave fail the check' $d 'FAIL legal .*licensed under GPL-3.0-only'
+
     # 10. the smoke test is sensitive to a missing Qt DLL even when THIS shell has Qt on PATH (the child must not see it)
     $d = New-Fixture 'smoke-no-core'
     Remove-Item (Join-Path $d 'Qt6Core.dll')
@@ -193,7 +214,7 @@ try {
          $t -match 'This software is based in part on the work of the Independent JPEG Group\.' -and $t -match '\[D-0007 PENDING: copyright holder not decided\]') ($r.Out + "`n" + $t.Substring(0, [Math]::Min(300, $t.Length)))
 
     # 11a. how the D-0007 switch flips: with the identity filled in, regenerated notices and offer carry the values, no
-    #      marker is left and the check no longer says "stale"; only the root LICENSE files keep it pending (-Release fails)
+    #      marker is left and the check no longer says "stale"; nothing stays pending (-Release passes)
     $d = New-Fixture 'decided'
     $rid = Get-ReleaseIdentity $idFile
     $r1 = Invoke-Script (Join-Path $PSScriptRoot 'New-ThirdPartyNotices.ps1') @('-Bundle', $d, '-Out', (Join-Path $d 'THIRD-PARTY-NOTICES.txt'), '-QtDir', $kit.Root, '-IdentityFile', $idFile)
@@ -201,9 +222,15 @@ try {
     Write-TextFile (Join-Path $d 'SOURCE-OFFER-Qt.txt') (New-SourceOffer (Join-Path $PSScriptRoot 'templates\SOURCE-OFFER-Qt.txt') $kit.Version $repos $rid.ContactText)
     $r2 = Invoke-Script $check @('-Bundle', $d, '-QtDir', $kit.Root, '-Identity', $idFile)
     $r3 = Invoke-Script $check @('-Bundle', $d, '-QtDir', $kit.Root, '-Identity', $idFile, '-Release')
-    Assert-Case 'identity filled in: regenerated bundle passes (root LICENSE files still pending), -Release fails only on them' `
-        ($r1.Code -eq 0 -and $r2.Code -eq 0 -and $r2.Out -notmatch 'FAIL d0007' -and $r2.Out -match 'PENDING d0007\s+D-0007 pending.*LICENSE-MIT' -and `
-         $r2.Out -notmatch 'copyright holder of Tinwave' -and $r3.Code -eq 1 -and $r3.Out -match 'FAIL d0007 .*LICENSE-MIT') ($r1.Out + "`n" + $r2.Out + "`n" + $r3.Out)
+    Assert-Case 'identity filled in: regenerated bundle passes with d0007 PASS, no marker left, -Release passes too' `
+        ($r1.Code -eq 0 -and $r2.Code -eq 0 -and $r2.Out -match 'PASS d0007' -and $r2.Out -notmatch 'PENDING d0007' -and $r2.Out -notmatch '(?m)^FAIL' -and $r3.Code -eq 0 -and $r3.Out -match 'PASS d0007') ($r1.Out + "`n" + $r2.Out + "`n" + $r3.Out)
+    # only the holder decided: the contact stays pending, -Release fails on it (and only on it)
+    $idHolder = Join-Path $work 'identity-holder-only.json'
+    Write-TextFile $idHolder '{ "decision": "D-0007", "copyrightHolder": "Test Holder", "offerContact": null }'
+    $r4 = Invoke-Script $check @('-Bundle', $d, '-QtDir', $kit.Root, '-Identity', $idHolder)
+    $r5 = Invoke-Script $check @('-Bundle', $d, '-QtDir', $kit.Root, '-Identity', $idHolder, '-Release')
+    Assert-Case 'only the holder decided: contact still pending (exit 0), -Release fails on the contact' `
+        ($r4.Code -eq 0 -and $r4.Out -match 'PENDING d0007\s+D-0007 pending.*source offer' -and $r4.Out -notmatch 'copyright holder of Tinwave' -and $r5.Code -eq 1 -and $r5.Out -match 'FAIL d0007 .*source offer') ($r4.Out + "`n" + $r5.Out)
 
     # 11c. notices: a pdb that names no std rlib of this toolchain is refused (the std list is derived from the link)
     $fakePdb = Join-Path $work 'fake.pdb'

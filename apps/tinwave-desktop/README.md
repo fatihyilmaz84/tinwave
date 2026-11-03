@@ -61,7 +61,7 @@ Developer switches:
 Nothing here changes a Windows setting. Live OS toggles (accent, light/dark, animation effects, contrast themes, transparency) are verified by hand with `spikes/T-0011-native-styles/PO-RUNBOOK.md`; the unit tests deliver synthetic messages to a message-only window of their own.
 
 Packaging (Windows): `pwsh packaging\package.ps1` with the Qt env set produces a self-contained folder under
-`target\package\` that runs with Qt off PATH, then checks it (licences, no GPL-only or static Qt, only
+`target\package\` that runs with Qt off PATH, then checks it (licences incl. the GPL-3.0 text of Tinwave itself, ADR 0009; no GPL-only or static Qt; only
 `tinwave-desktop.exe`). It needs the Qt kit's Documentation, Licenses and SBOM components and the Visual Studio C++
 redistributable DLLs; see `packaging/README.md`. Run `packaging\test-packaging.ps1` after any change to the recipe.
 

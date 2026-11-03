@@ -141,12 +141,10 @@ try {
     $qtLicense = Join-Path $kit.QtRoot 'Licenses\LICENSE'
     if (-not (Test-Path $qtLicense)) { throw "Qt license file not found: $qtLicense" }
     Copy-Item $qtLicense (Join-Path $lic 'Qt-LGPL-3.0-and-GPL-3.0.txt')
-    Copy-Item (Join-Path $PSScriptRoot 'license-texts\Apache-2.0.txt') (Join-Path $lic 'Apache-2.0.txt')
-    # Tinwave's own license files, once D-0007 puts them at the repository root (the holder is named inside them).
-    foreach ($rootLicense in 'LICENSE-MIT', 'LICENSE-APACHE') {
-        $rl = Join-Path $repo $rootLicense
-        if (Test-Path $rl) { Copy-Item $rl (Join-Path $lic "Tinwave-$rootLicense.txt") }
-    }
+    # Tinwave's own license: the GPL-3.0 text in the repository root (ADR 0009). Its absence is an error, never skipped.
+    $rootLicense = Join-Path $repo 'LICENSE'
+    if (-not (Test-Path $rootLicense)) { throw "Tinwave's license file not found: $rootLicense (ADR 0009: GPL-3.0-only)" }
+    Copy-Item $rootLicense (Join-Path $lic 'Tinwave-LICENSE-GPL-3.0.txt')
     $identity = Get-ReleaseIdentity
     $repos = @(Get-ShippedQtRepos (Get-BundleFiles $OutDir) (Read-QtSbom $kit.Root))
     if ($repos.Count -eq 0) { throw "No Qt repository found for the Qt files in $OutDir (SBOM lookup)." }
