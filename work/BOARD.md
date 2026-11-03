@@ -27,9 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-| Ticket | Owner | Branch / worktree |
-|---|---|---|
-| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-builder r2 (review-1: one-scan rewrite, wipe vs writer timing) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
+_none_
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -37,6 +35,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-reviewer r2 (build-2: one-scan rewrite, contention test) | `t/T-0060-wipe-masks-context-key` @ 6264ede · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-reviewer r1 | `t/T-0027-rate-control-engine` @ dfa60b9 · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
 
 ## Recently done
