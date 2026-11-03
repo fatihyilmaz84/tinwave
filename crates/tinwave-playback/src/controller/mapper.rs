@@ -18,10 +18,11 @@ use tinwave_signals::{
     SignalPayload, SkipPayload, View, Volume, VolumePayload,
 };
 
+use super::rate_session::RateSessionQueue;
 use super::session::Session;
-use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, TimezoneSource};
+use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, RateSession, TimezoneSource};
 use crate::event::{EventKind, LeaveCause, PlaybackEvent, StartCause};
-use crate::{EditId, PlaybackError, QueueItemId, StreamMode};
+use crate::{EditId, PlaybackError, QueueItemId, RateStats, StreamMode};
 
 /// A track that has played at least this percentage of its length when it is left counts as
 /// `Completed` (catalog: "reached end or within the last 3 %").
@@ -154,6 +155,10 @@ struct Play {
     paused_since: Option<UtcMillis>,
     /// Pauses that already ended.
     paused_ms: i64,
+    /// The engine's rate counters when the play began (its `TrackStarted`), for `RateSession`.
+    /// `None` when that signal was off then: a play is not measured from a moment the listener had
+    /// not agreed to be measured at.
+    rate_from: Option<RateStats>,
 }
 
 impl Play {
@@ -196,6 +201,8 @@ pub(super) struct Mapper {
     /// `SessionStarted`, so a preference change is never lost for want of a session.
     reported_repeat: RepeatMode,
     reported_mode: StreamMode,
+    /// Where finished `RateSession`s wait for their consumer.
+    rate_sessions: RateSessionQueue,
 }
 
 impl std::fmt::Debug for Mapper {
@@ -235,7 +242,13 @@ impl Mapper {
             repeat: initial_repeat,
             reported_repeat: initial_repeat,
             reported_mode: StreamMode::Shared,
+            rate_sessions: RateSessionQueue::default(),
         }
+    }
+
+    /// The hand-over point of the `RateSession`s this mapper derives.
+    pub fn rate_sessions(&self) -> &RateSessionQueue {
+        &self.rate_sessions
     }
 
     /// The queue the engine was given: what each item is, for the events that name it.
@@ -418,7 +431,8 @@ impl Mapper {
         }
     }
 
-    pub fn status(&self) -> PlaybackStatus {
+    /// `rate` is the engine's applied rate: the mapper does not know it.
+    pub fn status(&self, rate: f64) -> PlaybackStatus {
         PlaybackStatus {
             session: self.session.map(|s| s.id),
             recording: self.play.map(|p| p.meta.recording),
@@ -429,6 +443,7 @@ impl Mapper {
                 (Some(_), false) => PlayState::Playing,
             },
             repeat: self.repeat,
+            rate,
         }
     }
 
@@ -459,15 +474,17 @@ impl Mapper {
         }
     }
 
-    pub fn handle(&mut self, event: PlaybackEvent, cx: Cx) {
+    /// `rates` are the engine's rate counters as of the drain this event is part of (the same for
+    /// every event of one drain): the book `RateSession` is derived from.
+    pub fn handle(&mut self, event: PlaybackEvent, cx: Cx, rates: &RateStats) {
         let at = event.at;
         self.expire(at);
         match event.kind {
             EventKind::TrackStarted { item, frame, cause } => {
-                self.track_started(at, item, frame, cause, cx);
+                self.track_started(at, item, frame, cause, cx, rates);
             }
             EventKind::TrackLeft { item, frame, cause } => {
-                self.track_left(at, item, frame, cause, cx);
+                self.track_left(at, item, frame, cause, cx, rates);
             }
             EventKind::Paused { position } => {
                 self.paused_event(at, position.map(|p| p.position_ms), cx);
@@ -638,6 +655,7 @@ impl Mapper {
         frame: u64,
         cause: StartCause,
         cx: Cx,
+        rates: &RateStats,
     ) {
         let _ = self.coalescer.flush_all();
         let Some(meta) = self.table.get(&item).copied() else {
@@ -671,6 +689,9 @@ impl Mapper {
             }),
             paused_since: self.paused.then_some(at),
             paused_ms: 0,
+            // The play begins here, not at its `PlayStarted`: that waits for 100 ms of heard audio,
+            // which this would leave out of the average.
+            rate_from: self.bus.enabled(SignalKind::RateSession).then_some(*rates),
         });
         self.set_audible(at, !self.paused);
 
@@ -726,6 +747,7 @@ impl Mapper {
         frame: u64,
         cause: LeaveCause,
         cx: Cx,
+        rates: &RateStats,
     ) {
         let _ = self.coalescer.flush_all();
         let Some(play) = self.play.take().filter(|p| p.item == item) else {
@@ -754,6 +776,9 @@ impl Mapper {
             // Neither completed nor skipped: the track could not be played to its end.
             LeaveCause::Failed => return,
         };
+        // Every heard play that was not cut short by a failure, outcome or not (a stop in the
+        // middle of a track is heard and leaves no `Skipped`, but it has a rate).
+        self.derive_rate_session(at, &play, rates);
         if completed || cause == LeaveCause::Replaced {
             // A play that outlived its session (paused over 30 minutes) is left by a real user
             // action: that action is the first play of the next session, so the session opens
@@ -786,6 +811,34 @@ impl Mapper {
             });
         }
         // `Stopped` before the last 3 % is the listener ending playback: not a preference.
+    }
+
+    /// `RateSession` of a heard play that is being left: the time-weighted rate between the
+    /// counters at its `TrackStarted` and now. One per heard play, including a play that never
+    /// left 1.0 (the catalog row has no such exception, and a consumer needs the 1.0 to tell
+    /// "not rushed" from "not measured"). None when the signal was off at the start or is off now,
+    /// or when no audio was played in between (nothing to average). It is a derived value, so it
+    /// goes to the hand-over queue, not to the bus.
+    fn derive_rate_session(&self, at: UtcMillis, play: &Play, rates: &RateStats) {
+        if !self.bus.enabled(SignalKind::RateSession) {
+            return;
+        }
+        let Some(from) = &play.rate_from else {
+            return;
+        };
+        let Some(time_weighted_rate) = rates.time_weighted_rate_since(from) else {
+            tracing::debug!(
+                item = play.item.0,
+                "no audio was counted over a heard play; no RateSession"
+            );
+            return;
+        };
+        self.rate_sessions.push(RateSession {
+            at,
+            recording: play.meta.recording,
+            source: play.meta.source,
+            time_weighted_rate,
+        });
     }
 
     // --- pause, seek, volume ----------------------------------------------------------------
@@ -1120,6 +1173,266 @@ mod tests {
                 PlayOrigin::Playlist,
                 PlayOrigin::Queue
             ]
+        );
+    }
+
+    // --- RateSession ------------------------------------------------------------------------
+
+    use tinwave_core::{DeviceId, ManualClock, SeededRng, TzOffsetMin};
+    use tinwave_signals::{BusConfig, SignalCategory, SignalDrain, SignalSettings};
+
+    use super::super::types::FixedTimezone;
+    use crate::{Position, Track};
+
+    const T0: i64 = 1_793_577_600_000;
+
+    struct Rig {
+        mapper: Mapper,
+        settings: Arc<SignalSettings>,
+        _drain: SignalDrain,
+    }
+
+    fn rig() -> Rig {
+        let clock = ManualClock::new(UtcMillis::new(T0));
+        let settings = Arc::new(SignalSettings::new());
+        let device = DeviceId::from_parts(UtcMillis::new(T0), [9; 10]).expect("device id");
+        let (bus, drain) =
+            SignalBus::channel(BusConfig::new(device), clock.clone(), settings.clone())
+                .expect("bus");
+        let mut mapper = Mapper::new(
+            bus,
+            IdGenerator::new(clock, SeededRng::new(7)),
+            Arc::new(FixedTimezone(TzOffsetMin::new(0).expect("offset"))),
+            48_000,
+            RepeatMode::Off,
+        );
+        let entries: Vec<QueueEntry> = (1..=3).map(entry).collect();
+        mapper.set_queue(&entries);
+        Rig {
+            mapper,
+            settings,
+            _drain: drain,
+        }
+    }
+
+    fn entry(id: u64) -> QueueEntry {
+        QueueEntry {
+            track: Track {
+                id: QueueItemId(id),
+                path: "unused.wav".into(),
+                gapless: None,
+            },
+            recording: recording_of(id),
+            source: SourceId::from_parts(UtcMillis::new(T0), [id as u8; 10]).expect("source"),
+            duration_ms: 10_000,
+            origin: QueueOrigin::Manual,
+        }
+    }
+
+    fn recording_of(id: u64) -> RecordingId {
+        RecordingId::from_parts(UtcMillis::new(T0), [id as u8; 10]).expect("recording")
+    }
+
+    /// Counters after `wall` frames played, which advanced `source` frames of source.
+    fn stats(wall: u64, source: f64) -> RateStats {
+        RateStats {
+            wall_frames: wall,
+            source_micro_frames: (source * 1e6) as u64,
+            effective_rate: 1.0,
+            applied_rate: 1.0,
+            flushes: 0,
+        }
+    }
+
+    impl Rig {
+        fn event(&mut self, kind: EventKind, rates: &RateStats) {
+            let at = UtcMillis::new(T0);
+            self.mapper
+                .handle(PlaybackEvent { at, kind }, Cx::AUTO, rates);
+        }
+
+        fn start(&mut self, item: u64, rates: &RateStats) {
+            self.event(
+                EventKind::TrackStarted {
+                    item: QueueItemId(item),
+                    frame: 0,
+                    cause: StartCause::Requested,
+                },
+                rates,
+            );
+        }
+
+        /// The first position mark: the play is heard.
+        fn hear(&mut self, item: u64, rates: &RateStats) {
+            self.event(
+                EventKind::PositionMark {
+                    position: Position {
+                        item: QueueItemId(item),
+                        frame: 4_800,
+                        position_ms: 100,
+                    },
+                },
+                rates,
+            );
+        }
+
+        fn leave(&mut self, item: u64, cause: LeaveCause, rates: &RateStats) {
+            self.event(
+                EventKind::TrackLeft {
+                    item: QueueItemId(item),
+                    frame: 48_000,
+                    cause,
+                },
+                rates,
+            );
+        }
+
+        fn sessions(&self) -> Vec<(RecordingId, f64)> {
+            self.mapper
+                .rate_sessions()
+                .take()
+                .into_iter()
+                .map(|s| (s.recording, s.time_weighted_rate))
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_heard_play_is_measured_between_its_start_and_its_leave() {
+        let mut rig = rig();
+        // Counters from earlier audio are not part of this play.
+        rig.start(1, &stats(100_000, 90_000.0));
+        rig.hear(1, &stats(104_800, 94_800.0));
+        // 48 000 frames at 1.25 since the start.
+        rig.leave(1, LeaveCause::Stopped, &stats(148_000, 150_000.0));
+        let sessions = rig.sessions();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].0, recording_of(1));
+        assert!((sessions[0].1 - 1.25).abs() < 1e-12, "{}", sessions[0].1);
+    }
+
+    #[test]
+    fn plays_in_one_batch_share_their_boundary() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        // A gapless hand-off: one reading serves the leave of 1 and the start of 2.
+        let boundary = stats(48_000, 48_000.0);
+        rig.leave(1, LeaveCause::Finished, &boundary);
+        rig.start(2, &boundary);
+        rig.hear(2, &stats(52_800, 48_000.0 + 4_800.0 * 1.5));
+        rig.leave(
+            2,
+            LeaveCause::Finished,
+            &stats(96_000, 48_000.0 + 48_000.0 * 1.5),
+        );
+        let sessions = rig.sessions();
+        assert_eq!(
+            sessions.iter().map(|s| s.0).collect::<Vec<_>>(),
+            [recording_of(1), recording_of(2)]
+        );
+        assert!((sessions[0].1 - 1.0).abs() < 1e-12);
+        assert!((sessions[1].1 - 1.5).abs() < 1e-12);
+    }
+
+    #[test]
+    fn a_play_that_never_left_normal_speed_has_one_at_exactly_one() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Replaced, &stats(48_000, 48_000.0));
+        assert_eq!(rig.sessions(), [(recording_of(1), 1.0)]);
+    }
+
+    #[test]
+    fn a_play_left_before_it_was_heard_has_none() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.leave(1, LeaveCause::Replaced, &stats(2_000, 2_500.0));
+        rig.start(2, &stats(2_000, 2_500.0));
+        rig.leave(2, LeaveCause::Stopped, &stats(9_000, 11_000.0));
+        assert_eq!(rig.sessions(), []);
+    }
+
+    #[test]
+    fn a_heard_play_that_then_failed_has_none() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 6_000.0));
+        rig.leave(1, LeaveCause::Failed, &stats(30_000, 37_500.0));
+        assert_eq!(rig.sessions(), []);
+    }
+
+    #[test]
+    fn a_track_shorter_than_one_mark_is_heard_when_it_finishes() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.leave(1, LeaveCause::Finished, &stats(2_000, 2_500.0));
+        assert_eq!(rig.sessions(), [(recording_of(1), 1.25)]);
+    }
+
+    #[test]
+    fn a_play_with_no_counted_audio_has_none() {
+        let mut rig = rig();
+        rig.start(1, &stats(500, 500.0));
+        rig.hear(1, &stats(500, 500.0));
+        rig.leave(1, LeaveCause::Stopped, &stats(500, 500.0));
+        assert_eq!(rig.sessions(), []);
+    }
+
+    #[test]
+    fn nothing_is_derived_with_the_speed_category_off() {
+        let mut rig = rig();
+        rig.settings.set_category(SignalCategory::Speed, false);
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Stopped, &stats(48_000, 60_000.0));
+        assert_eq!(rig.sessions(), []);
+    }
+
+    #[test]
+    fn a_play_that_straddles_the_speed_toggle_has_none() {
+        let mut rig = rig();
+        // Switched off during the play.
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.settings.set_category(SignalCategory::Speed, false);
+        rig.leave(1, LeaveCause::Stopped, &stats(48_000, 60_000.0));
+        // Switched on during the play: it was not measured from its start.
+        rig.start(2, &stats(48_000, 60_000.0));
+        rig.hear(2, &stats(52_800, 66_000.0));
+        rig.settings.set_category(SignalCategory::Speed, true);
+        rig.leave(2, LeaveCause::Stopped, &stats(96_000, 120_000.0));
+        assert_eq!(rig.sessions(), []);
+        // The next play, started with it on, is measured.
+        rig.start(3, &stats(96_000, 120_000.0));
+        rig.hear(3, &stats(100_800, 126_000.0));
+        rig.leave(3, LeaveCause::Stopped, &stats(144_000, 180_000.0));
+        assert_eq!(rig.sessions(), [(recording_of(3), 1.25)]);
+    }
+
+    #[test]
+    fn a_consumer_that_never_collects_loses_the_oldest_and_it_is_counted() {
+        use super::super::rate_session::MAX_PENDING_RATE_SESSIONS as KEPT;
+        let mut rig = rig();
+        for n in 0..KEPT + 3 {
+            let wall = n as u64 * 48_000;
+            rig.start(1, &stats(wall, wall as f64));
+            rig.hear(1, &stats(wall + 4_800, (wall + 4_800) as f64));
+            // Play n runs at 0.75 + n/1000, so the survivors are told apart by their rate.
+            let rate = 0.75 + n as f64 / 1000.0;
+            rig.leave(
+                1,
+                LeaveCause::Stopped,
+                &stats(wall + 48_000, wall as f64 + 48_000.0 * rate),
+            );
+        }
+        assert_eq!(rig.mapper.rate_sessions().dropped(), 3);
+        let kept = rig.sessions();
+        assert_eq!(kept.len(), KEPT);
+        assert!(
+            (kept[0].1 - 0.753).abs() < 1e-9,
+            "the oldest three are gone"
         );
     }
 }
