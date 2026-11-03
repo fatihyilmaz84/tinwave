@@ -27,6 +27,9 @@ for a withdrawn park is currently dropped with "nobody to feed it".
 - On a queue edit during a boundary park, the decoder withdraws the park if the new successor has the stream's rate (and
   continues gapless), or re-parks for the new successor's rate; a Resume for a withdrawn park is ignored safely.
 
+- (P-0294) During the drain before a reopen the heard position of the old track freezes while the device still plays
+  its buffered tail, then advances again after the new stream runs; make the position follow what is heard.
+
 ## Acceptance criteria
 - [ ] [a 44.1k, b 96k] parked for b, play-next c 44.1k: no 96 kHz open, a→c gapless (bit-exact, no silence) — test.
 - [ ] Edit to another rate re-parks for that rate — test.

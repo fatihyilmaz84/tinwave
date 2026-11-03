@@ -373,7 +373,8 @@ fn expected_derived(category: SignalCategory) -> Derived {
             },
         ),
         // Outcome, replayed/seek flags and peak_section go; the identity of the play stays. The
-        // rollup counters of outcomes go; fav_delta stays; the row of recording 3 had nothing else.
+        // rollup counters of outcomes go; `plays` (the starts) and fav_delta stay, so no row is
+        // left with only zeros (T-0065: the play count is kept, like the play rows).
         SignalCategory::SeekSkipReplay => (
             vec![
                 (0, 6, 0, 2047 & !0x0E, None, 1),
@@ -381,15 +382,15 @@ fn expected_derived(category: SignalCategory) -> Derived {
                 (0, 6, 0, 0, None, 3),
             ],
             vec![
-                (1, 0, 0, 0, 0, 2, 0, 0.0),
+                (1, 10, 0, 0, 0, 2, 0, 0.0),
                 (2, 0, 0, 0, 0, 3, 0, 0.0),
+                (3, 5, 0, 0, 0, 0, 0, 0.0),
                 (4, 0, 0, 0, 0, 0, 0, 0.0),
             ],
             |e| SignalWipeReport {
                 events_deleted: e,
                 plays_cleared: 3,
-                rollups_deleted: 1,
-                rollups_cleared: 2,
+                rollups_cleared: 3,
                 ..SignalWipeReport::default()
             },
         ),
@@ -492,10 +493,29 @@ fn a_play_keeps_its_identity_unless_its_start_is_wiped() {
         count(&conn, "SELECT count(*) FROM play WHERE end_reason = 6"),
         3
     );
+    // The monthly play count is the same fact: the seek wipe keeps it (T-0065), only its
+    // outcome counters go.
+    assert_eq!(
+        ints::<i64>(&conn, "SELECT plays FROM rollup_monthly ORDER BY recording"),
+        [10, 0, 5, 0]
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "SELECT count(*) FROM rollup_monthly WHERE completes != 0 OR skips_early != 0 \
+             OR skips_late != 0 OR listened_s != 0"
+        ),
+        0
+    );
     fx.wiper
         .wipe_signal_categories(&[SignalCategory::QueueLibrary])
         .unwrap();
     assert_eq!(count(&fx.db.reader(), "SELECT count(*) FROM play"), 0);
+    assert_eq!(
+        count(&fx.db.reader(), "SELECT count(*) FROM rollup_monthly"),
+        0,
+        "the queue and library wipe clears the play count with its rows"
+    );
 }
 
 /// An event kind this build does not know belongs to no category: only wipe everything removes it.
@@ -726,6 +746,95 @@ fn the_writer_thread_keeps_working_while_everything_is_wiped() {
     );
 }
 
+// ---------------------------------------------------------------- the wipe epoch
+
+/// The wipe epoch the writer compares between batches (`PRAGMA user_version`).
+fn epoch(conn: &Connection) -> i64 {
+    count(conn, "PRAGMA user_version")
+}
+
+/// Only a wipe of everything moves the epoch (it deletes the rows the writer's caches point at);
+/// a category wipe, a context wipe and a settings toggle do not, and each wipe of everything moves
+/// it again.
+#[test]
+fn only_a_wipe_of_everything_moves_the_wipe_epoch() {
+    let mut fx = Fixture::new();
+    let conn = fx.db.reader();
+    assert_eq!(epoch(&conn), 0);
+    fx.wiper
+        .wipe_signal_categories(&SignalCategory::ALL)
+        .unwrap();
+    fx.wiper
+        .wipe_context(&tinwave_db::ContextCategory::ALL)
+        .unwrap();
+    PersistentSettings::open(
+        &fx.db.path,
+        tinwave_core::ManualClock::new(tinwave_core::UtcMillis::new(T0)),
+    )
+    .unwrap()
+    .set_category(SignalCategory::Browsing, false)
+    .unwrap();
+    assert_eq!(epoch(&conn), 0, "nothing the caches point at was deleted");
+    fx.wiper.wipe_everything().unwrap();
+    assert_eq!(epoch(&conn), 1);
+    fx.wiper.wipe_everything().unwrap();
+    assert_eq!(epoch(&conn), 2);
+}
+
+/// The writer keeps its caches across commits of other connections that are not a wipe (the
+/// context hub writes snapshots, the settings are toggled): dropping them before almost every
+/// batch cost about 30 % of the writer's CPU in the 90-day growth run. The proof that the cache is
+/// still used: a dictionary row another connection changed under it is not looked up again.
+/// (Real code never edits a dictionary row; a wipe is the only thing that deletes them, and it
+/// moves the epoch, see `a_store_with_warm_caches_writes_consistent_rows_after_a_wipe_of_everything`.)
+#[test]
+fn a_commit_of_another_connection_that_is_not_a_wipe_keeps_the_writer_caches() {
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let mut ids = Ids::new(74);
+    let (device, session, rec) = (ids.device(), ids.session(), ids.recording());
+    store
+        .write_batch(&[favorited(device, session, rec, 0)], &[])
+        .unwrap();
+    let cached = store.cached_entries();
+    assert!(cached >= 3, "the caches are warm");
+
+    // Commits of other connections: a settings toggle, a context snapshot, a category wipe.
+    let conn = db.reader();
+    PersistentSettings::open(
+        &db.path,
+        tinwave_core::ManualClock::new(tinwave_core::UtcMillis::new(T0)),
+    )
+    .unwrap()
+    .set_category(SignalCategory::Browsing, false)
+    .unwrap();
+    conn.execute(
+        "INSERT INTO context_snapshot (id, hash, key, fields) VALUES (1, 1, 0, x'00')",
+        [],
+    )
+    .unwrap();
+    SignalWiper::open(&db.path)
+        .unwrap()
+        .wipe_signal_categories(&[SignalCategory::Volume])
+        .unwrap();
+    // The recording's dictionary row now holds another UUID, as if it had been replaced.
+    conn.execute(
+        "UPDATE dict_recording SET uuid = x'ffffffffffffffffffffffffffffffff'",
+        [],
+    )
+    .unwrap();
+
+    store
+        .write_batch(&[favorited(device, session, rec, 1)], &[])
+        .unwrap();
+    assert_eq!(
+        count(&conn, "SELECT count(*) FROM dict_recording"),
+        1,
+        "the cached id was used, not looked up (a lookup would have inserted a second row)"
+    );
+    assert_eq!(store.cached_entries(), cached);
+}
+
 // ---------------------------------------------------------------- atomic
 
 fn inject_failure(conn: &Connection, on: &str) {
@@ -771,6 +880,11 @@ fn a_failed_wipe_changes_nothing_and_works_once_the_fault_is_gone() {
             error.chain()
         );
         assert_eq!(fx.dump(), before, "{categories:?}: a table changed");
+        assert_eq!(
+            epoch(&injector),
+            0,
+            "{categories:?}: the failed wipe moved the wipe epoch, so the writer would drop its caches for a wipe that did not happen"
+        );
 
         injector
             .execute_batch("DROP TRIGGER inject_failure;")
@@ -782,6 +896,7 @@ fn a_failed_wipe_changes_nothing_and_works_once_the_fault_is_gone() {
         };
         assert!(report.events_deleted > 0, "{categories:?}");
         assert_ne!(fx.dump(), before, "{categories:?}");
+        assert_eq!(epoch(&injector), i64::from(categories.is_empty()));
     }
 }
 
@@ -977,16 +1092,16 @@ fn a_write_batch_during_a_wipe_of_the_reference_tables_is_stored() {
 
 const MARKER: &[u8] = b"TINWAVE-WIPE-MARKER-0123456789abcdef-xyz";
 
-fn file_holds_marker(db: &TempDb) -> bool {
-    let wal = {
-        let mut p = db.path.as_os_str().to_owned();
-        p.push("-wal");
-        std::path::PathBuf::from(p)
-    };
-    [db.path.clone(), wal].iter().any(|path| {
-        std::fs::read(path)
-            .map(|bytes| bytes.windows(MARKER.len()).any(|w| w == MARKER))
-            .unwrap_or(false)
+fn wal_path(db: &TempDb) -> std::path::PathBuf {
+    let mut p = db.path.as_os_str().to_owned();
+    p.push("-wal");
+    std::path::PathBuf::from(p)
+}
+
+/// How many times the marker is in the file at `path` (0 when the file does not exist).
+fn marker_copies(path: &std::path::Path) -> usize {
+    std::fs::read(path).map_or(0, |bytes| {
+        bytes.windows(MARKER.len()).filter(|w| *w == MARKER).count()
     })
 }
 
@@ -997,8 +1112,10 @@ fn checkpoint(conn: &Connection) {
     assert_eq!(busy, 0, "the checkpoint was blocked");
 }
 
-/// Deleted content is zeroed in the file, not left in the free pages (and not in the WAL once it
-/// is checkpointed): a wipe that only unlinked the rows would leave the data readable.
+/// Deleted content is zeroed in the main database file, not left in the free pages, and it is gone
+/// when the wipe returns, with no checkpoint of the test's own: a wipe that only unlinked the rows
+/// would leave the data readable, and one that left the zeroed pages in the WAL would leave the
+/// old bytes in the file.
 #[test]
 fn wiped_content_is_not_left_in_the_database_file() {
     for everything in [false, true] {
@@ -1023,8 +1140,9 @@ fn wiped_content_is_not_left_in_the_database_file() {
         )
         .unwrap();
         checkpoint(&conn);
-        assert!(
-            file_holds_marker(&db),
+        assert_eq!(
+            marker_copies(&db.path),
+            2,
             "the fixture wrote the marker to the file"
         );
 
@@ -1036,21 +1154,73 @@ fn wiped_content_is_not_left_in_the_database_file() {
                 .wipe_signal_categories(&[SignalCategory::Volume])
                 .unwrap();
         }
-        checkpoint(&conn);
-        // The snapshot is not part of a category wipe: the volume payload is the only marker left
-        // there, in the snapshot's blob. Check what the wipe was asked to remove.
-        let still_there = file_holds_marker(&db);
+        // No checkpoint here: the wipe folds its zeroed pages into the main file itself, so the
+        // content is gone from the file the moment the wipe returns (T-0065).
+        let main_copies = marker_copies(&db.path);
+        let wal_copies = marker_copies(&wal_path(&db));
         if everything {
-            assert!(!still_there, "wiped data is still readable in the file");
-        } else {
-            // One marker was removed (the event payload), the snapshot's copy stays: the file
-            // holds exactly one.
-            let bytes = std::fs::read(&db.path).unwrap();
-            let copies = bytes.windows(MARKER.len()).filter(|w| *w == MARKER).count();
             assert_eq!(
-                copies, 1,
+                (main_copies, wal_copies),
+                (0, 0),
+                "wiped data is still readable in the file"
+            );
+        } else {
+            // The snapshot is not part of a category wipe: the event payload copy is zeroed, the
+            // snapshot blob's copy stays.
+            assert_eq!(
+                (main_copies, wal_copies),
+                (1, 0),
                 "the event payload copy is zeroed, the snapshot's stays"
             );
         }
     }
+}
+
+/// The checkpoint after a wipe is best effort: a reader that still sees the pages from before the
+/// wipe blocks it, and the wipe must neither wait for it nor fail. The deleted content then stays
+/// in the main file until the next checkpoint (the caveat the privacy doc names), and a later
+/// checkpoint, once the reader is gone, removes it.
+#[test]
+fn a_reader_that_blocks_the_checkpoint_does_not_fail_or_delay_the_wipe() {
+    let db = TempDb::new();
+    SignalStore::open(&db.path).unwrap();
+    let conn = db.reader();
+    conn.execute_batch(
+        "INSERT INTO dict_device (id, uuid) VALUES (1, x'01');
+         INSERT INTO session (id, uuid, device, started_ts, tz_offset_min) VALUES (1, x'0f', 1, 1000, 0);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO signal_event (device, seq, session, ts_off, kind, payload) \
+         VALUES (1, 1, 1, 0, ?1, ?2)",
+        params![SignalKind::VolumeChanged.discriminant(), MARKER],
+    )
+    .unwrap();
+    checkpoint(&conn);
+    assert_eq!(marker_copies(&db.path), 1, "the fixture wrote the marker");
+
+    // A read transaction opened before the wipe keeps its snapshot of the old pages.
+    let reader = db.reader();
+    reader.execute_batch("BEGIN").unwrap();
+    assert_eq!(count(&reader, "SELECT count(*) FROM signal_event"), 1);
+
+    let mut wiper = SignalWiper::open(&db.path).unwrap();
+    let started = std::time::Instant::now();
+    let report = wiper.wipe_everything().unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "the wipe waited for the reader ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(report.events_deleted, 1);
+    assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 0);
+    assert_eq!(
+        marker_copies(&db.path),
+        1,
+        "the checkpoint was blocked, so the file still holds the old bytes"
+    );
+
+    reader.execute_batch("COMMIT").unwrap();
+    checkpoint(&conn);
+    assert_eq!(marker_copies(&db.path), 0);
 }

@@ -3,7 +3,7 @@ id: T-0064
 title: Wipe signal events per privacy tier
 type: feature
 epic: E-01
-status: ready
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0061]
@@ -12,9 +12,9 @@ scope:
   - crates/tinwave-db/src/wipe.rs
   - crates/tinwave-db/tests/signal_wipe.rs
   - docs/rules/privacy-and-signals.md   # wipe paragraph only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0064-signal-wipe-per-tier
+review_round: 1
 created_by: from P-0257 (T-0061 build-1)
 ---
 
@@ -37,6 +37,16 @@ events (kind.rs `tier()`) is still missing, though privacy-and-signals.md promis
 
 - (P-0277) `signal_wipe::the_writer_thread_keeps_working_while_everything_is_wiped` failed once under parallel load
   (16.9 s); make it wait on conditions with budgets that hold under load.
+
+- (P-0280) Under 32 heavy parallel processes the category-wipe contention test fails "database is locked" (3/48 on
+  main too): assert against the measured wipe time or the writer's retry, not only the 5 s busy timeout.
+- (P-0281) wipe.rs:301-303 + privacy doc: TRUNCATE busy usually means the writer holds the lock (PASSIVE already
+  zeroed the main file; only the WAL keeps old frames); log and document both causes.
+
+## Lead decisions on build-1 (2026-11-03)
+- The test-only scope extension (tests/common/mod.rs, tests/context_wipe.rs) is accepted.
+- Any signal wipe, including T1, resets `rollup_monthly.score_sum` (it blends every signal; T-0061 Q2 rule) — confirmed.
+- Wiping T0 deletes play records (PlayStarted is T0) — consistent with T-0061 Q1.
 
 ## Signals & storage
 None.

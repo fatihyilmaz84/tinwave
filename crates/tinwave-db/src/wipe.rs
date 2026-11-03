@@ -65,6 +65,7 @@
 //! work above.
 
 use std::path::Path;
+use std::time::Duration;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use tinwave_core::Tier;
@@ -240,6 +241,7 @@ impl SignalWiper {
         let report = signal_wipe::wipe_categories(&tx, categories)?;
         tx.commit()
             .map_err(DbError::sqlite("committing the signal wipe"))?;
+        self.checkpoint_best_effort();
         Ok(report)
     }
 
@@ -259,7 +261,51 @@ impl SignalWiper {
         let report = signal_wipe::wipe_everything(&tx)?;
         tx.commit()
             .map_err(DbError::sqlite("committing the wipe of everything"))?;
+        self.checkpoint_best_effort();
         Ok(report)
+    }
+
+    /// Folds the WAL into the main database file, so the zeroed pages of the wipe replace the
+    /// deleted content there and not only in the WAL (`secure_delete` zeroes the pages it frees,
+    /// but a commit writes them to the WAL; the file still holds the old bytes until the next
+    /// checkpoint, which the writer would run up to its idle interval later).
+    ///
+    /// **Best effort, and the wipe is already committed:** a failure here never fails the wipe.
+    /// The busy timeout is zero, so a reader that still has the WAL open (it reports busy) makes
+    /// this skip instead of making the wipe wait; the writer's own `TRUNCATE` checkpoint
+    /// (`SignalStore::checkpoint_if_due`) then folds the WAL in on its next idle interval. In that
+    /// case the deleted content stays readable in the file until then. A skip is logged (no values).
+    ///
+    /// Two steps. `PASSIVE` copies the bulk of the WAL while the writer keeps committing: a
+    /// `TRUNCATE` checkpoint holds the write lock for the whole copy, and a wipe of the reference
+    /// listener's 131 400 play rows leaves tens of MB in the WAL, so doing it all in `TRUNCATE`
+    /// stalled the signal writer for seconds on top of the wipe itself (its batches fail after the
+    /// 5 s busy timeout and are retried). `TRUNCATE` then only has the frames committed since, and
+    /// empties the WAL file, which still holds the pages from before the wipe.
+    fn checkpoint_best_effort(&self) {
+        let checkpoint = |mode: &str| {
+            self.conn
+                .query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+        };
+        let outcome = self.conn.busy_timeout(Duration::ZERO).and_then(|()| {
+            checkpoint("PASSIVE")?;
+            checkpoint("TRUNCATE")
+        });
+        if let Err(error) = self.conn.busy_timeout(connection::BUSY_TIMEOUT) {
+            tracing::warn!(%error, "could not restore the busy timeout after the wipe checkpoint");
+        }
+        match outcome {
+            Ok(0) => {}
+            Ok(_) => tracing::warn!(
+                "wipe checkpoint skipped: a reader holds the WAL; the deleted content leaves the main file at the writer's next checkpoint"
+            ),
+            Err(error) => tracing::warn!(
+                %error,
+                "wipe checkpoint failed; the deleted content leaves the main file at the writer's next checkpoint"
+            ),
+        }
     }
 
     fn wipe_fields(&mut self, fields: ContextFieldSet) -> Result<WipeReport, DbError> {
@@ -274,6 +320,7 @@ impl SignalWiper {
         let snapshots_rewritten = rewrite_keys(&tx, "context_snapshot", "key", fields)?;
         tx.commit()
             .map_err(DbError::sqlite("committing the context wipe"))?;
+        self.checkpoint_best_effort();
         Ok(WipeReport {
             plays_rewritten,
             snapshots_rewritten,

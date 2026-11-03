@@ -3,7 +3,7 @@ id: T-0070
 title: Derived signal values as a first-class path; store RateSession with the play
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P1
 size: M
 depends_on: [T-0062]
@@ -36,6 +36,9 @@ values need the same path.
   (register it in signal_wipe.rs).
 - Remove the `take_rate_sessions` stopgap once the path exists.
 - An ADR if the derived-value path changes the signal architecture (ADR template, update the catalog/privacy docs).
+
+- (P-0278) Consent is re-checked when a derived value is collected/stored; values queued before a Speed toggle-off
+  or a wipe are dropped, not stored. Also give `Controller::take_rate_sessions` `&self`/`#[must_use]` if it survives.
 
 ## Acceptance criteria
 - [ ] A heard play's RateSession ends up in its play row, quantized; none with Speed off — tests.

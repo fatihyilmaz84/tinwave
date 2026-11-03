@@ -36,8 +36,8 @@
 //! | `Seeked` | `SeekForward` / `SeekBack`, through the 2 s [`GestureCoalescer`](tinwave_signals::GestureCoalescer) |
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
 //! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
-//! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
-//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one **and the stream is what was asked for** (`fallback` is `None`): a listener or setting change. A reopen at another sample rate in exclusive mode (T-0057) is none, and so is an automatic fallback (a device that refuses exclusive mode or a rate): the device decided, not the listener, so it is no preference. The reason is logged at `warn`; the fallback mode becomes the starting state for the next change |
+//! | `TrackStarted` / `TrackLeft` (not `Failed`, heard) | the play's `RateSession`, a derived value collected with [`Controller::take_rate_sessions`], not a bus event (see "`RateSession`") |
+//! | `OutputOpened` / `OutputReopened` | **nothing**, whatever the stream's mode: a reopen at another sample rate (T-0057), an automatic fallback (a device that refuses exclusive mode or a rate) and a stream that is exactly what was asked for are facts about the engine, not preferences. A fallback's reason is logged at `warn`. `ExclusiveModeToggled` has another source, the listener's setting (see "Rules the mapping follows" below) |
 //! | `QueueEnded` | none (silence starts) |
 //! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
 //! | `QueueEditRejected` | **nothing**; logged at `warn` and counted in [`ControllerDiagnostics::edits_refused`] |
@@ -47,7 +47,7 @@
 //! been heard yet while no session is open, open the session first (see "Sessions").
 //!
 //! Plus [`Controller::set_repeat_mode`] -> `RepeatModeChanged`, [`Controller::queue_later`] ->
-//! `QueuedLater`, and the session pair `SessionStarted` / `SessionEnded` (catalog section 8).
+//! `QueuedLater`, the listener's exclusive-mode setting -> `ExclusiveModeToggled`, and the session pair `SessionStarted` / `SessionEnded` (catalog section 8).
 //!
 //! Not produced here, because the facts live in other layers: `Replayed`, `Favorited`, `Rated`,
 //! playlist and metadata edits (library UI), `SystemVolumeChanged`, `MuteToggled`,
@@ -130,6 +130,15 @@
 //!   `ExclusiveModeToggled` made while no session is open are emitted right after the next
 //!   `SessionStarted`, if the value still differs from the last one reported. Queue acts are
 //!   deferred the same way, from a bounded buffer (see "Queue edits").
+//! - **`ExclusiveModeToggled` follows the listener's setting, not the stream (T-0067).** The
+//!   setting is the output's `AudioOutput::wants_exclusive` (`WasapiControl::set_exclusive`,
+//!   `ManualHandle::set_exclusive`); the controller reads it at every drain (each command and each
+//!   [`poll`](Controller::poll)) and emits `{ on }` when it differs from the last reading, in the
+//!   session or, outside one, after the next `SessionStarted`. So turning exclusive mode off while
+//!   a fallback has the stream in shared mode is a toggle, and a fallback or a reopen that changes
+//!   the stream's mode is not; a deferred toggle survives any reopen in between. The setting at
+//!   launch is the starting state. A toggle and its undo between two readings emit nothing, and a
+//!   toggle is stamped with the time of the reading (up to one poll after the change).
 //! - **Disabled categories construct nothing**: payloads are built inside the bus's emit closure,
 //!   after the toggle check.
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
@@ -142,14 +151,44 @@
 //! to [`GestureCoalescer::rate`] (600 ms window) with a `RatePayload` and the command's input, so a
 //! slider drag is one signal from the first `from` to the last `to`. Like a volume change, it
 //! needs a session (or a play not yet heard, which opens one for a listener's input) and is
-//! applied but not recorded otherwise. `RateSession` is derived from
-//! [`Controller::rate_stats`]: the engine's own counters of frames played and source advanced.
+//! applied but not recorded otherwise.
+//!
+//! ## `RateSession`
+//!
+//! The time-weighted rate of a heard play, derived from [`Controller::rate_stats`]: the engine's
+//! own counters of frames played and source advanced, read when the play's `TrackStarted` and its
+//! `TrackLeft` are handled (the plays of one drain share one reading).
+//!
+//! - **Delivery.** `RateSession` is a *derived* kind (catalog class D): the bus refuses it as an
+//!   event (`SignalsError::NotAnEvent`). Each value is a [`RateSession`] collected with
+//!   [`Controller::take_rate_sessions`] (or [`ControllerHandle::take_rate_sessions`]); a consumer
+//!   that never collects costs 64 entries, then the oldest are dropped and counted
+//!   ([`ControllerDiagnostics::rate_sessions_dropped`]).
+//! - **One per heard play**, when the play ends (`Finished`, `Replaced` or `Stopped`; a play that
+//!   outlived its session still gets its value). None for a play that was never heard or that
+//!   failed (`Failed`), for a play with no counted audio between its two readings (also a heard
+//!   play shorter than one poll, whose start and leave share one reading), and none while the Speed category is
+//!   off: the start counters are not even kept if it is off then, so a play that straddles a
+//!   toggle (on or off) has none.
+//! - **A play spent entirely at 1.0 has one**, equal to 1.0: the catalog row is "per play" with no
+//!   exception, and a consumer needs "not rushed" to tell it from "not measured".
+//! - **Not exact per play.** The counters are booked when the audio callback takes the frames, not
+//!   when they reach the speaker (ADR 0006, "Implementation (T-0027)", note 8), and the controller
+//!   reads them up to one poll after the event. A play's edges are off by about one device latency
+//!   plus one poll; consecutive plays share their boundary, so nothing is counted twice. The
+//!   value is off by at most 2 x (latency + the poll interval, 100 ms by default) x (the
+//!   difference between the rates played) / (the play's length), one term per edge; a play at
+//!   one rate throughout is exact.
+//! - **Exclusive mode.** `wall_frames` counts frames at whichever stream rate played them (T-0057);
+//!   the time-weighted rate is a ratio of the two counters and is not affected by a reopen.
 //!
 //! [`GestureCoalescer::rate`]: tinwave_signals::GestureCoalescer::rate
 
 mod mapper;
+mod rate_session;
 mod runtime;
 mod session;
+mod setting;
 mod sink;
 mod types;
 
@@ -160,12 +199,14 @@ use tinwave_signals::{InputSource, RepeatMode, View};
 
 use crate::{AudioOutput, Engine, EngineConfig, PlaybackError, Position, Track};
 use mapper::{Cx, Mapper};
+use setting::ExclusiveSetting;
 
 pub use runtime::ControllerHandle;
 pub use sink::{BoundedSink, SinkStats, CRITICAL_CAPACITY, MARK_CAPACITY};
 pub use types::{
     ControllerConfig, ControllerDiagnostics, FixedTimezone, LoadIntent, LoadRequest, PlayState,
-    PlaybackStatus, QueueEdit, QueueEditRequest, QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
+    PlaybackStatus, QueueEdit, QueueEditRequest, QueueEntry, RateSession, TimezoneSource,
+    DEFAULT_POLL_INTERVAL,
 };
 
 /// The synchronous controller. See the module docs.
@@ -173,6 +214,8 @@ pub struct Controller {
     engine: Engine,
     events: Arc<BoundedSink>,
     mapper: Mapper,
+    /// The listener's exclusive-mode setting, read at every drain.
+    setting: ExclusiveSetting,
     clock: Arc<dyn Clock>,
     sample_rate: u32,
     /// Reused between drains so polling does not allocate.
@@ -210,6 +253,9 @@ impl Controller {
             poll_interval: _,
         } = config;
         let events = Arc::new(BoundedSink::new());
+        // The setting at launch is the starting state, not a change: nothing is emitted for it.
+        let (output, setting) = ExclusiveSetting::split(output);
+        let initial_exclusive = setting.wanted();
         let engine = Engine::start(
             EngineConfig {
                 sample_rate,
@@ -223,14 +269,22 @@ impl Controller {
         let mut controller = Self {
             engine,
             events,
-            mapper: Mapper::new(bus, ids, timezone, sample_rate, initial_repeat),
+            mapper: Mapper::new(
+                bus,
+                ids,
+                timezone,
+                sample_rate,
+                initial_repeat,
+                initial_exclusive,
+            ),
+            setting,
             clock,
             sample_rate,
             scratch: Vec::with_capacity(64),
             reported: SinkStats::default(),
         };
-        // The engine's first event is the stream it opened (`OutputOpened`): take it now, so the
-        // starting mode is known before any command.
+        // The engine's first event is the stream it opened (`OutputOpened`, logged only): take it
+        // now so the first command's drain starts clean.
         controller.drain(Cx::AUTO);
         Ok(controller)
     }
@@ -415,11 +469,19 @@ impl Controller {
         self.engine.rate()
     }
 
-    /// What the renderer has played and at which rate, for `RateSession` (the time-weighted rate
-    /// of a play is [`RateStats::time_weighted_rate_since`](crate::RateStats::time_weighted_rate_since)).
+    /// What the renderer has played and at which rate (the book `RateSession` is derived from;
+    /// the time-weighted rate between two snapshots is
+    /// [`RateStats::time_weighted_rate_since`](crate::RateStats::time_weighted_rate_since)).
     #[must_use]
     pub fn rate_stats(&self) -> crate::RateStats {
         self.engine.rate_stats()
+    }
+
+    /// The `RateSession`s derived since the last call, oldest first: one per heard play that
+    /// has ended (see "Playback rate" in the module docs). At most 64 are kept for a consumer that
+    /// does not collect; see [`ControllerDiagnostics::rate_sessions_dropped`].
+    pub fn take_rate_sessions(&mut self) -> Vec<RateSession> {
+        self.mapper.rate_sessions().take()
     }
 
     /// Record the listener's repeat choice and emit `RepeatModeChanged` when it changed. The
@@ -453,7 +515,7 @@ impl Controller {
     /// What the shell needs to know right now.
     #[must_use]
     pub fn status(&self) -> PlaybackStatus {
-        self.mapper.status()
+        self.mapper.status(self.engine.rate_stats().applied_rate)
     }
 
     /// Where playback is (see [`Engine::position`](crate::Engine::position)).
@@ -493,6 +555,7 @@ impl Controller {
             edits_pending: self.mapper.edits_pending(),
             edits_refused: self.mapper.edits_refused(),
             queue_acts_dropped: self.mapper.queue_acts_dropped(),
+            rate_sessions_dropped: self.mapper.rate_sessions().dropped(),
         }
     }
 
@@ -535,6 +598,11 @@ impl Controller {
     /// Maps every event the engine has produced so far. `cx` describes the command that caused
     /// them, if any; events that are not a command's doing carry their own cause.
     fn drain(&mut self, cx: Cx) {
+        // The listener's setting first: whatever it was when a session opens below is what that
+        // session's deferred `ExclusiveModeToggled` reports. A toggle and its undo between two
+        // drains (100 ms apart at the usual cadence) are one reading and emit nothing.
+        self.mapper
+            .set_exclusive_setting(self.clock.now(), self.setting.wanted());
         self.events.drain_into(&mut self.scratch);
         let stats = self.events.stats();
         if stats.overflowed > self.reported.overflowed {
@@ -544,8 +612,15 @@ impl Controller {
             );
         }
         self.reported = stats;
+        if self.scratch.is_empty() {
+            return;
+        }
+        // One reading for the whole batch: a gapless hand-off reports the old track's leave and
+        // the new track's start together, and they must share the moment so no audio is counted
+        // for both plays or neither.
+        let rates = self.engine.rate_stats();
         for event in self.scratch.drain(..) {
-            self.mapper.handle(event, cx);
+            self.mapper.handle(event, cx, &rates);
         }
     }
 }

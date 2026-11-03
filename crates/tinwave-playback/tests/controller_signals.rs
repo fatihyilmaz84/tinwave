@@ -8,7 +8,7 @@ mod common;
 mod controller_support;
 
 use controller_support::*;
-use tinwave_playback::{LoadIntent, PlaybackError, StreamInfo, StreamMode};
+use tinwave_playback::{LoadIntent, ManualOutput, PlaybackError, StreamInfo, StreamMode};
 use tinwave_signals::{
     Fraction, InputSource, PlayOrigin, PositionDs, QueueOrigin, Rate, RepeatMode, Section,
     SignalCategory, SignalKind, SignalPayload, Volume,
@@ -701,7 +701,9 @@ fn repeat_mode_changed_is_emitted_once_per_change() {
 }
 
 #[test]
-fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
+fn the_mode_of_a_reopened_stream_alone_never_emits_exclusive_mode_toggled() {
+    // The listener's setting never changes (this output reports "not exclusive"), whatever the
+    // streams say: exclusive, exclusive again, then a fallback to shared.
     let mut exclusive = StreamInfo::unknown();
     exclusive.mode = StreamMode::Exclusive;
     let mut shared_fallback = StreamInfo::unknown();
@@ -719,23 +721,15 @@ fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
     rig.hear();
     rig.new_signals();
 
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    let fresh = rig.new_signals();
-    assert_eq!(kinds(&fresh), [SignalKind::ExclusiveModeToggled]);
-    let SignalPayload::ExclusiveModeToggled(p) = fresh[0].payload else {
-        panic!("kind");
-    };
-    assert!(p.on);
-
-    // Still exclusive: no toggle. Then the device refuses exclusive mode and the stream falls
-    // back to shared (`fallback` is set): the device decided, so it is no preference signal.
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    assert!(rig.new_signals().is_empty());
-    rig.ctl.switch_device(None).expect("switch");
-    assert!(
-        rig.new_signals().is_empty(),
-        "an automatic fallback emits no ExclusiveModeToggled"
-    );
+    for device in [Some("dac"), Some("dac"), None] {
+        rig.ctl
+            .switch_device(device.map(str::to_owned))
+            .expect("switch");
+        assert!(
+            rig.new_signals().is_empty(),
+            "a stream that came back {device:?} is no preference"
+        );
+    }
 }
 
 #[test]
@@ -954,12 +948,10 @@ fn a_repeat_mode_set_after_a_session_ended_is_reported_by_the_next_one() {
 }
 
 #[test]
-fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() {
-    let mut exclusive = StreamInfo::unknown();
-    exclusive.mode = StreamMode::Exclusive;
-    let (output, handle, _) = InfoOutput::new(vec![StreamInfo::unknown(), exclusive]);
-    let mut rig = Rig::with_output("sig-exclusive-no-session", Box::new(output), handle);
-    rig.ctl.switch_device(Some("dac".into())).expect("switch");
+fn an_exclusive_setting_change_outside_a_session_is_reported_by_the_next_session() {
+    let mut rig = Rig::new("sig-exclusive-no-session");
+    rig.out.set_exclusive(true);
+    rig.ctl.poll();
     assert!(rig.signals().is_empty(), "no session yet");
 
     let a = rig.wav("a.wav", 10 * SECOND);
@@ -982,12 +974,26 @@ fn an_exclusive_mode_change_outside_a_session_is_reported_by_the_next_session() 
 }
 
 #[test]
-fn the_stream_the_engine_started_with_is_the_starting_mode_not_a_toggle() {
-    let mut exclusive = StreamInfo::unknown();
-    exclusive.mode = StreamMode::Exclusive;
-    let (output, handle, _) =
-        InfoOutput::new(vec![exclusive.clone(), exclusive, StreamInfo::unknown()]);
-    // No initial mode is passed to the controller: the engine's `OutputOpened` says it.
+fn an_exclusive_setting_changed_back_before_any_session_is_not_reported() {
+    let mut rig = Rig::new("sig-exclusive-undone");
+    rig.out.set_exclusive(true);
+    rig.ctl.poll();
+    rig.out.set_exclusive(false);
+    rig.ctl.poll();
+    let a = rig.wav("a.wav", SECOND);
+    let e = rig.entry(1, &a, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [SignalKind::SessionStarted, SignalKind::PlayStarted]
+    );
+}
+
+#[test]
+fn the_setting_the_controller_started_with_is_the_starting_state_not_a_toggle() {
+    let (output, handle) = ManualOutput::new();
+    handle.set_exclusive(true);
     let mut rig = Rig::with_output("sig-exclusive-launch", Box::new(output), handle);
     let a = rig.wav("a.wav", 10 * SECOND);
     let e = rig.entry(1, &a, 10 * SECOND);
@@ -1000,14 +1006,19 @@ fn the_stream_the_engine_started_with_is_the_starting_mode_not_a_toggle() {
     );
 
     rig.ctl.switch_device(Some("dac".into())).expect("switch");
-    assert!(rig.new_signals().is_empty(), "still exclusive");
-    rig.ctl.switch_device(None).expect("switch");
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty(), "the setting did not move");
+    rig.out.set_exclusive(false);
+    rig.ctl.poll();
     let SignalPayload::ExclusiveModeToggled(p) =
         only(&rig.new_signals(), SignalKind::ExclusiveModeToggled).payload
     else {
         panic!("kind");
     };
-    assert!(!p.on, "compared with the stream the engine started with");
+    assert!(
+        !p.on,
+        "compared with the setting the controller started with"
+    );
 }
 
 #[test]
@@ -1279,4 +1290,332 @@ fn play_started_reports_where_the_play_began() {
     rig.hear();
     let started = only(&rig.signals(), SignalKind::PlayStarted);
     assert_eq!(started.pos_ds, Some(20), "2 s in, not 2.1 s");
+}
+
+// --- RateSession and the applied rate (T-0062) ---------------------------------------------------
+
+/// Sets the rate and acknowledges the stream restart with empty callbacks, which consume no audio,
+/// until the engine reports the rate as applied: the frames played before and after are exactly
+/// the ones the test renders. Waits on the condition (the decoder throttles restarts to one per
+/// 125 ms), not on a sleep.
+fn apply_rate(rig: &mut Rig, rate: f64) {
+    rig.ctl
+        .set_rate(rate, InputSource::Keyboard)
+        .expect("set_rate");
+    wait_applied(rig, rate);
+}
+
+fn wait_applied(rig: &mut Rig, rate: f64) {
+    for _ in 0..30_000 {
+        rig.out.render(&mut [], 0).expect("stream open");
+        rig.ctl.poll();
+        if rig.ctl.status().rate.to_bits() == rate.to_bits() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    panic!(
+        "the engine never applied rate {rate}; status {:?}",
+        rig.ctl.status()
+    );
+}
+
+/// Within 0.1 % of `expected`.
+fn near(measured: f64, expected: f64) -> bool {
+    (measured - expected).abs() / expected < 0.001
+}
+
+#[test]
+fn a_heard_play_has_one_rate_session_with_the_time_weighted_rate_of_its_schedule() {
+    let mut rig = Rig::new("sig-ratesession");
+    let a = rig.wav("a.wav", 30 * SECOND);
+    let e = rig.entry(1, &a, 30 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    // 100 ms at 1.0 already played; then 1.25, 0.75 and 1.5 for 2 s each and 1 s back at 1.0.
+    let mut weighted = 4_800.0;
+    let mut played = 4_800.0;
+    for (rate, frames) in [
+        (1.25, 2 * SECOND),
+        (0.75, 2 * SECOND),
+        (1.5, 2 * SECOND),
+        (1.0, SECOND),
+    ] {
+        apply_rate(&mut rig, rate);
+        rig.render_exact(frames, 480);
+        weighted += rate * frames as f64;
+        played += frames as f64;
+    }
+    assert!(
+        rig.ctl.take_rate_sessions().is_empty(),
+        "a play that is still going has no value yet"
+    );
+    rig.clock.advance(5_000);
+    rig.ctl.stop().expect("stop");
+
+    let sessions = rig.ctl.take_rate_sessions();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    let expected = weighted / played;
+    assert!(
+        near(sessions[0].time_weighted_rate, expected),
+        "measured {}, the schedule is {expected}",
+        sessions[0].time_weighted_rate
+    );
+    assert_eq!(sessions[0].recording, recording(1));
+    assert_eq!(sessions[0].source, source(1));
+    assert_eq!(sessions[0].at.as_i64(), T0 + 5_000, "when the play ended");
+    assert!(
+        rig.ctl.take_rate_sessions().is_empty(),
+        "taken once, not again"
+    );
+    assert!(
+        !kinds(&rig.signals()).contains(&SignalKind::RateSession),
+        "a derived kind is never a bus event"
+    );
+}
+
+#[test]
+fn each_play_is_measured_on_its_own() {
+    let mut rig = Rig::new("sig-ratesession-two");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let b = rig.wav("b.wav", 10 * SECOND);
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Manual),
+    ];
+    rig.select(entries.clone(), 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    apply_rate(&mut rig, 1.5);
+    rig.render_exact(SECOND, 480);
+    rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
+        .expect("next");
+    // The new play runs at 1.0 only: the rate is put back before any of its audio is played.
+    apply_rate(&mut rig, 1.0);
+    rig.hear();
+    rig.render_exact(SECOND, 480);
+    rig.ctl.stop().expect("stop");
+
+    let sessions = rig.ctl.take_rate_sessions();
+    assert_eq!(
+        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        [recording(1), recording(2)]
+    );
+    let first = (4_800.0 + 1.5 * SECOND as f64) / (4_800.0 + SECOND as f64);
+    assert!(
+        near(sessions[0].time_weighted_rate, first),
+        "{} against {first}",
+        sessions[0].time_weighted_rate
+    );
+    assert!(
+        near(sessions[1].time_weighted_rate, 1.0),
+        "the first play's 1.5 must not leak into the second: {}",
+        sessions[1].time_weighted_rate
+    );
+}
+
+#[test]
+fn a_play_at_normal_speed_throughout_has_a_rate_session_of_one() {
+    let mut rig = Rig::new("sig-ratesession-normal");
+    let a = rig.wav("a.wav", SECOND);
+    let e = rig.entry(1, &a, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    let sessions = rig.ctl.take_rate_sessions();
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert!(
+        near(sessions[0].time_weighted_rate, 1.0),
+        "{}",
+        sessions[0].time_weighted_rate
+    );
+}
+
+#[test]
+fn no_rate_session_with_the_speed_category_off() {
+    let mut rig = Rig::new("sig-ratesession-off");
+    rig.bus
+        .settings()
+        .set_category(SignalCategory::Speed, false);
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    apply_rate(&mut rig, 1.25);
+    rig.render_exact(SECOND, 480);
+    rig.ctl.stop().expect("stop");
+    assert_eq!(rig.ctl.take_rate_sessions(), []);
+
+    // Switched back on, the next play is measured again.
+    rig.bus.settings().set_category(SignalCategory::Speed, true);
+    let b = rig.wav("b.wav", SECOND);
+    let e = rig.entry(2, &b, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    assert_eq!(rig.ctl.take_rate_sessions().len(), 1);
+}
+
+#[test]
+fn no_rate_session_for_a_play_that_was_never_heard_or_could_not_be_played() {
+    let mut rig = Rig::new("sig-ratesession-unheard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    // Left before its first audio: not a play.
+    rig.ctl.stop().expect("stop");
+    assert_eq!(rig.ctl.take_rate_sessions(), []);
+
+    // A track that fails to open is between two that play: only those have a value.
+    let ok1 = rig.wav("ok1.wav", SECOND / 2);
+    let missing = rig.dir.path("missing.wav");
+    let ok2 = rig.wav("ok2.wav", SECOND / 2);
+    let entries = vec![
+        entry(1, &ok1, SECOND / 2, QueueOrigin::Manual),
+        entry(2, &missing, SECOND / 2, QueueOrigin::Manual),
+        entry(3, &ok2, SECOND / 2, QueueOrigin::Manual),
+    ];
+    rig.select(entries, 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    let sessions = rig.ctl.take_rate_sessions();
+    assert_eq!(
+        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        [recording(1), recording(3)],
+        "{sessions:?}"
+    );
+}
+
+#[test]
+fn the_status_reports_the_rate_the_engine_applies_and_the_latest_change_wins() {
+    let mut rig = Rig::new("sig-status-rate");
+    assert_eq!(
+        rig.ctl.status().rate.to_bits(),
+        1.0f64.to_bits(),
+        "nothing changed yet"
+    );
+    let a = rig.wav("a.wav", 30 * SECOND);
+    let e = rig.entry(1, &a, 30 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+
+    // A slider drag: the engine restarts its stream at most once per 125 ms, so the intermediate
+    // values are not all applied.
+    for rate in [1.25, 0.8, 1.5] {
+        rig.ctl
+            .set_rate(rate, InputSource::Mouse)
+            .expect("set_rate");
+    }
+    assert!((rig.ctl.rate() - 1.5).abs() < f64::EPSILON, "the target");
+    assert_eq!(
+        rig.ctl.status().rate.to_bits(),
+        1.0f64.to_bits(),
+        "the audio is still at the old rate until the stream restarts: {:?}",
+        rig.ctl.status()
+    );
+    wait_applied(&mut rig, 1.5);
+    assert!(
+        rig.ctl.status().is_live(),
+        "playback went on through the restarts"
+    );
+}
+
+#[test]
+fn rate_sessions_stay_right_across_exclusive_mode_reopens() {
+    // Exclusive mode (T-0057): the output is reopened at each file's rate, and `wall_frames`
+    // counts frames of whichever rate played them. The ratio does not care.
+    let (output, handle) = ManualOutput::new();
+    handle.set_exclusive(true);
+    let mut rig = Rig::with_output("sig-ratesession-exclusive", Box::new(output), handle);
+    let mut entries = Vec::new();
+    for (id, rate) in [(1u64, 44_100u32), (2, 96_000), (3, 44_100)] {
+        let path = rig.dir.path(&format!("t{id}.wav"));
+        common::write_sweep_piece(&path, rate, 0, rate as usize / 2, 2);
+        entries.push(entry(id, &path, SECOND / 2, QueueOrigin::Manual));
+    }
+    // Nothing is playing yet, so the rate is adopted without a restart.
+    apply_rate(&mut rig, 1.25);
+    rig.select(entries, 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+
+    assert_eq!(
+        rig.out.opens().iter().map(|o| o.1).collect::<Vec<_>>(),
+        [48_000, 44_100, 96_000, 44_100],
+        "the output was reopened for each file"
+    );
+    let sessions = rig.ctl.take_rate_sessions();
+    assert_eq!(
+        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        [recording(1), recording(2), recording(3)]
+    );
+    for s in &sessions {
+        assert!(
+            near(s.time_weighted_rate, 1.25),
+            "{} is not 1.25",
+            s.time_weighted_rate
+        );
+    }
+}
+
+#[test]
+fn the_handle_hands_over_rate_sessions_from_the_controller_thread() {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tinwave_core::{DeviceId, IdGenerator, ManualClock, SeededRng, TzOffsetMin, UtcMillis};
+    use tinwave_playback::{
+        ControllerConfig, ControllerHandle, FixedTimezone, FsOpener, LoadRequest,
+    };
+    use tinwave_signals::{BusConfig, SignalBus, SignalSettings};
+
+    let clock = ManualClock::new(UtcMillis::new(T0));
+    let device = DeviceId::from_parts(UtcMillis::new(T0), [4; 10]).expect("id");
+    let (bus, _drain) = SignalBus::channel(
+        BusConfig::new(device),
+        clock.clone(),
+        Arc::new(SignalSettings::new()),
+    )
+    .expect("bus");
+    let (output, out) = ManualOutput::new();
+    let handle = ControllerHandle::spawn(
+        ControllerConfig {
+            sample_rate: common::RATE,
+            device: None,
+            opener: Arc::new(FsOpener),
+            clock: Arc::new(clock.clone()),
+            bus,
+            ids: IdGenerator::new(clock, SeededRng::new(7)),
+            timezone: Arc::new(FixedTimezone(TzOffsetMin::UTC)),
+            initial_repeat: RepeatMode::Off,
+            poll_interval: Duration::from_millis(2),
+        },
+        Box::new(output),
+    )
+    .expect("spawn");
+    let dir = common::TempDir::new("sig-ratesession-handle");
+    let (l, r) = common::sweep(common::RATE, SECOND / 2);
+    let path = dir.path("a.wav");
+    common::write_wav(&path, common::RATE, 16, &l, &r);
+    handle
+        .load(LoadRequest {
+            entries: vec![entry(1, &path, SECOND / 2, QueueOrigin::Manual)],
+            index: 0,
+            start_frame: 0,
+            intent: LoadIntent::Select(PlayOrigin::Album),
+            input: InputSource::Mouse,
+            leaving: None,
+        })
+        .expect("load");
+
+    let mut block = vec![0.0f32; 960];
+    let mut sessions = Vec::new();
+    for _ in 0..30_000 {
+        let real = out.render(&mut block, 0).unwrap_or(0);
+        sessions.extend(handle.take_rate_sessions());
+        if !sessions.is_empty() {
+            break;
+        }
+        if real < 480 {
+            std::thread::sleep(Duration::from_micros(200));
+        }
+    }
+    assert_eq!(sessions.len(), 1, "{sessions:?}");
+    assert_eq!(sessions[0].recording, recording(1));
+    assert!(near(sessions[0].time_weighted_rate, 1.0));
+    handle.shutdown();
 }

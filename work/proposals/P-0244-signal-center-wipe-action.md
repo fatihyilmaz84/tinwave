@@ -7,3 +7,4 @@ size: S
 outcome: parked: requirement for the Signal Center screen ticket (E-01 UI; artboard exists on the canvas)
 ---
 Nothing calls `SignalWiper` yet; the UI must expose the context categories and the tier wipe. Evidence: crates/tinwave-db/src/wipe.rs. Run it off the GUI thread (T-0060 review-2: ~0.1-0.2 s at reference size).
+Also (P-0290, P-0291): flush the writer before the wipe; surface `Checkpoint::Busy{main_file_current}` to the listener.

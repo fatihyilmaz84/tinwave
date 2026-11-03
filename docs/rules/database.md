@@ -147,3 +147,9 @@ Hot raw 90 days → warm play records 3 years → cold monthly rollups forever (
 Compaction runs when idle, oldest first, in transactions of ≤ 5 000 rows, then `incremental_vacuum`.
 Heatmaps and decayed aggregates in `taste.db` are updated before raw rows are deleted.
 The budget enforcer may shorten windows; see [storage-budget.md](storage-budget.md).
+
+## Reserved pragmas
+
+- `signals.db` `PRAGMA user_version` is the **wipe epoch** (T-0065, `signal_wipe.rs` `wipe_epoch`): wipe everything
+  bumps it inside its transaction and the writer drops its dictionary/session caches when it moves. Migrations use
+  `schema_migration`, never `user_version`; do not reuse it.

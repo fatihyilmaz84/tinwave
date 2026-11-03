@@ -27,7 +27,9 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-_none_
+| Ticket | Owner | Branch / worktree |
+|---|---|---|
+| [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-builder r2 (review-1: gap metric can't see the gap; ExclusiveRefused; runbook) | `t/T-0066-exclusive-reopen-device-check` @ fde6b88 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -35,10 +37,12 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
-| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | tw-reviewer r1 | `t/T-0062-rate-session-and-status` @ db78ad9 · `D:\dev\Tinwave-worktrees\T-0062-rate-session-and-status` |
-| [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-reviewer r1 | `t/T-0065-wipe-follow-ups` @ fcb3196 · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
+| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-reviewer r1 | `t/T-0064-signal-wipe-per-tier` @ 104f688 · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
 
 ## Recently done
+- [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (fallbacks never emit) — merged 4b54eb3 (review r1 APPROVE; wrapper → T-0072).
+- [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups: wipe epoch (writer CPU back to baseline), rollup plays kept, stale-start guard, checkpoint after wipe — merged 4950c97 (review r1 APPROVE).
+- [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession per heard play (stopgap hand-over), applied rate in PlaybackStatus — merged 30cfa03 (review r1 APPROVE; storage → T-0070).
 - [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at each file's sample rate (fakes only) — merged e1893f5 (review r2 + lead fix; device check → T-0066).
 - [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and wipe everything (secure_delete, writer keeps working) — merged fb5b252 (review r1 APPROVE; follow-ups → T-0065).
 - [T-0027](tickets/T-0027-rate-control-engine.md) Playback rate 0.75-1.5x (Signalsmith in the decoder thread), RateChanged — merged 9a3d07b (review r1 APPROVE; ADR 0006 implementation notes applied).
@@ -50,11 +54,10 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier (P2) | feature | S | tinwave-db | after T-0065 (same files) |
-| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | fix | S | playback controller | with/after T-0062 (same files) |
-| [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check, exclusive-only open (P2) | chore | S | playback output/tests | playback slot |
+| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | after T-0067 (controller) |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
 | [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller tests under load (P2) | chore | S | playback tests | playback slot |
+| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | chore | S | playback decoder + tests/rate.rs | playback slot |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
@@ -72,8 +75,8 @@ overlap (work/README.md); the branch merging second merges main first.
 | Ticket | Depends on |
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
-| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
-| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | T-0062 |
+| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake again (P2) | — |
+| [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | T-0066, T-0067 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |

@@ -15,6 +15,7 @@ use crate::connection;
 use crate::dict::{DictCaches, Resolver, Table};
 use crate::migrate::{migrate, Migration, MigrationReport};
 use crate::play::{self, Ending, Outcome, PlayWrite};
+use crate::signal_wipe;
 use crate::DbError;
 
 /// The migrations of `signals.db`, oldest first.
@@ -170,8 +171,9 @@ pub struct SignalStore {
     tz: SessionTz,
     last_error: Option<DbError>,
     last_report: BatchReport,
-    /// `PRAGMA data_version` as of the last batch: it changes when another connection commits.
-    data_version: i64,
+    /// The wipe epoch as of the last batch (`signal_wipe::wipe_epoch`): it changes only when a
+    /// wipe of everything deleted the rows the caches point at.
+    wipe_epoch: i32,
 }
 
 impl std::fmt::Debug for SignalStore {
@@ -199,7 +201,7 @@ impl SignalStore {
     pub fn open_with(path: &Path, config: StoreConfig) -> Result<Self, DbError> {
         let mut conn = connection::open(path, config.page_cache_kib)?;
         migrate(&mut conn, SIGNALS_MIGRATIONS)?;
-        let data_version = data_version(&conn)?;
+        let wipe_epoch = signal_wipe::wipe_epoch(&conn)?;
         let mut wal_path = path.as_os_str().to_owned();
         wal_path.push("-wal");
         Ok(Self {
@@ -211,7 +213,7 @@ impl SignalStore {
             tz: SessionTz::new(config.tz_offset),
             last_error: None,
             last_report: BatchReport::default(),
-            data_version,
+            wipe_epoch,
         })
     }
 
@@ -296,13 +298,15 @@ impl SignalStore {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(DbError::sqlite("starting the batch transaction"))?;
-        // Another connection committed since the last batch (a wipe deleted dictionary and session
-        // rows, or a settings toggle): the cached integers may now point at nothing, or at another
-        // UUID. Read inside the write lock, so no commit can slip in between the check and the batch.
-        let version = data_version(&tx)?;
-        if version != self.data_version {
+        // A wipe of everything deleted the dictionary and session rows since the last batch: the
+        // cached integers may now point at nothing, or at another UUID. Only that wipe moves the
+        // epoch (not every commit of another connection: the context hub and the settings write
+        // all the time and keep the caches valid). Read inside the write lock, so no wipe can slip
+        // in between the check and the batch.
+        let epoch = signal_wipe::wipe_epoch(&tx)?;
+        if epoch != self.wipe_epoch {
             self.caches.clear();
-            self.data_version = version;
+            self.wipe_epoch = epoch;
         }
         let mut resolver = Resolver::new(&mut self.caches);
         let mut outcomes: Vec<Outcome> = Vec::new();
@@ -537,13 +541,6 @@ fn ending(payload: &SignalPayload) -> Option<Ending> {
         }),
         _ => None,
     }
-}
-
-/// `PRAGMA data_version`: a number that differs between two reads of a connection when another
-/// connection committed in between (its own commits do not change it).
-fn data_version(conn: &Connection) -> Result<i64, DbError> {
-    conn.query_row("PRAGMA data_version", [], |row| row.get(0))
-        .map_err(DbError::sqlite("reading the data version"))
 }
 
 /// `value` as a SQLite integer, or `None` above `i64::MAX`. Callers reject the event or row
