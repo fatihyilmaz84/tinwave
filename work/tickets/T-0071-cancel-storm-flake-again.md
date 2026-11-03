@@ -3,13 +3,14 @@ id: T-0071
 title: cancel_storm image-provider test flaked again ("nothing was cancelled")
 type: fix
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: []
 scope:
   - apps/tinwave-desktop/src/app/   # image provider only
   - apps/tinwave-desktop/tests/image_provider.rs
+  - apps/tinwave-desktop/tools/stress/   # added by the lead in round 1 (the flaky timer lives in Storm.qml)
 owner: tw-builder
 branch: t/T-0071-cancel-storm-flake-again
 review_round: 1

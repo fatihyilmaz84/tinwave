@@ -32,7 +32,6 @@ _Maintained by the lead. Last updated: 2026-11-03._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0075](tickets/T-0075-busy-timeout-wall-clock.md) Contention tests vs busy-timeout wall time (P3) | tw-builder r1 | `t/T-0075-busy-timeout-wall-clock` · `D:\dev\Tinwave-worktrees\T-0075-busy-timeout-wall-clock` |
-| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake (P2) | tw-builder r1 | `t/T-0071-cancel-storm-flake-again` · `D:\dev\Tinwave-worktrees\T-0071-cancel-storm-flake-again` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -40,6 +39,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake (P2) | tw-reviewer r1 | `t/T-0071-cancel-storm-flake-again` · `D:\dev\Tinwave-worktrees\T-0071-cancel-storm-flake-again` |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-reviewer r2 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
 
 ## Recently done
@@ -82,6 +82,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | playback slot |
+| [T-0079](tickets/T-0079-image-stress-teardown-under-load.md) image-stress teardown under extreme load: slow or hung (P3) | after T-0071 |
 | [T-0076](tickets/T-0076-rate-throttle-clock.md) Rate-throttle clock in EngineConfig (P3) | after T-0063 |
 | [T-0077](tickets/T-0077-dedupe-corrupt-packets-rate-restart.md) Corrupt packets reported once across a rate restart (P3) | after T-0063 |
 | [T-0078](tickets/T-0078-playback-harness-load-timeouts.md) Playback harness waits that survive load (P3) | after T-0063 |
