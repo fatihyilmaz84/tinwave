@@ -3,7 +3,7 @@ id: T-0046
 title: Sync the design canvas token sheets with design-system §3.1 (post-T-0035 values)
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0035]
