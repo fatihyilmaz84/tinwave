@@ -29,7 +29,6 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (P2) | tw-builder r2 — CHANGES_REQUESTED: switch test not portable / not pinned | `t/T-0053-platform-bridge-followups` · `D:\dev\Tinwave-worktrees\T-0053-platform-bridge-followups` |
 | [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither (E-01) | tw-builder r1 | `t/T-0019-resampler-and-dither` · `D:\dev\Tinwave-worktrees\T-0019-resampler-and-dither` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -38,6 +37,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0053](tickets/T-0053-platform-bridge-followups.md) Platform bridge follow-ups (P2) | tw-reviewer r2 (build-2: portable headless rule, pinned switch, FreeLibrary on miss) | `t/T-0053-platform-bridge-followups` @ 1aa919f · `D:\dev\Tinwave-worktrees\T-0053-platform-bridge-followups` |
 | [T-0052](tickets/T-0052-capture-tool-improvements.md) capture.ps1: desktop crop, click/key steps, cursor restore (P2) | tw-reviewer r1 (build-1: -Mode desktop, @click/@down/@up/@wait, readiness) | `t/T-0052-capture-tool-improvements` @ cd3d5e8 · `D:\dev\Tinwave-worktrees\T-0052-capture-tool-improvements` |
 
 ## Ready (dispatch order)

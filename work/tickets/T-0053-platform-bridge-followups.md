@@ -3,7 +3,7 @@ id: T-0053
 title: Platform bridge follow-ups — portable winId, same-process window guard, menu re-flush, tighter probe test
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0036]
