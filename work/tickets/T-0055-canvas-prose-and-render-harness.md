@@ -24,6 +24,7 @@ them rendered; T-0046's builder wrote a ~25-line Node harness that expands `<sc-
 
 ## Scope
 - Fix the three prose items in Main.dc.html to match design-system.md.
+- Add the missing `danger` swatch (#B42318 / #F2877D, §3.1) to the Main.dc.html swatch sheet (T-0046 review-1).
 - docs/design/tools/render-canvas.js (+ README): renders a .dc.html to plain HTML from local files only; document how to
   screenshot it with a local headless browser. Node is a dev-only prerequisite; say so.
 

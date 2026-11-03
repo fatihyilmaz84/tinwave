@@ -3,7 +3,7 @@ id: T-0046
 title: Sync the design canvas token sheets with design-system §3.1 (post-T-0035 values)
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0035]
@@ -33,3 +33,6 @@ None.
 
 ## Added from P-0158 (T-0043 review-1)
 - Canvas nav icons are drawn at 18 px; the token `iconSize` is 20 (design-system §3.4 wins): update the canvas to 20.
+
+## Outcome
+2026-11-03: merged 55915e4 after review-1 APPROVE (docs only). Follow-ups: T-0055; D-0008 (PO).
