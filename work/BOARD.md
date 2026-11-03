@@ -29,6 +29,8 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | tw-builder r1 | `t/T-0067-exclusive-setting-signal` · `D:\dev\Tinwave-worktrees\T-0067-exclusive-setting-signal` |
+| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-builder r1 | `t/T-0064-signal-wipe-per-tier` · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-builder r1 | `t/T-0066-exclusive-reopen-device-check` · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -51,9 +53,7 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier (P2) | feature | S | tinwave-db | free: db only |
 | [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | after T-0067 (controller) |
-| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | fix | S | playback controller | next controller ticket |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
 | [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller tests under load (P2) | chore | S | playback tests | playback slot |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |

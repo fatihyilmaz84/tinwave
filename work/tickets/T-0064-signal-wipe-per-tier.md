@@ -3,7 +3,7 @@ id: T-0064
 title: Wipe signal events per privacy tier
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0061]
@@ -12,9 +12,9 @@ scope:
   - crates/tinwave-db/src/wipe.rs
   - crates/tinwave-db/tests/signal_wipe.rs
   - docs/rules/privacy-and-signals.md   # wipe paragraph only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0064-signal-wipe-per-tier
+review_round: 1
 created_by: from P-0257 (T-0061 build-1)
 ---
 

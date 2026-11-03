@@ -3,7 +3,7 @@ id: T-0067
 title: ExclusiveModeToggled from the listener's setting, not from stream modes
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0057]
@@ -12,9 +12,9 @@ scope:
   - crates/tinwave-playback/src/output/mod.rs     # exposing the exclusive control flag only
   - crates/tinwave-playback/tests/controller_exclusive.rs
   - crates/tinwave-playback/tests/controller_signals.rs
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0067-exclusive-setting-signal
+review_round: 1
 created_by: from P-0267 (T-0057 build-1b)
 ---
 
