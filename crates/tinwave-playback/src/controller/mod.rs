@@ -329,6 +329,13 @@ impl Controller {
             input,
         } = request;
         check_durations(&tail)?;
+        // The playing track is not part of what an edit can remove: it keeps playing, so recording
+        // it as "removed before it played" would be a rejection of a track being listened to.
+        if matches!(&edit, QueueEdit::Remove { items } if items.contains(&head)) {
+            return Err(PlaybackError::InvalidArgument(
+                "the playing track cannot be removed by a queue edit",
+            ));
+        }
         let acts = self.mapper.plan_edit(&edit, &tail)?;
         let tracks: Vec<Track> = tail.iter().map(|e| e.track.clone()).collect();
         // What `Engine::replace_after` polls for is about the queue as it was: map it first.

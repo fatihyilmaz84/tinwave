@@ -91,6 +91,10 @@ struct State {
     queue: Vec<Arc<Track>>,
     /// Index of the item being read, or of the next one to open when `reader` is `None`.
     cur: usize,
+    /// Index of the last item that was opened (its mark is published), so that an item whose
+    /// successors all failed to open is still the one a queue edit must name. `None` until a
+    /// stream has started.
+    last_opened: Option<usize>,
     reader: Option<TrackReader>,
     pending: Vec<f32>,
     pending_off: usize,
@@ -116,6 +120,7 @@ impl Decoder {
         let mut st = State {
             queue: Vec::new(),
             cur: 0,
+            last_opened: None,
             reader: None,
             pending: Vec::new(),
             pending_off: 0,
@@ -306,6 +311,11 @@ impl Decoder {
             Ok(base) => {
                 st.queue.truncate(base + 1);
                 st.queue.extend(items);
+                if st.reader.is_none() && st.awaiting.is_none() {
+                    // Past the end of the list (the items after `head` failed to open): the next
+                    // item to open is the first of the new tail.
+                    st.cur = base + 1;
+                }
                 self.revive_if_ended(st);
                 self.emit(EventKind::QueueEdited { edit, head });
             }
@@ -321,11 +331,12 @@ impl Decoder {
         items: &[Arc<Track>],
     ) -> Result<usize, PlaybackError> {
         // While a reader is open (or a command is about to open one) `cur` is the item being
-        // read; once the queue is exhausted the last item started is the one before `cur`.
+        // read; once the queue is exhausted the last item started is the last one opened (not the
+        // one before `cur`, which may be an item that failed to open).
         let started = if st.reader.is_some() || st.awaiting.is_some() {
             Some(st.cur)
         } else {
-            st.cur.checked_sub(1)
+            st.last_opened
         };
         let base = started.filter(|&i| i < st.queue.len());
         let current = base.map(|i| st.queue[i].id);
@@ -375,6 +386,7 @@ impl Decoder {
             "readers are dropped through drop_reader"
         );
         st.item_failed = false;
+        st.last_opened = None;
         st.pending.clear();
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
@@ -430,6 +442,7 @@ impl Decoder {
                     });
                     st.item_failed = false;
                     st.mark_kind = MarkKind::Continuation;
+                    st.last_opened = Some(st.cur);
                     st.reader = Some(reader);
                     return true;
                 }

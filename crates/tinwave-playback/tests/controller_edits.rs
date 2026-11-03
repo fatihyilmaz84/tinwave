@@ -674,6 +674,13 @@ fn an_edit_that_contradicts_its_own_description_is_rejected_before_it_is_sent() 
         QueueEdit::Remove {
             items: vec![item(2)],
         },
+        // The playing track is not removable: it would keep playing, recorded as rejected.
+        QueueEdit::Remove {
+            items: vec![item(1)],
+        },
+        QueueEdit::Remove {
+            items: vec![item(3), item(1)],
+        },
     ] {
         assert!(matches!(
             edit(&mut rig, 1, tail.clone(), bad, InputSource::Mouse),

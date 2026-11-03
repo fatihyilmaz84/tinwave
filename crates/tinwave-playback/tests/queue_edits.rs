@@ -333,6 +333,60 @@ fn an_edit_that_loses_the_race_with_the_decoder_is_refused_with_an_event() {
     assert_paired(&kinds, false);
 }
 
+/// The items after A all failed to open, so the queue is exhausted on the decoder's side, but A is
+/// still audible and is still the item to edit behind: the last item *opened*, not the one before
+/// the end of the list.
+#[test]
+fn an_edit_behind_a_track_whose_successors_all_failed_to_open_is_applied() {
+    let f = files("edit-failed-successors");
+    let (l, r) = sweep(RATE, LONG);
+    let dir = TempDir::new("edit-failed-successors-files");
+    let (short_a, short_b) = (dir.path("sa.wav"), dir.path("sb.wav"));
+    write_wav(&short_a, RATE, 16, &l[..9_600], &r[..9_600]);
+    write_wav(
+        &short_b,
+        RATE,
+        16,
+        &l[9_600..9_600 + 4_800],
+        &r[9_600..9_600 + 4_800],
+    );
+    let missing = dir.path("missing.wav");
+    let mut h = Harness::new();
+    h.latency = 480;
+    h.engine
+        .load(
+            vec![track(1, &short_a), track(2, &missing), track(3, &missing)],
+            0,
+            0,
+        )
+        .expect("load");
+    h.settle();
+    // Both successors failed: the decoder is at the end of the list, A still plays.
+    wait_for(&mut h, "the failures", |h| {
+        h.sink
+            .kinds()
+            .iter()
+            .filter(|k| matches!(k, EventKind::TrackFailed { .. }))
+            .count()
+            == 2
+    });
+    assert_eq!(h.engine.position().map(|p| p.item), Some(QueueItemId(1)));
+
+    let edit = h
+        .engine
+        .replace_after(QueueItemId(1), vec![track(4, &short_b)])
+        .expect("edit");
+    wait_for(&mut h, "the verdict", |h| {
+        edited(h, edit) || refused(h).is_some()
+    });
+    assert_eq!(refused(&h), None, "A is the last item opened");
+    let rec = h.render_exact(9_600 + 4_800, 480);
+    h.finish();
+
+    assert_eq!(max_err(&rec, &f.ref_l, &f.ref_r, 0), 0.0);
+    assert_eq!(started(&h.sink.kinds()), [1, 4]);
+}
+
 #[test]
 fn an_edit_with_nothing_playing_or_with_duplicate_ids_is_an_error_not_a_change() {
     let f = files("edit-invalid");

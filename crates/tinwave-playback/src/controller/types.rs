@@ -63,6 +63,8 @@ pub struct LoadRequest {
     /// gapless advance that the display has not caught up with), the request is a no-op: nothing
     /// is reloaded and the track the listener wanted is not skipped. `None` is unconditional;
     /// [`LoadIntent::Select`] ignores it (choosing a track is not relative to the current one).
+    /// After `QueueEnded` nothing is current, so a `Some` here makes next/previous a no-op: the
+    /// shell passes `None` once the queue has ended.
     pub leaving: Option<QueueItemId>,
 }
 
