@@ -3,7 +3,7 @@ id: T-0027
 title: Pitch-preserving rate control in the playback engine (bypass at 1.0, flush-and-restart, rate counters)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0026]

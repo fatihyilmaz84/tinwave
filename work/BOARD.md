@@ -29,7 +29,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-builder r1 | `t/T-0027-rate-control-engine` · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
+| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-builder r2 (review-1: one-scan rewrite, wipe vs writer timing) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -37,7 +37,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
-| [T-0060](tickets/T-0060-wipe-masks-context-key.md) Wipe masks context fields in play rows (privacy) | tw-builder r2 (review-1: one-scan rewrite, wipe vs writer timing) | `t/T-0060-wipe-masks-context-key` @ 209413c · `D:\dev\Tinwave-worktrees\T-0060-wipe-masks-context-key` |
+| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-reviewer r1 | `t/T-0027-rate-control-engine` @ dfa60b9 · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
 
 ## Recently done
 - [T-0058](tickets/T-0058-switch-to-gpl.md) Tinwave is GPL-3.0-only in Cargo, cargo-deny and packaging — merged 211d9fe (review r1 APPROVE; hardening → T-0054).
@@ -66,6 +66,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (P1, privacy) | T-0060 |
+| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | T-0027 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
