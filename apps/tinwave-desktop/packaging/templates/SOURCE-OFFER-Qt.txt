@@ -1,0 +1,27 @@
+Tinwave - Qt source code offer
+==============================
+
+Tinwave uses the Qt toolkit, version {{QT_VERSION}}, under the GNU Lesser General Public License version 3
+(LGPL-3.0). The Qt libraries in this folder (Qt6*.dll, platforms\, qml\, imageformats\, iconengines\, tls\,
+networkinformation\) are the unmodified binaries published by The Qt Company for Windows (MSVC 2022, 64 bit).
+Tinwave has not changed Qt.
+
+You are entitled to the complete corresponding source code of exactly this Qt version. It is published by the Qt
+Project and stays available there:
+
+  Qt Base (Core, Gui, Network, OpenGL, platform plugins, image formats, TLS plugins):
+    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtbase-everywhere-src-{{QT_VERSION}}.tar.xz
+  Qt Declarative (Qml, Quick, Quick Controls 2, Quick Layouts, Shapes, Effects):
+    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtdeclarative-everywhere-src-{{QT_VERSION}}.tar.xz
+  Qt SVG (Svg, svg image and icon plugins):
+    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtsvg-everywhere-src-{{QT_VERSION}}.tar.xz
+
+  All releases:  https://download.qt.io/archive/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/
+  Git:           https://code.qt.io/cgit/qt/ (tag v{{QT_VERSION}} in qtbase, qtdeclarative, qtsvg)
+
+This offer is valid for as long as Tinwave {{QT_VERSION}}-based releases are distributed and for at least three years after
+the last such distribution.
+
+Replacing Qt: the Qt libraries are separate files. You may replace them with your own build of Qt {{QT_VERSION}}
+(binary compatible) and run Tinwave against it. Tinwave does not forbid this, nor reverse engineering for debugging
+such modifications. The licenses are in THIRD-PARTY-NOTICES.txt and licenses\Qt-LGPL-3.0-and-GPL-3.0.txt.
