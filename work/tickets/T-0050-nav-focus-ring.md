@@ -3,7 +3,7 @@ id: T-0050
 title: Sidebar nav list — the keyboard focus ring follows the current item after Up/Down
 type: bug
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0043]
