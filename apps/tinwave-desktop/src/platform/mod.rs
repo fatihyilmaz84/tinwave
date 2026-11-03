@@ -60,11 +60,13 @@ pub struct NativeWindow(pub usize);
 /// [`NativeWindow`] stands for. Qt's `winId()` is only a real handle with the plugin of the OS itself: the `offscreen`
 /// plugin (headless tests) numbers its windows with a counter, which must never reach an OS call as if it were a handle.
 ///
-/// Windows: only the `windows` plugin. Other OSes have no provider yet (every call answers
-/// [`PlatformError::Unsupported`] and ignores the handle), so they pass; T-0038/T-0039 narrow this to their plugins
-/// when they add real providers.
+/// `offscreen` and `minimal` have no OS windows on any OS, so they never pass. Windows: only the `windows` plugin.
+/// Other OSes have no provider yet (every call answers [`PlatformError::Unsupported`] and ignores the handle), so every
+/// other plugin passes; T-0038/T-0039 narrow this to their plugins when they add real providers.
 pub fn has_native_window_handles(qpa: &str) -> bool {
-    if cfg!(windows) {
+    if matches!(qpa, "offscreen" | "minimal") {
+        false
+    } else if cfg!(windows) {
         qpa == "windows"
     } else {
         true
@@ -199,9 +201,13 @@ mod tests {
 
     #[test]
     fn only_the_windows_plugin_hands_out_hwnds_on_windows() {
+        // Headless plugins have no OS windows anywhere.
+        for qpa in ["offscreen", "minimal"] {
+            assert!(!has_native_window_handles(qpa), "{qpa}");
+        }
         if cfg!(windows) {
             assert!(has_native_window_handles("windows"));
-            for qpa in ["offscreen", "minimal", "xcb", "cocoa", ""] {
+            for qpa in ["xcb", "cocoa", ""] {
                 assert!(!has_native_window_handles(qpa), "{qpa}");
             }
         } else {

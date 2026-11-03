@@ -26,11 +26,11 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::mem::size_of;
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 
-use ::windows::core::{w, PCSTR, PWSTR};
+use ::windows::core::{w, PCSTR, PCWSTR, PWSTR};
 use ::windows::Wdk::System::SystemServices::RtlGetVersion;
 use ::windows::Win32::Foundation::{
-    GetLastError, SetLastError, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HMODULE, HWND, LPARAM,
-    LRESULT, WIN32_ERROR, WPARAM,
+    FreeLibrary, GetLastError, SetLastError, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HMODULE, HWND,
+    LPARAM, LRESULT, WIN32_ERROR, WPARAM,
 };
 use ::windows::Win32::Graphics::Dwm::{
     DwmExtendFrameIntoClientArea, DwmSetWindowAttribute, DWMSBT_MAINWINDOW, DWMSBT_NONE,
@@ -456,19 +456,36 @@ struct MenuApi {
     flush_menu_themes: FlushMenuThemesFn,
 }
 
-/// Loads `uxtheme.dll` and looks up both ordinals. Only called on builds >= [`MENU_OPT_IN_MIN_BUILD`].
-fn resolve_menu_api() -> Result<MenuApi, PlatformError> {
-    // SAFETY: a fixed system DLL name, searched in System32 only (no DLL planting); uxtheme is already loaded by
-    // Qt, so this only adds a reference that lives as long as the process (the pointers below stay valid). It runs
-    // once (see `menu_api`), so that is one reference in total.
-    let uxtheme = unsafe { LoadLibraryExW(w!("uxtheme.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32) }
+/// Loads the system DLL `dll` (`uxtheme.dll`; a parameter so tests can exercise a miss) and looks up both ordinals.
+/// Only called on builds >= [`MENU_OPT_IN_MIN_BUILD`].
+fn resolve_menu_api(dll: PCWSTR) -> Result<MenuApi, PlatformError> {
+    // SAFETY: `dll` is a NUL-terminated literal naming a system DLL (uxtheme.dll outside tests), searched in System32
+    // only (no DLL planting); uxtheme is already loaded by
+    // Qt, so this only adds a reference. On success that reference is kept for the life of the process (the
+    // pointers below stay valid) and `menu_api` serialises callers, so it is added once; on a miss it is released
+    // right below.
+    let uxtheme = unsafe { LoadLibraryExW(dll, None, LOAD_LIBRARY_SEARCH_SYSTEM32) }
         .map_err(|e| failed("LoadLibraryExW(uxtheme.dll)", &e))?;
-    let set_mode = export_by_ordinal(uxtheme, 135).ok_or_else(|| {
-        PlatformError::unsupported("uxtheme.dll has no export 135 (SetPreferredAppMode)")
-    })?;
-    let flush = export_by_ordinal(uxtheme, 136).ok_or_else(|| {
-        PlatformError::unsupported("uxtheme.dll has no export 136 (FlushMenuThemes)")
-    })?;
+    let exports = export_by_ordinal(uxtheme, 135)
+        .ok_or_else(|| {
+            PlatformError::unsupported("uxtheme.dll has no export 135 (SetPreferredAppMode)")
+        })
+        .and_then(|set_mode| {
+            export_by_ordinal(uxtheme, 136)
+                .map(|flush| (set_mode, flush))
+                .ok_or_else(|| {
+                    PlatformError::unsupported("uxtheme.dll has no export 136 (FlushMenuThemes)")
+                })
+        });
+    let (set_mode, flush) = match exports {
+        Ok(pair) => pair,
+        Err(error) => {
+            // SAFETY: `uxtheme` is the module handle (and reference) obtained above, and no pointer into it was
+            // kept: the lookups failed or their results are dropped here.
+            let _ = unsafe { FreeLibrary(uxtheme) };
+            return Err(error);
+        }
+    };
     // SAFETY: on builds >= MENU_OPT_IN_MIN_BUILD (the caller checked) ordinal 135 is `int SetPreferredAppMode(int)`
     // and 136 is `void FlushMenuThemes(void)`, both __stdcall (= "system" on x64/arm64). This is undocumented
     // and the reason for the module-level risk note.
@@ -493,7 +510,13 @@ fn menu_api() -> Result<&'static MenuApi, PlatformError> {
     if let Some(api) = API.get() {
         return Ok(api);
     }
-    let resolved = resolve_menu_api()?;
+    // One resolver at a time, so a race on the first call cannot add a second module reference.
+    static RESOLVING: Mutex<()> = Mutex::new(());
+    let _resolving = RESOLVING.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(api) = API.get() {
+        return Ok(api);
+    }
+    let resolved = resolve_menu_api(w!("uxtheme.dll"))?;
     Ok(API.get_or_init(|| resolved))
 }
 
@@ -517,6 +540,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
+    use ::windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use ::windows::Win32::UI::WindowsAndMessaging::{
         CreateWindowExW, DestroyWindow, GetDesktopWindow, GetShellWindow, SendMessageW,
         HWND_MESSAGE, WINDOW_EX_STYLE, WINDOW_STYLE, WM_NULL,
@@ -752,6 +776,24 @@ mod tests {
         assert!(std::ptr::eq(first, second), "the same resolved pair");
     }
 
+    #[test]
+    fn a_dll_without_the_ordinals_is_released_and_reported() {
+        // shfolder.dll is a tiny system DLL with nothing like ordinals 135 and 136, and nothing in a test process
+        // loads it. Loaded here by the resolver and given back on the miss.
+        // SAFETY: a NUL-terminated literal; GetModuleHandleW only looks the name up and takes no reference.
+        let loaded = || unsafe { GetModuleHandleW(w!("shfolder.dll")) }.is_ok();
+        assert!(!loaded(), "shfolder.dll is not loaded before the test");
+        let error = resolve_menu_api(w!("shfolder.dll")).expect_err("no such exports");
+        assert!(
+            matches!(&error, PlatformError::Unsupported(reason) if reason.contains("export 135")),
+            "{error}"
+        );
+        assert!(
+            !loaded(),
+            "the reference taken by the failed lookup was released"
+        );
+    }
+
     /// The real Windows providers, counting the menu scheme calls that reach `uxtheme`.
     #[derive(Default)]
     struct CountingPlatform {
@@ -822,15 +864,20 @@ mod tests {
         window.send(WM_THEMECHANGED);
         assert_eq!(calls().len(), 3);
 
-        // A forced scheme ignores the OS scheme.
-        controller
-            .lock()
-            .expect("controller")
-            .set_menu_scheme(MenuScheme::Dark);
-        assert_eq!(calls().len(), 4);
-        window.send(WM_SETTINGCHANGE);
-        assert_eq!(calls().len(), 4, "forced dark is not re-flushed");
-        // Leave this test process's menu mode as a fresh process has it.
+        // A forced scheme ignores the OS scheme. Under a high-contrast theme (read-only: whatever this machine is
+        // set to) menus follow the system whatever is forced, so there is nothing to show.
+        if platform.read().expect("settings").high_contrast {
+            eprintln!("NOTE: high contrast is on, so the forced-scheme step is skipped");
+        } else {
+            controller
+                .lock()
+                .expect("controller")
+                .set_menu_scheme(MenuScheme::Dark);
+            assert_eq!(calls().len(), 4);
+            window.send(WM_SETTINGCHANGE);
+            assert_eq!(calls().len(), 4, "forced dark is not re-flushed");
+        }
+        // Back to following the system, the mode the controller set at start-up, for the rest of this process.
         controller
             .lock()
             .expect("controller")
