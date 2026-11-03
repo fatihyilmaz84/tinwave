@@ -10,7 +10,7 @@ mod common;
 use std::time::Instant;
 
 use common::{
-    burn_in_trigger, count, during_a_wipe, statements_of, write_batch_after_the_wipe,
+    burn_in_trigger, count, during_a_wipe, shown, statements_of, write_batch_after_the_wipe,
     write_batch_when_unlocked, Ids, TempDb, T0,
 };
 use rusqlite::{params, Connection};
@@ -90,6 +90,43 @@ fn owned(category: ContextCategory) -> &'static [FieldName] {
     }
 }
 
+/// A migrated `signals.db` with `play` rows and `context_snapshot` rows carrying the given keys.
+fn populated(play_keys: &[u32], snapshot_keys: &[u32]) -> TempDb {
+    let db = TempDb::new();
+    SignalStore::open(&db.path).unwrap();
+    let conn = db.reader();
+    // One transaction: the reference-size tests insert a hundred thousand rows.
+    conn.execute_batch("BEGIN;").unwrap();
+    {
+        let mut insert = conn
+            .prepare_cached(
+                "INSERT INTO play (device, session, recording, started_ts, listened_ds, \
+                 end_reason, end_frac, flags, context_key) \
+                 VALUES (1, 1, ?1, ?2, 600, 0, 255, 5, ?3)",
+            )
+            .unwrap();
+        for (i, key) in play_keys.iter().enumerate() {
+            let i = i64::try_from(i).unwrap();
+            insert
+                .execute(params![100 + i, T0 + i * 1_000, key])
+                .unwrap();
+        }
+        let mut insert = conn
+            .prepare_cached(
+                "INSERT INTO context_snapshot (id, hash, key, fields) \
+                 VALUES (?1, ?2, ?3, x'00')",
+            )
+            .unwrap();
+        for (i, key) in snapshot_keys.iter().enumerate() {
+            let i = i64::try_from(i).unwrap();
+            insert.execute(params![i + 1, (i + 1) * 7919, key]).unwrap();
+        }
+    }
+    conn.execute_batch("COMMIT;").unwrap();
+    drop(conn);
+    db
+}
+
 /// A `signals.db` with `play` rows and `context_snapshot` rows carrying the given keys.
 struct Fixture {
     db: TempDb,
@@ -98,37 +135,15 @@ struct Fixture {
 
 impl Fixture {
     fn new(play_keys: &[u32], snapshot_keys: &[u32]) -> Self {
-        let db = TempDb::new();
-        SignalStore::open(&db.path).unwrap();
-        let conn = db.reader();
-        // One transaction: the reference-size tests insert a hundred thousand rows.
-        conn.execute_batch("BEGIN;").unwrap();
-        {
-            let mut insert = conn
-                .prepare_cached(
-                    "INSERT INTO play (device, session, recording, started_ts, listened_ds, \
-                     end_reason, end_frac, flags, context_key) \
-                     VALUES (1, 1, ?1, ?2, 600, 0, 255, 5, ?3)",
-                )
-                .unwrap();
-            for (i, key) in play_keys.iter().enumerate() {
-                let i = i64::try_from(i).unwrap();
-                insert
-                    .execute(params![100 + i, T0 + i * 1_000, key])
-                    .unwrap();
-            }
-            let mut insert = conn
-                .prepare_cached(
-                    "INSERT INTO context_snapshot (id, hash, key, fields) \
-                     VALUES (?1, ?2, ?3, x'00')",
-                )
-                .unwrap();
-            for (i, key) in snapshot_keys.iter().enumerate() {
-                let i = i64::try_from(i).unwrap();
-                insert.execute(params![i + 1, (i + 1) * 7919, key]).unwrap();
-            }
-        }
-        conn.execute_batch("COMMIT;").unwrap();
+        Self::of(populated(play_keys, snapshot_keys))
+    }
+
+    /// A fixture on a copy of `template` (see [`TempDb::copy`]).
+    fn copy_of(template: &TempDb) -> Self {
+        Self::of(template.copy())
+    }
+
+    fn of(db: TempDb) -> Self {
         let wiper = SignalWiper::open(&db.path).unwrap();
         Self { db, wiper }
     }
@@ -861,11 +876,15 @@ fn a_context_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         ));
     }
 
+    // Every case wipes a fresh small and a fresh large database; build each once and copy the file.
+    let small_template = populated(&few, &few);
+    let large_template = populated(&many, &many);
+
     let mut wrong = Vec::new();
     for (name, expected, wipe) in cases {
-        let mut small = Fixture::new(&few, &few);
+        let mut small = Fixture::copy_of(&small_template);
         let (small_report, small_sql) = statements_of(&mut small.wiper, |w| wipe(w));
-        let mut large = Fixture::new(&many, &many);
+        let mut large = Fixture::copy_of(&large_template);
         let (large_report, large_sql) = statements_of(&mut large.wiper, |w| wipe(w));
 
         if large_sql != small_sql {
@@ -877,8 +896,9 @@ fn a_context_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         }
         if large_sql.len() != expected {
             wrong.push(format!(
-                "{name}: {} statements, expected {expected}: {large_sql:#?}",
-                large_sql.len()
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
             ));
         }
         // The large database really had more to rewrite.

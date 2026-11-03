@@ -7,12 +7,14 @@
 
 mod common;
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{
-    burn_in_trigger, count, during_a_wipe, favorited, statements_of, write_batch_after_the_wipe,
-    write_batch_when_unlocked, Ids, TempDb, AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
+    burn_in_trigger, count, during_a_wipe, favorited, shown, statements_of,
+    write_batch_after_the_wipe, write_batch_when_unlocked, write_batch_when_unlocked_counting, Ids,
+    TempDb, AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
 };
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
@@ -115,6 +117,8 @@ const COUNTER_KINDS: [SignalKind; 3] = [
 /// One row of every kind in every table a wipe reaches, written with plain SQL so the fixture
 /// does not share code with the writer.
 fn populate(conn: &Connection) {
+    // One transaction: about a hundred inserts, each one an fsync as an autocommit.
+    conn.execute_batch("BEGIN;").unwrap();
     conn.execute_batch(
         "INSERT INTO dict_device (id, uuid) VALUES (1, x'01');
          INSERT INTO dict_recording (id, uuid) VALUES (1, x'0a'), (2, x'0b'), (3, x'0c');
@@ -157,9 +161,21 @@ fn populate(conn: &Connection) {
            (202601, 1, 10, 4, 3, 2, 2, 900, 7.5),
            (202601, 2, 0, 0, 0, 0, 3, 0, 1.0),
            (202601, 3, 5, 5, 0, 0, 0, 100, 2.0),
-           (202601, 4, 0, 0, 0, 0, 0, 0, 0.0);",
+           (202601, 4, 0, 0, 0, 0, 0, 0, 0.0);
+         COMMIT;",
     )
     .unwrap();
+}
+
+/// A migrated `signals.db` holding [`populate`] and then whatever `more` adds.
+fn populated(more: impl FnOnce(&Connection)) -> TempDb {
+    let db = TempDb::new();
+    SignalStore::open(&db.path).unwrap();
+    let conn = db.reader();
+    populate(&conn);
+    more(&conn);
+    drop(conn);
+    db
 }
 
 struct Fixture {
@@ -169,9 +185,15 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let db = TempDb::new();
-        SignalStore::open(&db.path).unwrap();
-        populate(&db.reader());
+        Self::of(populated(|_| {}))
+    }
+
+    /// A fixture on a copy of `template` (see [`TempDb::copy`]).
+    fn copy_of(template: &TempDb) -> Self {
+        Self::of(template.copy())
+    }
+
+    fn of(db: TempDb) -> Self {
         let wiper = SignalWiper::open(&db.path).unwrap();
         Self { db, wiper }
     }
@@ -1359,12 +1381,15 @@ fn a_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         Box::new(|wiper| touched(&wiper.wipe_everything().unwrap())),
     ));
 
+    // Every case wipes a fresh small and a fresh large database; build each once and copy the file.
+    let small_template = populated(|_| {});
+    let large_template = populated(populate_many);
+
     let mut wrong = Vec::new();
     for (name, expected, wipe) in cases {
-        let mut small = Fixture::new();
+        let mut small = Fixture::copy_of(&small_template);
         let (small_touched, small_sql) = statements_of(&mut small.wiper, |w| wipe(w));
-        let mut large = Fixture::new();
-        populate_many(&large.db.reader());
+        let mut large = Fixture::copy_of(&large_template);
         let (large_touched, large_sql) = statements_of(&mut large.wiper, |w| wipe(w));
 
         if large_sql != small_sql {
@@ -1376,8 +1401,9 @@ fn a_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
         }
         if large_sql.len() != expected {
             wrong.push(format!(
-                "{name}: {} statements, expected {expected}: {large_sql:#?}",
-                large_sql.len()
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
             ));
         }
         // The large database really was bigger for the wipe (the tiers and categories that change
@@ -1511,13 +1537,25 @@ fn a_batch_that_outwaits_the_busy_timeout_is_stored_by_the_retry() {
     let wipe_end = common::WipeEnd::new();
 
     let wipe_end_ref = &wipe_end;
+    let gave_up = AtomicU32::new(0);
+    let gave_up_ref = &gave_up;
     let (stored, contended) = std::thread::scope(|scope| {
         scope.spawn(move || {
-            std::thread::sleep(BUSY_TIMEOUT + Duration::from_secs(1));
+            // Release the lock once the first attempt gave up on it. A fixed time would not do:
+            // SQLite's 5 s busy timeout is the sum of its back-off sleeps, and each sleep takes
+            // longer on a loaded machine, so the first attempt may still be waiting at 6 s.
+            let waiting = Instant::now();
+            while gave_up_ref.load(Ordering::SeqCst) == 0 {
+                assert!(
+                    waiting.elapsed() < LOAD_BUDGET,
+                    "the first attempt never gave up"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
             holder.execute_batch("COMMIT").unwrap();
             wipe_end_ref.set(Instant::now()).unwrap();
         });
-        write_batch_when_unlocked(&mut store, &events[..1], &wipe_end)
+        write_batch_when_unlocked_counting(&mut store, &events[..1], &wipe_end, &gave_up)
     });
 
     let batch = stored.unwrap_or_else(|e| panic!("{contended:?}: {}", e.chain()));

@@ -5,6 +5,7 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -41,6 +42,26 @@ impl TempDb {
     /// A second connection, as a reader or to inject failures.
     pub fn reader(&self) -> Connection {
         reader(&self.path)
+    }
+
+    /// A new database with this one's content, as one file copy. For a test that needs many
+    /// identical, expensive databases (the statement counts run every kind of wipe on a fresh
+    /// small and a fresh large one): build it once, copy it per case. Opening and migrating a
+    /// database costs dozens of fsyncs; copying a file costs none.
+    ///
+    /// Nothing else may write to `self` while this runs. The WAL is folded into the main file
+    /// first, so the copy is complete.
+    pub fn copy(&self) -> TempDb {
+        {
+            let conn = self.reader();
+            let busy: i64 = conn
+                .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(busy, 0, "the template is in use: its WAL was not folded in");
+        }
+        let copy = TempDb::new();
+        std::fs::copy(&self.path, &copy.path).unwrap();
+        copy
     }
 }
 
@@ -456,6 +477,31 @@ pub fn is_busy(error: &DbError) -> bool {
     )
 }
 
+/// Installs a `trace_v2` hook on `conn` that logs the SQL of every statement SQLite starts.
+fn start_trace(conn: &mut Connection) -> Arc<Mutex<Vec<String>>> {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&log);
+    conn.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_STMT,
+        Some(move |event: TraceEvent<'_>| {
+            if let TraceEvent::Stmt(_, sql) = event {
+                sink.lock().unwrap().push(sql.to_owned());
+            }
+        }),
+    )
+    .unwrap();
+    log
+}
+
+fn stop_trace(conn: &mut Connection, log: &Mutex<Vec<String>>) -> Vec<String> {
+    conn.trace_v2(
+        TraceEventCodes::SQLITE_TRACE_STMT,
+        None::<fn(TraceEvent<'_>)>,
+    )
+    .unwrap();
+    std::mem::take(&mut *log.lock().unwrap())
+}
+
 /// The SQL statements `wipe` runs on the wiper's connection, in order, with its result: every
 /// statement SQLite starts, so the `BEGIN IMMEDIATE`, the scans, the `COMMIT` and the checkpoint
 /// of the wipe. A test pins the length of this list per kind of wipe, and compares it between a
@@ -465,28 +511,22 @@ pub fn statements_of<R>(
     wiper: &mut SignalWiper,
     wipe: impl FnOnce(&mut SignalWiper) -> R,
 ) -> (R, Vec<String>) {
-    let log = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&log);
-    wiper
-        .connection_for_tests()
-        .trace_v2(
-            TraceEventCodes::SQLITE_TRACE_STMT,
-            Some(move |event: TraceEvent<'_>| {
-                if let TraceEvent::Stmt(_, sql) = event {
-                    sink.lock().unwrap().push(sql.to_owned());
-                }
-            }),
-        )
-        .unwrap();
+    let log = start_trace(wiper.connection_for_tests());
     let result = wipe(wiper);
-    wiper
-        .connection_for_tests()
-        .trace_v2(
-            TraceEventCodes::SQLITE_TRACE_STMT,
-            None::<fn(TraceEvent<'_>)>,
-        )
-        .unwrap();
-    let statements = std::mem::take(&mut *log.lock().unwrap());
+    let statements = stop_trace(wiper.connection_for_tests(), &log);
+    (result, statements)
+}
+
+/// [`statements_of`] for the store's writer connection: every statement `run` starts, so the
+/// `BEGIN IMMEDIATE`, the epoch read, the dictionary lookups, the inserts and the `COMMIT` of a
+/// `write_batch`.
+pub fn store_statements_of<R>(
+    store: &mut SignalStore,
+    run: impl FnOnce(&mut SignalStore) -> R,
+) -> (R, Vec<String>) {
+    let log = start_trace(store.connection_for_tests());
+    let result = run(store);
+    let statements = stop_trace(store.connection_for_tests(), &log);
     (result, statements)
 }
 
@@ -516,6 +556,19 @@ pub fn write_batch_when_unlocked(
     events: &[SignalEvent],
     wipe_end: &WipeEnd,
 ) -> (Result<BatchReport, DbError>, Contended) {
+    write_batch_when_unlocked_counting(store, events, wipe_end, &AtomicU32::new(0))
+}
+
+/// [write_batch_when_unlocked] that counts in usy the attempts that found the database
+/// locked, so that a test can release a lock the moment the first one has given up, not after a
+/// guessed time (the busy timeout is 5 s of SQLite's own back-off sleeps, which stretch to more
+/// than 6 s of wall time when the machine is loaded).
+pub fn write_batch_when_unlocked_counting(
+    store: &mut SignalStore,
+    events: &[SignalEvent],
+    wipe_end: &WipeEnd,
+    busy: &AtomicU32,
+) -> (Result<BatchReport, DbError>, Contended) {
     let started = Instant::now();
     let mut attempts = 0;
     loop {
@@ -531,6 +584,7 @@ pub fn write_batch_when_unlocked(
         };
         match &result {
             Err(error) if is_busy(error) => {
+                busy.fetch_add(1, Ordering::SeqCst);
                 if contended.after_wipe > AFTER_WIPE_SLACK {
                     return (result, contended);
                 }
@@ -595,4 +649,20 @@ pub fn during_a_wipe<W: Send, D>(
         let result = during(&wipe_end);
         (wipe.join().unwrap(), result, seen)
     })
+}
+
+/// The statements of a failed count for a message: the first dozen and the last four, then how
+/// many were left out. A statement per row would otherwise print hundreds of thousands of lines.
+pub fn shown(statements: &[String]) -> String {
+    const HEAD: usize = 12;
+    const TAIL: usize = 4;
+    if statements.len() <= HEAD + TAIL {
+        return format!("{statements:#?}");
+    }
+    let left_out = statements.len() - HEAD - TAIL;
+    format!(
+        "{:#?} ... {left_out} more ... {:#?}",
+        &statements[..HEAD],
+        &statements[statements.len() - TAIL..]
+    )
 }

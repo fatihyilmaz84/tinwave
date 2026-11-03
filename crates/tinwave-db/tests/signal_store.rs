@@ -8,12 +8,15 @@ mod common;
 use std::error::Error;
 use std::time::Duration;
 
-use common::{count, favorited, paused, Ev, Ids, TempDb, T0};
-use tinwave_core::{TzOffsetMin, UtcMillis};
-use tinwave_db::{CheckpointPolicy, DbError, SignalStore, StoreConfig, SIGNALS_MIGRATIONS};
+use common::{count, favorited, paused, shown, store_statements_of, Ev, Ids, TempDb, T0};
+use tinwave_core::{DeviceId, RecordingId, SessionId, SourceId, TzOffsetMin, UtcMillis};
+use tinwave_db::{
+    BatchReport, CheckpointPolicy, DbError, SignalStore, StoreConfig, SIGNALS_MIGRATIONS,
+};
 use tinwave_signals::{
-    BusConfig, CounterEntity, CounterRow, EntityKind, Fraction, LocalDay, SignalBus, SignalEvent,
-    SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
+    BusConfig, CompletedPayload, CounterEntity, CounterRow, EntityKind, Fraction, InputSource,
+    LocalDay, PlayOrigin, PlayStartedPayload, PositionDs, SignalBus, SignalEvent, SignalKind,
+    SignalPayload, SignalSettings, SignalSink, SignalsError,
 };
 
 fn day() -> LocalDay {
@@ -1076,4 +1079,193 @@ fn the_hard_limit_also_waits_for_the_minimum_gap() {
         .unwrap();
     assert!(store.checkpoint_if_due(false).unwrap());
     assert_eq!(store.wal_bytes(), 0);
+}
+
+// ---------------------------------------------------------------- cost
+
+/// The device, session and source of the cost test's events.
+struct Cast {
+    device: DeviceId,
+    session: SessionId,
+    source: SourceId,
+}
+
+/// `PlayStarted` then `Completed` for each of `recordings`, from `first_seq` on.
+fn plays_of(cast: &Cast, recordings: &[RecordingId], first_seq: u64) -> Vec<SignalEvent> {
+    let mut seq = first_seq;
+    let mut out = Vec::new();
+    for &recording in recordings {
+        for payload in [
+            SignalPayload::PlayStarted(PlayStartedPayload {
+                origin: PlayOrigin::Queue,
+                input: InputSource::Auto,
+            }),
+            SignalPayload::Completed(CompletedPayload {
+                listened_ds: PositionDs::new(1_800).unwrap(),
+                paused_ds: PositionDs::ZERO,
+            }),
+        ] {
+            out.push(
+                Ev {
+                    device: cast.device,
+                    seq,
+                    ts: T0 + i64::try_from(seq).unwrap() * 1_000,
+                    session: cast.session,
+                    recording: Some(recording),
+                    source: Some(cast.source),
+                    pos_ds: None,
+                    payload,
+                }
+                .build(),
+            );
+            seq += 1;
+        }
+    }
+    out
+}
+
+/// A closed `signals.db` that already holds `plays` finished plays of the cast over `pool`
+/// recordings: the device, the session, the source and the pool are in the dictionaries.
+fn with_stored_plays(cast: &Cast, pool: &[RecordingId], plays: usize) -> TempDb {
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let recordings: Vec<RecordingId> = (0..plays).map(|i| pool[i % pool.len()]).collect();
+    let report = store
+        .write_batch(&plays_of(cast, &recordings, 0), &[])
+        .unwrap();
+    assert_eq!(report.plays_written, plays);
+    drop(store);
+    db
+}
+
+/// The cost of a batch is a number of statements that depends on the batch, **not** on the rows
+/// already stored (`SignalStore::write_batch`): the writer holds the write lock for the whole
+/// transaction, so a statement per stored row (or per stored play, per dictionary row) would
+/// hold it for longer the longer the app has been used. A batch is written to a new store on
+/// a database that holds 3 plays and on one that holds 3 000, with a cold cache, and must run the
+/// same statements, exactly the number counted here.
+///
+/// A batch of `n` plays, each a `PlayStarted` and a `Completed` of a recording the database has
+/// not seen, of a device, session and source it has:
+/// - `BEGIN IMMEDIATE`, the read of the wipe epoch and `COMMIT`: 3;
+/// - the lookup of the device, the session and the source: 3;
+/// - for each recording a lookup and an insert: 2 per play;
+/// - 2 event inserts per play;
+/// - 4 for the play row of each play: the start, the check for an existing row, the events between
+///   the two and the insert (there is no context snapshot, so no lookup of its key).
+///
+/// So `6 + 8 n`: linear in the batch, as it must be, and in nothing else.
+#[test]
+fn a_batch_runs_a_statement_count_set_by_the_batch_whatever_is_already_stored() {
+    let mut ids = Ids::new(74);
+    let cast = Cast {
+        device: ids.device(),
+        session: ids.session(),
+        source: ids.source(),
+    };
+    let pool: Vec<RecordingId> = (0..20).map(|_| ids.recording()).collect();
+    let new_recordings: Vec<RecordingId> = (0..100).map(|_| ids.recording()).collect();
+    let small_template = with_stored_plays(&cast, &pool, 3);
+    let large_template = with_stored_plays(&cast, &pool, 3_000);
+    let first_seq = 1_000_000;
+
+    // (name, batch, the statements it must run)
+    let mut cases: Vec<(String, Vec<SignalEvent>, Vec<CounterRow>, usize)> = Vec::new();
+    for n in [1, 2, 10, 100] {
+        cases.push((
+            format!("{n} plays"),
+            plays_of(&cast, &new_recordings[..n], first_seq),
+            Vec::new(),
+            6 + 8 * n,
+        ));
+    }
+    // Counters only: a lookup of the entity (new), its insert and the upsert, for each row.
+    for n in [1, 10] {
+        let rows: Vec<CounterRow> = (0..n)
+            .map(|i| {
+                counter(
+                    SignalKind::Impression,
+                    EntityKind::Artist,
+                    [u8::try_from(i).unwrap() + 1; 16],
+                    1,
+                    0,
+                    0,
+                )
+            })
+            .collect();
+        cases.push((format!("{n} counter rows"), Vec::new(), rows, 3 + 3 * n));
+    }
+
+    let mut wrong = Vec::new();
+    for (name, events, counters, expected) in &cases {
+        let run = |template: &TempDb| {
+            let db = template.copy();
+            let mut store = SignalStore::open(&db.path).unwrap();
+            let (report, sql) =
+                store_statements_of(&mut store, |s| s.write_batch(events, counters));
+            (report.unwrap(), sql)
+        };
+        let (small_report, small_sql) = run(&small_template);
+        let (large_report, large_sql) = run(&large_template);
+
+        assert_eq!(small_report, large_report, "{name}: the same batch");
+        if large_sql.len() != small_sql.len() {
+            wrong.push(format!(
+                "{name}: the statements depend on the stored rows: {} on the small database, {} on the large one",
+                small_sql.len(),
+                large_sql.len()
+            ));
+        }
+        if large_sql.len() != *expected {
+            wrong.push(format!(
+                "{name}: {} statements, expected {expected}: {}",
+                large_sql.len(),
+                shown(&large_sql)
+            ));
+        }
+        // The transaction opens and closes inside the batch, so a lock it keeps shows.
+        if large_sql.first().map(String::as_str) != Some("BEGIN IMMEDIATE")
+            || large_sql.last().map(String::as_str) != Some("COMMIT")
+        {
+            wrong.push(format!(
+                "{name}: not one transaction: {}",
+                shown(&large_sql)
+            ));
+        }
+    }
+
+    // The same batch again (a retry, a sync): the events are all duplicates, nothing but the
+    // lookups and the ignored inserts, and still not a statement per stored row.
+    for template in [&small_template, &large_template] {
+        let batch = plays_of(&cast, &new_recordings[..10], first_seq);
+        let db = template.copy();
+        SignalStore::open(&db.path)
+            .unwrap()
+            .write_batch(&batch, &[])
+            .unwrap();
+        let mut store = SignalStore::open(&db.path).unwrap();
+        let (report, sql) = store_statements_of(&mut store, |s| s.write_batch(&batch, &[]));
+        let report = report.unwrap();
+        assert_eq!(report.events_duplicate, 20);
+        assert_eq!(report.events_inserted, 0);
+        // 3 + the lookups of the device, session, source and 10 recordings + 20 ignored inserts.
+        if sql.len() != 3 + 13 + 20 {
+            wrong.push(format!(
+                "a replayed batch: {} statements: {}",
+                sql.len(),
+                shown(&sql)
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// An empty batch opens no transaction at all.
+#[test]
+fn an_empty_batch_runs_no_statement() {
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let (report, sql) = store_statements_of(&mut store, |s| s.write_batch(&[], &[]));
+    assert_eq!(report.unwrap(), BatchReport::default());
+    assert!(sql.is_empty(), "{}", shown(&sql));
 }
