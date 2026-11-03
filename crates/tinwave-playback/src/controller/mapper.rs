@@ -12,10 +12,10 @@ use tinwave_core::{IdGenerator, RecordingId, SessionId, SourceId, UtcMillis};
 use tinwave_signals::{
     CompletedPayload, ElapsedDs, EmitOutcome, EventContext, ExclusiveModePayload, Fraction,
     GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, PlayOrigin,
-    PlayStartedPayload, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload,
-    RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section, SeekPayload,
-    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
-    SkipPayload, View, Volume, VolumePayload,
+    PlayStartedPayload, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload, Rate,
+    RatePayload, RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section,
+    SeekPayload, SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind,
+    SignalPayload, SkipPayload, View, Volume, VolumePayload,
 };
 
 use super::session::Session;
@@ -483,6 +483,9 @@ impl Mapper {
             EventKind::VolumeChanged { from, to, position } => {
                 self.volume_changed(at, from, to, position.map(|p| (p.item, p.position_ms)), cx);
             }
+            EventKind::RateChanged { from, to, position } => {
+                self.rate_changed(at, from, to, position.map(|p| (p.item, p.position_ms)), cx);
+            }
             // Audio is being heard: that is when the track's `PlayStarted` is due. Nothing else
             // in the catalog is derived from it. (Listening time comes from the event times,
             // positions from the events that carry one.)
@@ -920,6 +923,49 @@ impl Mapper {
                 section: Section::UNKNOWN,
                 since_track_start: ElapsedDs::from_ms(position_ms.unwrap_or(0)),
                 since_section_start: ElapsedDs::from_ds(0),
+            },
+        });
+    }
+
+    /// A playback-rate step. Like a volume step it is a gesture: the coalescer keeps the first
+    /// `from` and the last `to` of the steps within 600 ms of each other.
+    fn rate_changed(
+        &mut self,
+        at: UtcMillis,
+        from: f64,
+        to: f64,
+        position: Option<(QueueItemId, u64)>,
+        cx: Cx,
+    ) {
+        if !self.bus.enabled(SignalKind::RateChanged) {
+            return;
+        }
+        self.open_session_for_unheard(at, cx, SignalKind::RateChanged);
+        let Some(session) = self.session.as_ref() else {
+            // No session means nothing has played for 30 minutes (or ever): not listening.
+            return;
+        };
+        // The signal stores hundredths of a rate; the engine's range is well inside it.
+        let (Ok(from), Ok(to)) = (Rate::from_rate(from as f32), Rate::from_rate(to as f32)) else {
+            tracing::error!("the engine reported a rate outside the signal's range; not recorded");
+            return;
+        };
+        let meta = position.and_then(|(item, _)| self.meta_of(item));
+        let position_ms = position.map(|(_, ms)| ms);
+        let context = EventContext {
+            session: session.id,
+            recording: meta.map(|m| m.recording),
+            source: meta.map(|m| m.source),
+            pos_ds: position_ms.map(|ms| PositionDs::from_ms(ms).ds()),
+            ctx: None,
+        };
+        let _ = self.coalescer.rate(|| GestureTick {
+            context,
+            payload: RatePayload {
+                from,
+                to,
+                input: cx.input,
+                section: Section::UNKNOWN,
             },
         });
     }

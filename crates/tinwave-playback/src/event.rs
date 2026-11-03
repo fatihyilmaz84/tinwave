@@ -96,6 +96,19 @@ pub enum EventKind {
         /// queue ended). Always names a track that has a `TrackStarted`.
         position: Option<Position>,
     },
+    /// The playback rate target changed. Input for `RateChanged` (the signal layer coalesces
+    /// gestures). One event per accepted [`Engine::set_rate`](crate::Engine::set_rate) call; the
+    /// stream itself restarts at the new rate a moment later (at most one restart per 125 ms), and
+    /// that restart is not an event: the audio continues from the same position.
+    RateChanged {
+        /// Previous rate (source frames per output frame, 1.0 is normal speed).
+        from: f64,
+        /// New rate.
+        to: f64,
+        /// Where, while a track is current; `None` when none is (nothing loaded, stopped, or the
+        /// queue ended). Always names a track that has a `TrackStarted`.
+        position: Option<Position>,
+    },
     /// Playback position, once per 100 ms of heard audio while playing.
     PositionMark {
         /// Current position.

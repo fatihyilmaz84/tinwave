@@ -8,7 +8,8 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)] // test code: a failed expectation is the failure message
 
 use tinwave_playback::stretch::{
-    StretchError, Stretcher, MAX_CHANNELS, MAX_SAMPLE_RATE, MIN_SAMPLE_RATE,
+    BlockPlan, StretchError, Stretcher, BLOCK_FRAMES, MAX_CHANNELS, MAX_SAMPLE_RATE,
+    MIN_SAMPLE_RATE,
 };
 use tinwave_test_alloc::{count_allocations, CountingAlloc};
 
@@ -28,7 +29,7 @@ fn cpp_heap_ops() -> u64 {
 
 const SR: u32 = 44_100;
 /// The output block the tests drive the stretcher with, and the tolerance "within one block".
-const BLOCK: usize = 1024;
+const BLOCK: usize = BLOCK_FRAMES;
 
 /// A phase-0 sine, `amp * sin(2 pi f t)`, `frames` long.
 fn sine(freq: f64, amp: f64, frames: usize, sample_rate: u32) -> Vec<f32> {
@@ -48,18 +49,16 @@ fn stereo_tones(left_hz: f64, right_hz: f64, frames: usize) -> Vec<f32> {
 }
 
 /// Runs `source` (followed by silence) through `st` as ADR 0006 prescribes: a fixed number of
-/// output frames per call and `floor(out * rate + carry)` input frames, the remainder carried.
-/// Returns `out_frames` frames of output.
+/// output frames per call and `floor(out * rate + carry)` input frames, the remainder carried
+/// (the production [`BlockPlan`]). Returns `out_frames` frames of output.
 fn drive(st: &mut Stretcher, source: &[f32], rate: f64, out_frames: usize) -> Vec<f32> {
     let ch = st.channels();
     let mut out = vec![0.0f32; out_frames * ch];
     let mut pos = 0usize; // source frames consumed
-    let mut carry = 0.0f64;
+    let mut plan = BlockPlan::new(rate).expect("rate");
     let mut input = vec![0.0f32; ((BLOCK as f64 * rate).ceil() as usize + 1) * ch];
     for block in out.chunks_mut(BLOCK * ch) {
-        let want = (block.len() / ch) as f64 * rate + carry;
-        let take = want.floor() as usize;
-        carry = want - take as f64;
+        let take = plan.next_input_frames(block.len() / ch);
         let input = &mut input[..take * ch];
         input.fill(0.0);
         let have = (source.len() / ch).saturating_sub(pos).min(take);
@@ -453,4 +452,69 @@ fn errors_say_what_is_wrong() {
         text.contains("0 channels") && text.contains("44100"),
         "{text}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Acceptance: the lag compensation, two-sided (P-0209)
+// ---------------------------------------------------------------------------------------------
+
+/// First frame of the left channel whose 128-frame mean magnitude reaches half of the steady
+/// tone's mean magnitude (`amp * 2 / pi`), counting from the middle of the window.
+fn onset(x: &[f32], stride: usize, amp: f64) -> usize {
+    const WIN: usize = 128;
+    let frames = x.len() / stride;
+    let level = 0.5 * amp * 2.0 / std::f64::consts::PI;
+    (0..frames - WIN)
+        .find(|&s| {
+            let mean: f64 = (s..s + WIN)
+                .map(|i| f64::from(x[i * stride]).abs())
+                .sum::<f64>()
+                / WIN as f64;
+            mean >= level
+        })
+        .expect("the tone never starts")
+        + WIN / 2
+}
+
+#[test]
+fn the_onset_lands_at_the_source_position_over_and_under_discarding_both_fail() {
+    // Leading silence shorter than two analysis blocks (2 x blockSamples = 10584 frames at
+    // 44.1 kHz), so the library's silence bypass does not start before the tone: the onset
+    // measures the lag compensation alone. After a discard of `discard_frames(rate)`, the tone
+    // that starts at source frame S must start at output frame S / rate.
+    const SILENCE: usize = 4000;
+    const TOLERANCE: f64 = 128.0;
+    let mut source = vec![0.0f32; SILENCE * 2];
+    source.extend(stereo_tones(1000.0, 440.0, 3 * SR as usize));
+
+    for rate in [0.75, 1.25, 1.5] {
+        let expected = SILENCE as f64 / rate;
+        let onset_after_discarding = |discard: usize| {
+            let mut st = Stretcher::new(2, SR).expect("new");
+            let out = drive(&mut st, &source, rate, discard + 2 * SR as usize);
+            onset(&out[discard * 2..], 2, 0.5) as f64
+        };
+        let lag = Stretcher::new(2, SR)
+            .expect("new")
+            .discard_frames(rate)
+            .expect("lag");
+
+        let error = onset_after_discarding(lag) - expected;
+        assert!(
+            error.abs() <= TOLERANCE,
+            "rate {rate}: the tone starts {error:.0} frames from S / rate = {expected:.0}"
+        );
+        // The check can tell: a lag that is 256 frames too long (the tone is cut into) or too
+        // short (the lead-in is kept) lands outside the tolerance, on its own side.
+        let over = onset_after_discarding(lag + 256) - expected;
+        let under = onset_after_discarding(lag - 256) - expected;
+        assert!(
+            over < -TOLERANCE,
+            "rate {rate}: over-discarding gave {over:.0}"
+        );
+        assert!(
+            under > TOLERANCE,
+            "rate {rate}: under-discarding gave {under:.0}"
+        );
+    }
 }

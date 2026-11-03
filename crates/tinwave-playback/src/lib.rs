@@ -18,8 +18,14 @@
 //!
 //! The decoder thread resamples tracks whose rate differs from the stream rate (rubato, T-0019);
 //! a rate that cannot be converted is reported as a failed track, never played wrong. Integer
-//! outputs are dithered where it matters ([`convert_dithered`]). Out of scope here: gapless
-//! metadata extraction (T-0018), time-stretch (ADR 0006).
+//! outputs are dithered where it matters ([`convert_dithered`]).
+//!
+//! The decoder thread also changes the playback speed, 0.75x to 1.5x with the pitch kept
+//! ([`Engine::set_rate`], Signalsmith Stretch, ADR 0006, T-0027): at exactly 1.0 the samples
+//! bypass the stretcher; any other rate restarts the stream at the audible position, between
+//! 5 ms fades, and the callback only does the fades and the rate bookkeeping ([`RateStats`]).
+//! Every change is an [`EventKind::RateChanged`]. Out of scope here: gapless metadata
+//! extraction (T-0018).
 
 // `deny`, not `forbid`: the Windows COM calls (`output/windows/os.rs`) and the C++ time stretcher
 // (`stretch`) are the only modules that allow `unsafe` (each block carries a SAFETY comment; see Cargo.toml).
@@ -31,6 +37,7 @@ mod engine;
 mod error;
 mod event;
 mod output;
+mod rate_stage;
 mod reader;
 mod renderer;
 mod resample;
@@ -43,7 +50,7 @@ pub use controller::{
     FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEdit, QueueEditRequest,
     QueueEntry, SinkStats, TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
 };
-pub use engine::{Engine, EngineConfig};
+pub use engine::{Engine, EngineConfig, RateStats};
 pub use error::PlaybackError;
 pub use event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
 pub use output::{

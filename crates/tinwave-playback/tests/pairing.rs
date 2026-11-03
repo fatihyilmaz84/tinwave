@@ -241,7 +241,7 @@ fn run_sequence(seed: u64, fx: &Fixtures, steps: usize) {
     };
 
     for step in 0..steps {
-        let op = if needs_retry { 99 } else { dice.below(27) };
+        let op = if needs_retry { 99 } else { dice.below(29) };
         let mut command = false;
         match op {
             0..=3 => {
@@ -348,6 +348,13 @@ fn run_sequence(seed: u64, fx: &Fixtures, steps: usize) {
                         break;
                     }
                 }
+            }
+            20 | 21 => {
+                // A playback-rate change: not a command (the position carries on), so the walk
+                // keeps checking that it never goes back, and the pairing through the restarts.
+                let rate = [0.75, 0.9, 1.0, 1.25, 1.5][dice.below(5) as usize];
+                trace.push(format!("rate {rate}"));
+                h.engine.set_rate(rate).expect("rate");
             }
             24..=26 => {
                 // A live queue edit: whatever follows the current track is replaced. Stale
