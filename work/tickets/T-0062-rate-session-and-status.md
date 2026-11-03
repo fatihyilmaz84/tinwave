@@ -3,7 +3,7 @@ id: T-0062
 title: Derive RateSession per play and expose the applied rate in PlaybackStatus
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0027]
@@ -11,9 +11,9 @@ scope:
   - crates/tinwave-playback/src/controller/
   - crates/tinwave-playback/tests/controller_signals.rs
   - docs/guides/signal-catalog.md   # RateSession row only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0062-rate-session-and-status
+review_round: 1
 created_by: from P-0249, P-0250 (T-0027 build-1)
 ---
 

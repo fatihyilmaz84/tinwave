@@ -27,7 +27,9 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-_none_
+| Ticket | Owner | Branch / worktree |
+|---|---|---|
+| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | tw-builder r1 | `t/T-0062-rate-session-and-status` · `D:\dev\Tinwave-worktrees\T-0062-rate-session-and-status` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -50,7 +52,6 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
 | [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier (P2) | feature | S | tinwave-db | after T-0065 (same files) |
-| [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession + applied rate in PlaybackStatus (P1) | feature | S | tinwave-playback controller | next playback ticket |
 | [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | fix | S | playback controller | with/after T-0062 (same files) |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check, exclusive-only open (P2) | chore | S | playback output/tests | playback slot |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
