@@ -3,7 +3,7 @@ id: T-0026
 title: Vendored Signalsmith Stretch with a thin cc wrapper (no libclang)
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0016]
@@ -13,9 +13,9 @@ scope:
   - crates/tinwave-playback/build.rs
   - crates/tinwave-playback/Cargo.toml
   - Cargo.lock
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0026-signalsmith-wrapper
+review_round: 1
 created_by: from P-0050
 ---
 
