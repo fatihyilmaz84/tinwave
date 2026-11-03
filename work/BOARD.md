@@ -27,9 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
   output was removed by the lead on 2026-11-03 to free 14 GB — D: had 10 GB free).
 
 ## In progress
-| Ticket | Owner | Branch / worktree |
-|---|---|---|
-| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r2 (review-1: flaky rate test, fast poll bound, Resume retry) | `t/T-0057-exclusive-reopen-at-file-rate` @ e3530de · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
+_none_
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -37,6 +35,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 ## In review
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
+| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-reviewer r2 (build-2) | `t/T-0057-exclusive-reopen-at-file-rate` @ f743811 · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
 | [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-reviewer r1 | `t/T-0065-wipe-follow-ups` @ fcb3196 · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 ## Recently done
@@ -73,6 +72,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check, exclusive-only open (P2) | T-0057 |
 | [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | T-0057 |
 | [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | T-0057 |
+| [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller_thread tests under load (P2) | T-0057 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
