@@ -70,6 +70,28 @@ Rectangle {
             currentIndex: 0
             keyNavigationEnabled: true
 
+            // Keyboard focus follows the selection (design-system section 7: the ring is always visible). The list is
+            // one tab stop, but Up/Down only move `currentIndex`. ListView then moves active focus to the new current
+            // row itself, with a non-keyboard focus reason, and the native ItemDelegate only draws its ring for
+            // `visualFocus` (Tab/Backtab/Shortcut). So when a navigation key caused the change, the new row is
+            // re-focused with the Tab reason. A mouse click also changes `currentIndex` but never sets `keyboardMove`,
+            // so a click shows no ring (native behaviour).
+            property bool keyboardMove: false
+
+            Keys.onPressed: event => {
+                switch (event.key) {
+                case Qt.Key_Up:
+                case Qt.Key_Down:
+                case Qt.Key_PageUp:
+                case Qt.Key_PageDown:
+                case Qt.Key_Home:
+                case Qt.Key_End:
+                    keyboardMove = true
+                    break
+                }
+            }
+            Keys.onReleased: keyboardMove = false
+
             model: ListModel {
                 ListElement { group: "Library"; key: "songs"; label: "Songs"; iconName: "eighth-notes" }
                 ListElement { group: "Library"; key: "albums"; label: "Albums"; iconName: "disc" }
@@ -114,14 +136,21 @@ Rectangle {
                 icon.height: Theme.iconSize
                 icon.color: Theme.text
                 spacing: Theme.m
-                // One tab stop for the whole list (the current item); Up/Down move the selection.
-                focusPolicy: ListView.isCurrentItem ? Qt.StrongFocus : Qt.ClickFocus
+                // One tab stop for the whole list (the current item); Up/Down move the selection. A row keeps Tab focus
+                // while it still holds focus: Qt refuses to drop the tab policy of the active focus item.
+                focusPolicy: ListView.isCurrentItem || activeFocus ? Qt.StrongFocus : Qt.ClickFocus
                 highlighted: ListView.isCurrentItem
                 Accessible.name: label
                 onClicked: nav.currentIndex = index
             }
 
-            onCurrentIndexChanged: root.currentKey = currentItem ? currentItem.key : ""
+            onCurrentIndexChanged: {
+                root.currentKey = currentItem ? currentItem.key : ""
+                if (keyboardMove && currentItem && !currentItem.visualFocus) {
+                    currentItem.focus = false
+                    currentItem.forceActiveFocus(Qt.TabFocusReason)
+                }
+            }
         }
     }
 }
