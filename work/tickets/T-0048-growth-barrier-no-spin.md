@@ -3,7 +3,7 @@ id: T-0048
 title: Growth-test harness: no spinning barrier, per-profile CPU budget, hard hang backstop
 type: chore
 epic: E-00
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0047]
@@ -42,3 +42,6 @@ T-0047: the storage-growth harness barrier (crates/tinwave-db/tests/growth/sim.r
 
 ## Signals & storage
 None (test only).
+
+## Outcome
+2026-11-03: merged 3a87d77 after review-1 APPROVE; two comment nits fixed by the lead on main; testing.md speed-check rule (P-0153). Gates on main green: 495 passed / 6 skipped.

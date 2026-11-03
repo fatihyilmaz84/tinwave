@@ -301,9 +301,9 @@ struct NinetyDays {
 /// The speed check exists to catch a slowdown of the writer path, and the wall clock cannot: it
 /// stretches 2-3x when other processes (a parallel test run) compete for the cores. CPU time does
 /// not. The process total counts every thread of the test binary; the generator thread (this one)
-/// is read separately, and its share includes the time it spins waiting for the writer at the
-/// barriers (sleeping, not spinning, so it is small), is subtracted and not asserted. What is
-/// left is the writer thread, the only other thread running while `SIMULATION` is held.
+/// is read separately (it sleeps at the barriers, so its share is small), subtracted and not
+/// asserted. What is left is the writer thread, the only other thread running while `SIMULATION`
+/// is held.
 fn writer_cpu<T>(body: impl FnOnce() -> T) -> (T, Duration, Duration) {
     let (process_start, thread_start) = (ProcessTime::now(), ThreadTime::now());
     let result = body();

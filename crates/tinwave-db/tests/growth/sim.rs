@@ -133,8 +133,9 @@ const TZ_MINUTES: i16 = 60;
 const DAY_MS: i64 = 86_400_000;
 
 /// The barrier polls the writer's counters, sleeping 50 us first and doubling up to 500 us: a
-/// commit takes about half a millisecond, so a wait costs at most a few polls and ends at most
-/// `BARRIER_POLL_MAX` after the commit; the 60 s hang assert in `barrier` still bounds the wait.
+/// commit takes about half a millisecond, so a wait costs at most a few polls and ends about
+/// `BARRIER_POLL_MAX` after the commit (the OS sleep floor, ~0.55 ms on Windows, and load can make
+/// it longer); the 60 s hang assert in `barrier` still bounds the wait.
 const BARRIER_POLL_FIRST: Duration = Duration::from_micros(50);
 const BARRIER_POLL_MAX: Duration = Duration::from_micros(500);
 

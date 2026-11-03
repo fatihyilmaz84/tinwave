@@ -63,7 +63,11 @@ It fails if:
 - `signals.db` > 60 MB or `taste.db` > 80 MB at any point,
 - average raw event > 60 bytes on disk,
 - context snapshots exceed ~60 distinct per simulated day,
-- any signal group exceeds its bytes/day estimate in the signal catalog by > 50 %.
+- any signal group exceeds its bytes/day estimate in the signal catalog by > 50 %,
+- the writer thread uses more CPU time than its budget (15 s debug, 8 s release for the 90-day run; ~2.4x the
+  measured value). The speed check measures writer **CPU** work only, so machine load cannot fail it; I/O and latency
+  regressions are covered by the pragma test and the signal_writer timing tests. A hang is killed by the nextest
+  override in `.config/nextest.toml` (storage_growth only, 300 s).
 
 Also test: compaction is idempotent and resumable after a crash mid-batch; taste scores computed before and
 after compaction differ by < 1 %.

@@ -3,15 +3,15 @@ id: T-0042
 title: Windows packaging — windeployqt recipe, THIRD-PARTY-NOTICES (Qt LGPL-3), installer check
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0040]
 scope:
   - apps/tinwave-desktop/packaging/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0042-windows-packaging-notices
+review_round: 1
 created_by: from T-0002
 ---
 
@@ -30,3 +30,9 @@ None.
 ## Note from T-0044 review-1
 - `cargo build --release --workspace` also builds the dev-only `image-stress.exe`; the package must ship
   `tinwave-desktop.exe` only (never copy `target/release/*.exe`).
+
+## Lead notes (2026-11-03, dispatch)
+- Generate the notices into packaging/; read other notices sources (e.g. the Lucide ISC text T-0043 adds under
+  apps/tinwave-desktop/icons/) by path, do not edit them.
+- Do not install new tools without saying so first: if cargo-about (or similar) is not installed, use what is
+  (`cargo deny`, `cargo metadata`, Qt's qtattributionsscanner) and propose the tool in the handoff.
