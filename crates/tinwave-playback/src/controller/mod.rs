@@ -37,8 +37,7 @@
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
 //! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
 //! | `TrackStarted` / `TrackLeft` (not `Failed`, heard) | the play's `RateSession`, a derived value collected with [`Controller::take_rate_sessions`], not a bus event (see "`RateSession`") |
-//! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
-//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one **and the stream is what was asked for** (`fallback` is `None`): a listener or setting change. A reopen at another sample rate in exclusive mode (T-0057) is none, and so is an automatic fallback (a device that refuses exclusive mode or a rate): the device decided, not the listener, so it is no preference. The reason is logged at `warn`; the fallback mode becomes the starting state for the next change |
+//! | `OutputOpened` / `OutputReopened` | **nothing**, whatever the stream's mode: a reopen at another sample rate (T-0057), an automatic fallback (a device that refuses exclusive mode or a rate) and a stream that is exactly what was asked for are facts about the engine, not preferences. A fallback's reason is logged at `warn`. `ExclusiveModeToggled` has another source, the listener's setting (see "Rules the mapping follows" below) |
 //! | `QueueEnded` | none (silence starts) |
 //! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
 //! | `QueueEditRejected` | **nothing**; logged at `warn` and counted in [`ControllerDiagnostics::edits_refused`] |
@@ -48,7 +47,7 @@
 //! been heard yet while no session is open, open the session first (see "Sessions").
 //!
 //! Plus [`Controller::set_repeat_mode`] -> `RepeatModeChanged`, [`Controller::queue_later`] ->
-//! `QueuedLater`, and the session pair `SessionStarted` / `SessionEnded` (catalog section 8).
+//! `QueuedLater`, the listener's exclusive-mode setting -> `ExclusiveModeToggled`, and the session pair `SessionStarted` / `SessionEnded` (catalog section 8).
 //!
 //! Not produced here, because the facts live in other layers: `Replayed`, `Favorited`, `Rated`,
 //! playlist and metadata edits (library UI), `SystemVolumeChanged`, `MuteToggled`,
@@ -131,6 +130,15 @@
 //!   `ExclusiveModeToggled` made while no session is open are emitted right after the next
 //!   `SessionStarted`, if the value still differs from the last one reported. Queue acts are
 //!   deferred the same way, from a bounded buffer (see "Queue edits").
+//! - **`ExclusiveModeToggled` follows the listener's setting, not the stream (T-0067).** The
+//!   setting is the output's `AudioOutput::wants_exclusive` (`WasapiControl::set_exclusive`,
+//!   `ManualHandle::set_exclusive`); the controller reads it at every drain (each command and each
+//!   [`poll`](Controller::poll)) and emits `{ on }` when it differs from the last reading, in the
+//!   session or, outside one, after the next `SessionStarted`. So turning exclusive mode off while
+//!   a fallback has the stream in shared mode is a toggle, and a fallback or a reopen that changes
+//!   the stream's mode is not; a deferred toggle survives any reopen in between. The setting at
+//!   launch is the starting state. A toggle and its undo between two readings emit nothing, and a
+//!   toggle is stamped with the time of the reading (up to one poll after the change).
 //! - **Disabled categories construct nothing**: payloads are built inside the bus's emit closure,
 //!   after the toggle check.
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
@@ -180,6 +188,7 @@ mod mapper;
 mod rate_session;
 mod runtime;
 mod session;
+mod setting;
 mod sink;
 mod types;
 
@@ -190,6 +199,7 @@ use tinwave_signals::{InputSource, RepeatMode, View};
 
 use crate::{AudioOutput, Engine, EngineConfig, PlaybackError, Position, Track};
 use mapper::{Cx, Mapper};
+use setting::ExclusiveSetting;
 
 pub use runtime::ControllerHandle;
 pub use sink::{BoundedSink, SinkStats, CRITICAL_CAPACITY, MARK_CAPACITY};
@@ -204,6 +214,8 @@ pub struct Controller {
     engine: Engine,
     events: Arc<BoundedSink>,
     mapper: Mapper,
+    /// The listener's exclusive-mode setting, read at every drain.
+    setting: ExclusiveSetting,
     clock: Arc<dyn Clock>,
     sample_rate: u32,
     /// Reused between drains so polling does not allocate.
@@ -241,6 +253,9 @@ impl Controller {
             poll_interval: _,
         } = config;
         let events = Arc::new(BoundedSink::new());
+        // The setting at launch is the starting state, not a change: nothing is emitted for it.
+        let (output, setting) = ExclusiveSetting::split(output);
+        let initial_exclusive = setting.wanted();
         let engine = Engine::start(
             EngineConfig {
                 sample_rate,
@@ -254,7 +269,15 @@ impl Controller {
         let mut controller = Self {
             engine,
             events,
-            mapper: Mapper::new(bus, ids, timezone, sample_rate, initial_repeat),
+            mapper: Mapper::new(
+                bus,
+                ids,
+                timezone,
+                sample_rate,
+                initial_repeat,
+                initial_exclusive,
+            ),
+            setting,
             clock,
             sample_rate,
             scratch: Vec::with_capacity(64),
@@ -575,6 +598,11 @@ impl Controller {
     /// Maps every event the engine has produced so far. `cx` describes the command that caused
     /// them, if any; events that are not a command's doing carry their own cause.
     fn drain(&mut self, cx: Cx) {
+        // The listener's setting first: whatever it was when a session opens below is what that
+        // session's deferred `ExclusiveModeToggled` reports. A toggle and its undo between two
+        // drains (100 ms apart at the usual cadence) are one reading and emit nothing.
+        self.mapper
+            .set_exclusive_setting(self.clock.now(), self.setting.wanted());
         self.events.drain_into(&mut self.scratch);
         let stats = self.events.stats();
         if stats.overflowed > self.reported.overflowed {
