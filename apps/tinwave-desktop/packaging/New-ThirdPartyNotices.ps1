@@ -159,6 +159,9 @@ while ($queue.Count -gt 0) {
 }
 $crates = @($seen.Keys | ForEach-Object { $byId[$_] } | Where-Object { $null -ne $_.source } | Sort-Object name, version)
 $ownLicense = ($roots | Select-Object -First 1).license
+# The notices point at the GPL-3.0 text that package.ps1 ships as Tinwave's licence (ADR 0009); another expression in
+# Cargo.toml would make that sentence false.
+if ($ownLicense -ne 'GPL-3.0-only') { throw "The package declares license '$ownLicense', but the packaging ships the GPL-3.0 text as Tinwave's license (ADR 0009: GPL-3.0-only)." }
 
 $licenseTextDir = Join-Path $PSScriptRoot 'license-texts'
 $texts = @{}          # sha -> @{ Text; Names (list) }
@@ -316,7 +319,7 @@ Add-Line 'folder; do not edit it by hand.'
 
 Add-Rule '1. Tinwave'
 Add-Line "Tinwave's own source code is licensed under: $ownLicense."
-Add-Line 'The Apache-2.0 text is in licenses\Apache-2.0.txt.'
+Add-Line 'The GPL-3.0 text is in licenses\Tinwave-LICENSE-GPL-3.0.txt.'
 Add-Line "Copyright holder: $($identity.HolderText)"
 
 Add-Rule '2. Qt (LGPL-3.0)'

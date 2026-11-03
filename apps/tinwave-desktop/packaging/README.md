@@ -31,7 +31,7 @@ into every folder it creates; any other non-empty folder is refused, whatever it
 4. Legal files (below).
 5. `check-bundle.ps1`, then 6. `smoke-test.ps1`. Either one failing makes the script exit 1.
 
-It prints the bundle size and file count at the end. Reference run (Qt 6.12.0, MSVC 14.50 runtime): **1095 files, 57.7 MiB** (incl. the `.tinwave-package` marker)
+It prints the bundle size and file count at the end. Reference run (Qt 6.12.0, MSVC 14.50 runtime): **1095 files, 57.8 MiB** (incl. the `.tinwave-package` marker)
 (51.4 MiB in the root: Qt DLLs, exe, runtime; `qml\` 4.1 MiB in 1052 files; plugins 2.2 MiB; legal files 0.3 MiB).
 
 ## The checks (`check-bundle.ps1`, exit code 1 on any FAIL)
@@ -45,7 +45,7 @@ It prints the bundle size and file count at the end. Reference run (Qt 6.12.0, M
 | `qt-unmodified` | a file in the bundle (other than the exe, the MSVC runtime and the legal files) is not byte-identical (SHA-256) to its counterpart in the Qt kit (`bin\` for root DLLs, `plugins\` and `qml\` for folders), or has none |
 | `only-app-exe` | the bundle holds any `.exe` other than `tinwave-desktop.exe`, or `.pdb/.lib/.exp/...` files |
 | `closure` | any DLL/exe imports a DLL that is neither in the bundle root nor a Windows system DLL; the MSVC runtime must be in the root |
-| `legal` | `THIRD-PARTY-NOTICES.txt`, `SOURCE-OFFER-Qt.txt` or `licenses\Qt-LGPL-3.0-and-GPL-3.0.txt` is missing, or the last one lacks the LGPL-3.0 or GPL-3.0 text; the notices carry FreeType without the FTL acknowledgement sentence, or the IJG license without the IJG sentence, or have no "Rust standard library" section |
+| `legal` | `THIRD-PARTY-NOTICES.txt`, `SOURCE-OFFER-Qt.txt`, `licenses\Qt-LGPL-3.0-and-GPL-3.0.txt` or `licenses\Tinwave-LICENSE-GPL-3.0.txt` is missing; the Qt file lacks the LGPL-3.0 or GPL-3.0 text; Tinwave's file is not the GPL version 3 text; `licenses\Apache-2.0.txt` or `Tinwave-LICENSE-MIT/-APACHE.txt` is in the bundle (no MIT/Apache text as Tinwave's license, ADR 0009); the notices do not say Tinwave's own source is licensed under GPL-3.0-only; the notices carry FreeType without the FTL acknowledgement sentence, or the IJG license without the IJG sentence, or have no "Rust standard library" section |
 | `source-offer` | the offer does not link `download.qt.io/archive/qt/<maj.min>/<ver>/submodules/<repo>-everywhere-src-<ver>.tar.xz` for **every** Qt repository (`qtbase`, `qtdeclarative`, `qtsvg`, ... taken from the SBOM file each shipped Qt module is listed in), does not point at the release archive folder, links the pruned `official_releases`, or has an unfilled `{{placeholder}}` |
 | `d0007` | see "D-0007" below; reported as `PENDING`, which is not a failure, until the PO has decided |
 
@@ -56,7 +56,7 @@ folder, then kills the process. It fails on early exit, on no window within 30 s
 `test-packaging.ps1` proves the checks have teeth: it breaks a copy of a good bundle in many ways (GPL-only DLL, GPL-only string
 in the exe, a GPL-only or static Qt library requested through `rustc-link-lib`, a modified or foreign Qt file, a Qt repository
 missing from the source offer, the pruned download link, missing FreeType / IJG sentences, no dynamic Qt, `image-stress.exe`,
-missing runtime, missing `Qt6Core.dll`, missing source offer, `-Release` with D-0007 pending, a stale bundle after D-0007,
+missing runtime, missing `Qt6Core.dll`, missing source offer, missing / wrong / Apache-or-MIT licence of Tinwave itself, notices naming another licence, `-Release` with D-0007 pending, a stale bundle after D-0007,
 a smoke test with a missing DLL while Qt is on the caller's PATH that must end in `-1073741515` (STATUS_DLL_NOT_FOUND), an
 `-OutDir` without the marker, ...) and asserts exit code 1 plus the FAIL line; it also proves the D-0007 switch flips. Run it
 after any change to these scripts.
@@ -69,14 +69,16 @@ Who holds the copyright of Tinwave's own code and who answers the Qt written sou
 
 * `THIRD-PARTY-NOTICES.txt` says `Copyright holder: [D-0007 PENDING: copyright holder not decided]` and `SOURCE-OFFER-Qt.txt`
   says `Contact for this offer: [D-0007 PENDING: source-offer contact not decided]`;
-* `check-bundle` prints `PENDING d0007  D-0007 pending (...)`, listing what is open (holder, contact, `LICENSE-MIT` and
-  `LICENSE-APACHE` at the repository root), and still exits 0, so everyday packaging is not blocked;
+* `check-bundle` prints `PENDING d0007  D-0007 pending (...)`, listing what is open (holder, contact), and still exits 0, so everyday packaging is not blocked;
 * `package.ps1 -Release` (and `check-bundle.ps1 -Release`) turns every pending item into a FAIL: that is the command for a
   bundle that is going to be published.
 
+Tinwave's own licence is not pending: it is `GPL-3.0-only` (ADR 0009, `license` in the root `Cargo.toml`), and `package.ps1` ships the
+repository's root `LICENSE` (the GPL-3.0 text) as `licenses\Tinwave-LICENSE-GPL-3.0.txt`, failing when it is missing. What is still open is
+who the copyright holder named in the notices is, and who answers the Qt source offer.
+
 How the switch flips once the PO has decided: (1) put the holder and the contact into `release-identity.json`
-(`copyrightHolder`, `offerContact`), (2) add `LICENSE-MIT` and `LICENSE-APACHE` at the repository root (`package.ps1` then copies
-them to `licenses\Tinwave-LICENSE-*.txt`), (3) run `package.ps1 -Release`, refresh the committed `THIRD-PARTY-NOTICES.txt`
+(`copyrightHolder`, `offerContact`), (2) run `package.ps1 -Release`, refresh the committed `THIRD-PARTY-NOTICES.txt`
 and commit. From then on a bundle that still carries a `[D-0007 PENDING` marker, or does not contain the values from the file,
 fails the check as stale. No script change is needed.
 
@@ -86,9 +88,8 @@ fails the check as stale. No script change is needed.
 |---|---|
 | `THIRD-PARTY-NOTICES.txt` | `New-ThirdPartyNotices.ps1`: Tinwave's license, the Qt LGPL-3.0 statement, the Qt modules and plugins actually in the folder, third-party code inside Qt with full license texts, the MSVC runtime, the Rust crates and their license texts, the Rust standard library and the crates it vendors, the FreeType and IJG acknowledgement sentences, and every `LICENSE*` under `apps\tinwave-desktop\icons\` when that folder exists (the Lucide ISC text from T-0043) |
 | `licenses\Qt-LGPL-3.0-and-GPL-3.0.txt` | `<Qt>\Licenses\LICENSE`, Qt's own file holding both texts |
-| `licenses\Apache-2.0.txt` | `license-texts\Apache-2.0.txt` (Tinwave is `MIT OR Apache-2.0`) |
+| `licenses\Tinwave-LICENSE-GPL-3.0.txt` | `LICENSE` at the repository root: Tinwave's own license, GPL-3.0-only (ADR 0009); `package.ps1` fails without it |
 | `SOURCE-OFFER-Qt.txt` | `templates\SOURCE-OFFER-Qt.txt` with the kit's version, one source archive per Qt repository that the shipped Qt files come from (read from the SBOM), and the offer contact (D-0007) filled in |
-| `licenses\Tinwave-LICENSE-MIT.txt`, `...-APACHE.txt` | `LICENSE-MIT` / `LICENSE-APACHE` at the repository root, once D-0007 adds them |
 | `.tinwave-package` | marker file: `package.ps1` deletes this folder on the next run only because it is here |
 
 `packaging\THIRD-PARTY-NOTICES.txt` is a committed copy of the generated file so a reviewer can read it; `package.ps1` warns when

@@ -14,7 +14,8 @@
 #   only-app-exe  the one executable is tinwave-desktop.exe (never image-stress.exe, Qt tools, pdb, lib files)
 #   closure       every import of every PE file resolves inside the bundle or to a Windows system DLL;
 #                 the MSVC runtime must be in the bundle (app-local), it is never assumed to be installed
-#   legal         THIRD-PARTY-NOTICES.txt (with the FreeType and IJG acknowledgements), the LGPL/GPL texts and the Qt source
+#   legal         THIRD-PARTY-NOTICES.txt (with the FreeType and IJG acknowledgements), Tinwave's GPL-3.0 text (and no MIT/Apache
+#                 text as Tinwave's license), the Qt LGPL/GPL texts and the Qt source
 #                 offer are in the bundle
 #   source-offer  the offer links the source archive of every Qt repository the shipped Qt files are built from (SBOM),
 #                 at download.qt.io/archive
@@ -179,7 +180,8 @@ if ($open.Count -eq 0) { Pass 'closure' "$nPe PE files: all imports resolve insi
 else { foreach ($o in ($open | Select-Object -Unique)) { Fail 'closure' $o } }
 
 # --- legal -----------------------------------------------------------------------------------------------------------
-$legal = @('THIRD-PARTY-NOTICES.txt', 'SOURCE-OFFER-Qt.txt', 'licenses\Qt-LGPL-3.0-and-GPL-3.0.txt')
+$ownLicenseFile = 'licenses\Tinwave-LICENSE-GPL-3.0.txt'
+$legal = @('THIRD-PARTY-NOTICES.txt', 'SOURCE-OFFER-Qt.txt', 'licenses\Qt-LGPL-3.0-and-GPL-3.0.txt', $ownLicenseFile)
 $legalOk = $true
 foreach ($l in $legal) {
     $p = Join-Path $root $l
@@ -192,7 +194,21 @@ if (Test-Path $lgpl) {
         Fail 'legal' 'licenses\Qt-LGPL-3.0-and-GPL-3.0.txt does not contain both the LGPL-3.0 and the GPL-3.0 text'; $legalOk = $false
     }
 }
+# Tinwave's own license is the GPL-3.0 (ADR 0009): its text is shipped, and no other license text is presented as Tinwave's.
+$own = Join-Path $root $ownLicenseFile
+if (Test-Path $own) {
+    $t = Read-TextFile $own
+    if ($t -notmatch 'GNU GENERAL PUBLIC LICENSE\s+Version 3') {
+        Fail 'legal' "$ownLicenseFile is not the GNU GPL version 3 text"; $legalOk = $false
+    }
+}
+foreach ($stale in 'licenses\Apache-2.0.txt', 'licenses\Tinwave-LICENSE-MIT.txt', 'licenses\Tinwave-LICENSE-APACHE.txt') {
+    if (Test-Path (Join-Path $root $stale)) { Fail 'legal' "$stale is in the bundle, but Tinwave is GPL-3.0-only (ADR 0009): no MIT/Apache text may be presented as Tinwave's license"; $legalOk = $false }
+}
 $notices = if (Test-Path (Join-Path $root 'THIRD-PARTY-NOTICES.txt')) { Read-TextFile (Join-Path $root 'THIRD-PARTY-NOTICES.txt') } else { '' }
+if ($notices -and $notices -notmatch "Tinwave's own source code is licensed under: GPL-3\.0-only\.") {
+    Fail 'legal' 'THIRD-PARTY-NOTICES.txt does not state that Tinwave''s own source code is licensed under GPL-3.0-only'; $legalOk = $false
+}
 # FreeType's FTL (clause 6) and the IJG license need an acknowledgement sentence in the documentation, not only the license text.
 if ($notices -match 'FreeType' -and $notices -notmatch 'Portions of this software are copyright \(c\) \d{4} The FreeType Project \(www\.freetype\.org\)\. All rights reserved\.') {
     Fail 'legal' 'THIRD-PARTY-NOTICES.txt carries FreeType but not the FTL acknowledgement "Portions of this software are copyright (c) <year> The FreeType Project (www.freetype.org). All rights reserved."'; $legalOk = $false
@@ -203,7 +219,7 @@ if ($notices -match 'Independent JPEG\s+Group' -and $notices -notmatch 'This sof
 if ($notices -and $notices -notmatch '(?m)^\d+\. Rust standard library$') {
     Fail 'legal' 'THIRD-PARTY-NOTICES.txt has no "Rust standard library" section (std is statically linked into the exe)'; $legalOk = $false
 }
-if ($legalOk) { Pass 'legal' 'notices (FreeType and IJG acknowledgements, Rust std), Qt source offer and LGPL-3.0 / GPL-3.0 texts are present' }
+if ($legalOk) { Pass 'legal' 'notices (FreeType and IJG acknowledgements, Rust std), Qt source offer and LGPL-3.0 / GPL-3.0 texts are present; Tinwave is GPL-3.0-only' }
 
 # --- source-offer ----------------------------------------------------------------------------------------------------
 # One source archive per Qt repository that a shipped Qt file is built from, derived from the SBOM, not from a fixed list.
@@ -242,7 +258,7 @@ if ($rid.Pending.Count -gt 0) {
     if ($Release) { Fail 'd0007' "$msg. -Release was given: do not publish this bundle." }
     else { Write-Host ("PENDING {0,-13} {1}" -f 'd0007', $msg) -ForegroundColor Yellow }
 } elseif (-not ($failures | Where-Object { $_ -like 'd0007:*' })) {
-    Pass 'd0007' 'copyright holder, source-offer contact and root license files are set; the bundle names them'
+    Pass 'd0007' 'copyright holder and source-offer contact are set; the bundle names them'
 }
 
 if ($failures.Count -gt 0) {
