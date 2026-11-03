@@ -242,6 +242,66 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
     );
 }
 
+/// The same guarantee when the output is reopened at each file's rate (exclusive mode, T-0057):
+/// the stream is replaced at a track boundary and for a load into another rate, and the new
+/// callback allocates nothing either. Replacing the stream happens in `poll`, on the control
+/// thread, outside the counted region.
+#[test]
+fn render_never_allocates_across_exclusive_reopens() {
+    let dir = TempDir::new("rt-alloc-reopen");
+    let (a, b) = (dir.path("a44.wav"), dir.path("b96.wav"));
+    for (path, rate, frames) in [(&a, 44_100u32, 17_640usize), (&b, 96_000, 38_400)] {
+        let (l, r) = sweep(rate, rate as usize);
+        write_wav(path, rate, 24, &l[..frames], &r[..frames]);
+    }
+    let mut rig = Rig {
+        h: Harness::exclusive(None),
+        buf: vec![0.0f32; 2 * 441],
+        allocs: 0,
+        real_frames: 0,
+        starved_callbacks: 0,
+    };
+    rig.h.latency = 480;
+    rig.h
+        .engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    for _ in 0..30_000 {
+        rig.run(1, false);
+        if rig.h.saw(|k| *k == tinwave_playback::EventKind::QueueEnded) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    // A load into the first rate again (the stream is at 96 kHz now), and the queue played out.
+    rig.h
+        .engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    for _ in 0..30_000 {
+        rig.run(1, false);
+        if rig.real_frames >= 2 * (17_640 + 38_400) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_micros(100));
+    }
+    assert_eq!(
+        rig.h.out.opens().iter().map(|o| o.1).collect::<Vec<_>>(),
+        [48_000, 44_100, 96_000, 44_100, 96_000],
+        "the test must reopen the output"
+    );
+    assert_eq!(rig.real_frames, 2 * (17_640 + 38_400));
+    assert_eq!(
+        rig.allocs, 0,
+        "the render callback allocated or freed {} times",
+        rig.allocs
+    );
+    assert!(
+        rig.starved_callbacks > 0,
+        "callbacks with nothing to play are covered"
+    );
+}
+
 /// The same guarantee across playback-rate changes: the fade-out flush (several callbacks long),
 /// the fade-in, the rate bookkeeping, and a rate change meeting a seek, a pause and a device
 /// switch. The time stretcher runs on the decoder thread; the callback only fades and counts.

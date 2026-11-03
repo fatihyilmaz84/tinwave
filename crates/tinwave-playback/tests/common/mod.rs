@@ -214,6 +214,59 @@ impl Harness {
         }
     }
 
+    /// A harness whose output is in exclusive mode (`WasapiControl::set_exclusive` for the fake):
+    /// the engine opens the stream at each file's rate. `device_rates` are the rates the fake
+    /// device accepts exclusively (`None`: all of them).
+    pub fn exclusive(device_rates: Option<&[u32]>) -> Self {
+        let (output, out) = ManualOutput::new();
+        out.set_exclusive(true);
+        if let Some(rates) = device_rates {
+            out.set_device_rates(rates);
+        }
+        Self::with_output(Arc::new(FsOpener), output, out)
+    }
+
+    fn with_output(opener: Arc<dyn SourceOpener>, output: ManualOutput, out: ManualHandle) -> Self {
+        let sink = Arc::new(CollectingSink::default());
+        let clock = ManualClock::new(UtcMillis::new(1_000_000));
+        let engine = Engine::start(
+            EngineConfig {
+                sample_rate: RATE,
+                device: None,
+                opener,
+                sink: sink.clone(),
+                clock: Arc::new(clock.clone()),
+            },
+            Box::new(output),
+        )
+        .expect("engine starts");
+        assert!(
+            matches!(sink.take().as_slice(), [EventKind::OutputOpened { .. }]),
+            "an engine starts by reporting its output"
+        );
+        Self {
+            engine,
+            out,
+            sink,
+            clock,
+            latency: 0,
+        }
+    }
+
+    /// Like [`settle`](Self::settle), and polls: a command that starts a track of another sample
+    /// rate in exclusive mode is carried out only after a poll has reopened the output.
+    pub fn settle_polling(&mut self) {
+        for _ in 0..30_000 {
+            self.engine.poll();
+            if !self.engine.command_pending() {
+                return;
+            }
+            self.out.render(&mut [], self.latency).expect("stream open");
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        panic!("decoder never carried out the command");
+    }
+
     /// Wait (bounded spin, no clock) until the ring holds `frames`.
     pub fn wait_buffered(&self, frames: usize) {
         for _ in 0..30_000 {
@@ -543,7 +596,7 @@ impl SourceOpener for GatedOpener {
 
 use tinwave_playback::{
     AudioOutput, DeviceEvent, DeviceFollower, DeviceLost, FollowTarget, OpenRequest, OutputStream,
-    PlaybackError, Pump, PumpStep, RenderDevice, Renderer, SampleFormat,
+    PlaybackError, Pump, PumpStep, RenderDevice, Renderer, SampleFormat, StreamInfo, StreamMode,
 };
 
 /// Records what the pump writes. Always has room for a full buffer, like a device that has just
@@ -583,6 +636,12 @@ struct FakeShared {
     lost: AtomicBool,
     follower: Mutex<Option<DeviceFollower>>,
     opens: Mutex<Vec<Option<String>>>,
+    /// Exclusive mode, and the rates the device accepts in it (`None`: all).
+    exclusive: AtomicBool,
+    device_rates: Mutex<Option<Vec<u32>>>,
+    /// Rate of the stream that is open now, and what each closed stream received, in order.
+    rate: Mutex<u32>,
+    history: Mutex<Vec<(u32, Vec<u8>)>>,
 }
 
 fn locked<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -604,11 +663,16 @@ pub struct FakeDeviceHandle {
 
 struct FakeStream {
     shared: Arc<FakeShared>,
+    info: StreamInfo,
 }
 
 impl OutputStream for FakeStream {
     fn is_lost(&self) -> bool {
         self.shared.lost.load(Ordering::Acquire)
+    }
+
+    fn info(&self) -> StreamInfo {
+        self.info.clone()
     }
 }
 
@@ -616,7 +680,11 @@ impl Drop for FakeStream {
     fn drop(&mut self) {
         // As a real output: the callback is gone, the renderer is dropped by the caller's thread.
         let rig = locked(&self.shared.rig).take();
-        drop(rig.map(|r| r.pump.into_renderer()));
+        if let Some(rig) = rig {
+            let rate = *locked(&self.shared.rate);
+            locked(&self.shared.history).push((rate, rig.device.recorded));
+            drop(rig.pump.into_renderer());
+        }
     }
 }
 
@@ -627,6 +695,10 @@ impl FakeDeviceOutput {
             lost: AtomicBool::new(false),
             follower: Mutex::new(None),
             opens: Mutex::new(Vec::new()),
+            exclusive: AtomicBool::new(false),
+            device_rates: Mutex::new(None),
+            rate: Mutex::new(0),
+            history: Mutex::new(Vec::new()),
         });
         (
             Self {
@@ -658,13 +730,51 @@ impl AudioOutput for FakeDeviceOutput {
         };
         *locked(&self.shared.follower) = Some(DeviceFollower::new(target, id));
         locked(&self.shared.opens).push(request.device.map(str::to_owned));
+        *locked(&self.shared.rate) = request.sample_rate;
+        let mut info = StreamInfo::unknown();
+        info.backend = "fake";
+        info.format = self.format;
+        if self.wants_exclusive() {
+            let accepted = locked(&self.shared.device_rates)
+                .as_ref()
+                .is_none_or(|rates| rates.contains(&request.sample_rate));
+            if accepted {
+                info.mode = StreamMode::Exclusive;
+            } else {
+                info.fallback = Some(format!(
+                    "exclusive mode refused: no {} Hz",
+                    request.sample_rate
+                ));
+            }
+        }
         Ok(Box::new(FakeStream {
             shared: Arc::clone(&self.shared),
+            info,
         }))
+    }
+
+    fn wants_exclusive(&self) -> bool {
+        self.shared.exclusive.load(Ordering::Acquire)
     }
 }
 
 impl FakeDeviceHandle {
+    /// Exclusive mode from the next open on, at the rates the fake device accepts (`None`: all).
+    pub fn set_exclusive(&self, device_rates: Option<&[u32]>) {
+        self.shared.exclusive.store(true, Ordering::Release);
+        *locked(&self.shared.device_rates) = device_rates.map(<[u32]>::to_vec);
+    }
+
+    /// What each stream that was opened received (its sample rate and the bytes), oldest first,
+    /// the open one last. Only blocks that carried audio are in it.
+    pub fn streams(&self) -> Vec<(u32, Vec<u8>)> {
+        let mut all = locked(&self.shared.history).clone();
+        if let Some(rig) = locked(&self.shared.rig).as_ref() {
+            all.push((*locked(&self.shared.rate), rig.device.recorded.clone()));
+        }
+        all
+    }
+
     /// One device wake-up.
     pub fn step(&self) -> Option<PumpStep> {
         let mut guard = locked(&self.shared.rig);

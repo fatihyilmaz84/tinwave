@@ -983,6 +983,12 @@ impl Mapper {
     fn output_reopened(&mut self, at: UtcMillis, info: &crate::StreamInfo) {
         if let Some(reason) = &info.fallback {
             tracing::warn!(%reason, "the output stream is not what was asked for");
+            // The device, not the listener, decided: an automatic fallback (exclusive refused)
+            // is a fact about the engine, not a preference, so it is no `ExclusiveModeToggled`.
+            // The mode it left us in is the new starting state for what the listener does next.
+            self.mode = info.mode;
+            self.reported_mode = info.mode;
+            return;
         }
         self.mode = info.mode;
         // Outside a session the change waits for the next one (see `report_preferences`).

@@ -183,7 +183,11 @@ pub enum EventKind {
         /// How the stream was opened.
         info: StreamInfo,
     },
-    /// A new output stream was opened (device switch).
+    /// A new output stream was opened: a device switch, or, in exclusive mode, the stream
+    /// following a track of another sample rate (and, when the device refuses that rate, the
+    /// stream falling back to the engine's rate; `info.fallback` says so, once). A reopen with a
+    /// `fallback` is an engine fact and never an `ExclusiveModeToggled` signal: only a stream
+    /// that is what was asked for can express the listener's change of mode.
     OutputReopened {
         /// Device id as given to `switch_device`; `None` is the system default.
         device: Option<String>,

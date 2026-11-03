@@ -4,6 +4,11 @@
 //! blocking receive with the poll interval as timeout. After every command and every timeout it
 //! calls [`Controller::poll`], so the cadence holds under a stream of commands too, and nothing
 //! here reads a clock: the timeout is scheduling, not data.
+//!
+//! The timeout is shortened to [`FAST_POLL`] while a command has yet to be carried out or the
+//! engine has to reopen the output at another sample rate (exclusive mode): both finish in a
+//! poll, and the listener is waiting for the sound. Not while paused (a boundary reopen waits for
+//! playback) and not once the output is lost (see [`Engine::poll_soon`](crate::Engine::poll_soon)).
 
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -21,6 +26,8 @@ use crate::{AudioOutput, PlaybackError};
 
 /// Commands waiting for the controller thread before calls fail with [`PlaybackError::Busy`].
 const COMMAND_QUEUE: usize = 64;
+/// The poll interval while a command or an output reopen is waiting for a poll.
+const FAST_POLL: Duration = Duration::from_millis(10);
 
 type Reply = SyncSender<Result<(), PlaybackError>>;
 
@@ -264,7 +271,12 @@ struct Shared {
 
 fn run(controller: &mut Controller, rx: &Receiver<Message>, interval: Duration, shared: &Shared) {
     loop {
-        let reply = match rx.recv_timeout(interval) {
+        let wait = if controller.poll_soon() {
+            interval.min(FAST_POLL)
+        } else {
+            interval
+        };
+        let reply = match rx.recv_timeout(wait) {
             Ok(Message::Run(command, reply)) => Some((execute(controller, command), reply)),
             Ok(Message::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
             Err(RecvTimeoutError::Timeout) => None,

@@ -16,6 +16,11 @@
 //! accepted, or the endpoint refuses (in use by another exclusive client, exclusive disabled in
 //! Windows), the stream falls back to shared and `StreamInfo::fallback` says why.
 //!
+//! While exclusive mode is requested the engine opens the stream at each file's own sample rate
+//! (`AudioOutput::wants_exclusive`, T-0057). A refused rate comes back as a shared stream at
+//! that rate (the OS converts); the engine recognises it by its mode, closes it and opens again
+//! at its configured rate, where its own resampler converts.
+//!
 //! # What this module does not do
 //! It never writes endpoint volume or mute (in-app volume is the renderer's software gain,
 //! ADR 0004 decision 5), and it emits no signals: `is_lost()` is the only output of the device
@@ -168,6 +173,10 @@ impl Drop for Stream {
 }
 
 impl AudioOutput for WasapiOutput {
+    fn wants_exclusive(&self) -> bool {
+        self.control.exclusive()
+    }
+
     fn open(
         &mut self,
         request: &OpenRequest<'_>,

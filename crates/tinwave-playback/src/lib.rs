@@ -20,6 +20,11 @@
 //! a rate that cannot be converted is reported as a failed track, never played wrong. Integer
 //! outputs are dithered where it matters ([`convert_dithered`]).
 //!
+//! In exclusive mode (`AudioOutput::wants_exclusive`) nothing is resampled: the engine reopens the
+//! output at the sample rate of each file (ADR 0005 decision 5, T-0057), at the track boundary
+//! once the old stream has played out, and falls back to its own rate and the resampler when the
+//! device refuses a rate. Reopening is not gapless; tracks of the same rate never reopen.
+//!
 //! The decoder thread also changes the playback speed, 0.75x to 1.5x with the pitch kept
 //! ([`Engine::set_rate`], Signalsmith Stretch, ADR 0006, T-0027): at exactly 1.0 the samples
 //! bypass the stretcher; any other rate restarts the stream at the audible position, between
