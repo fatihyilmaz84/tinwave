@@ -882,3 +882,210 @@ fn a_24_bit_pair_reaches_the_device_as_the_files_integers() {
         assert!(tail.len() < BLOCK * 2 && tail.iter().all(|&s| s == 0.0));
     }
 }
+
+/// Wait until the decoder has asked for a stream for the track after the first one and the engine
+/// has not answered (nothing has been played: the old stream is not empty yet).
+fn wait_parked(h: &mut Harness) {
+    for _ in 0..30_000 {
+        if h.engine.reopen_pending() {
+            return;
+        }
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    panic!("the decoder never parked for the second track");
+}
+
+/// A is half a second at 44.1 kHz, so the decoder has pushed all of it and parks for B at once.
+fn half_second_file(path: &Path) -> Vec<f32> {
+    let (l, r) = sweep(R44, R44 as usize);
+    write_wav(path, R44, 24, &l[..22_050], &r[..22_050]);
+    interleave(&reference(&l[..22_050], &r[..22_050], 24))
+}
+
+#[test]
+fn a_play_next_during_a_boundary_park_keeps_a_same_rate_hand_off_gapless_and_opens_no_stream() {
+    let dir = TempDir::new("excl-edit-same-rate");
+    let (a, b, c) = (dir.path("a.wav"), dir.path("b.wav"), dir.path("c.wav"));
+    let ref_a = half_second_file(&a);
+    sweep_file(&b, R96);
+    let ref_c = sweep_file(&c, R44);
+
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    wait_parked(&mut h);
+
+    // Play next: C (44.1 kHz) goes in front of B. The park for B's 96 kHz stream is for a track
+    // that no longer follows A.
+    let edit = h
+        .engine
+        .replace_after(QueueItemId(1), vec![track(3, &c)])
+        .expect("edit");
+    h.expect_edit_applied(edit);
+    assert!(
+        !h.engine.reopen_pending(),
+        "the request for 96 kHz is withdrawn"
+    );
+
+    // A into C is one stream: no callback is starved (`render_exact` fails on one), and the
+    // samples are the files', one after the other.
+    let rec = h.render_exact(22_050 + R44 as usize, 441);
+    let mut expected = ref_a;
+    expected.extend_from_slice(&ref_c);
+    assert!(rec == expected, "A then C, bit for bit, without a gap");
+    h.finish();
+    assert_eq!(rates(&h), [48_000, R44], "a 96 kHz stream was never opened");
+    assert_eq!(reopened(&h).len(), 1);
+    let kinds = h.sink.kinds();
+    assert_eq!(underruns(&kinds), 0, "underruns");
+    assert_eq!(
+        left_after(&kinds, 1).map(|l| l.1),
+        Some(LeaveCause::Finished)
+    );
+    assert_paired(&kinds, false);
+}
+
+#[test]
+fn an_edit_to_a_track_of_another_rate_parks_again_for_that_rate() {
+    const R88: u32 = 88_200;
+    let dir = TempDir::new("excl-edit-other-rate");
+    let (a, b, d) = (dir.path("a.wav"), dir.path("b.wav"), dir.path("d.wav"));
+    let ref_a = half_second_file(&a);
+    sweep_file(&b, R96);
+    let ref_d = sweep_file(&d, R88);
+
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    wait_parked(&mut h);
+
+    let edit = h
+        .engine
+        .replace_after(QueueItemId(1), vec![track(3, &d)])
+        .expect("edit");
+    h.expect_edit_applied(edit);
+    // The request for B's rate was withdrawn before the edit was reported, and the decoder asks
+    // for D's instead (it opens D to find out, which takes a moment after the report).
+    wait_parked(&mut h);
+
+    let played = play_to_end(&mut h, 22_050 + R88 as usize - BLOCK);
+    assert_eq!(rates(&h), [48_000, R44, R88], "88.2 kHz, never 96 kHz");
+    let mut expected = ref_a;
+    expected.extend_from_slice(&ref_d);
+    assert!(played.audio == expected, "A then D, bit for bit");
+    // The old stream played out before it was replaced.
+    let (wall, silence) = played.at_reopen[1];
+    assert_eq!(wall, 22_050, "A had been played to its last frame");
+    assert!(silence >= 480, "reopened with {silence} silent frames");
+    let kinds = h.sink.kinds();
+    assert_eq!(underruns(&kinds), 0, "underruns");
+    assert_eq!(
+        left_after(&kinds, 1).map(|l| l.1),
+        Some(LeaveCause::Finished)
+    );
+    assert_paired(&kinds, false);
+}
+
+#[test]
+fn removing_what_follows_during_a_boundary_park_ends_the_queue_after_the_current_track() {
+    let dir = TempDir::new("excl-edit-remove");
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    let ref_a = half_second_file(&a);
+    sweep_file(&b, R96);
+
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+    wait_parked(&mut h);
+
+    let edit = h
+        .engine
+        .replace_after(QueueItemId(1), Vec::new())
+        .expect("edit");
+    h.expect_edit_applied(edit);
+    assert!(!h.engine.reopen_pending());
+    let played = play_to_end(&mut h, 22_050 - BLOCK);
+    assert!(played.audio == ref_a, "only A is played");
+    assert_eq!(rates(&h), [48_000, R44]);
+    let kinds = h.sink.kinds();
+    assert_eq!(
+        left_after(&kinds, 1).map(|l| l.1),
+        Some(LeaveCause::Finished)
+    );
+    assert_paired(&kinds, false);
+}
+
+#[test]
+fn the_position_follows_the_device_buffer_while_the_old_stream_plays_out_and_never_goes_back() {
+    // 480 frames of device latency. Once the first file has been consumed the callbacks go on
+    // (empty), and what the device still holds is heard: the position walks to the end of the
+    // file, instead of standing 480 frames short of it until the new stream runs.
+    let dir = TempDir::new("excl-position-drain");
+    let (a, b) = (dir.path("a.wav"), dir.path("b.wav"));
+    sweep_file(&a, R44);
+    sweep_file(&b, R96);
+    let mut h = Harness::exclusive(None);
+    h.latency = 480;
+    h.engine
+        .load(vec![track(1, &a), track(2, &b)], 0, 0)
+        .expect("load");
+    h.settle_polling();
+
+    let mut block = vec![0.0f32; 100 * 2];
+    // (wall frames, item, frame) after every callback; the position is read before the poll that
+    // would reopen the output.
+    let mut seen: Vec<(u64, QueueItemId, u64)> = Vec::new();
+    for _ in 0..60_000 {
+        let wall = h.engine.rate_stats().wall_frames;
+        if wall >= R44 as u64 + 2_000 {
+            break;
+        }
+        // The callbacks go on once everything is consumed (the device keeps calling).
+        if h.out.buffered_frames().unwrap_or(0) >= 100 || wall >= R44 as u64 {
+            h.out.render(&mut block, h.latency).expect("stream open");
+            let position = h.engine.position().expect("a position at every moment");
+            seen.push((
+                h.engine.rate_stats().wall_frames,
+                position.item,
+                position.frame,
+            ));
+        }
+        h.engine.poll();
+        std::thread::sleep(Duration::from_micros(100));
+    }
+    assert!(
+        seen.last().is_some_and(|s| s.0 >= R44 as u64 + 2_000),
+        "the second file was never heard"
+    );
+    // Never back, across the drain, the reopen and the first frames of the new stream.
+    for pair in seen.windows(2) {
+        assert!(
+            (pair[0].1, pair[0].2) <= (pair[1].1, pair[1].2),
+            "the position went back: {pair:?}"
+        );
+    }
+    // Everything of the first file is consumed from `wall == 44100` on; the device holds 480
+    // frames more, which are heard one callback of 100 at a time.
+    let drain: Vec<_> = seen.iter().filter(|s| s.0 == R44 as u64).collect();
+    let frames: Vec<u64> = drain.iter().map(|s| s.2).collect();
+    assert!(
+        frames.len() >= 4 && frames.windows(2).filter(|w| w[0] < w[1]).count() >= 3,
+        "the position stood still while the device played its tail: {frames:?}"
+    );
+    assert!(drain.iter().all(|s| s.1 == QueueItemId(1)));
+    assert_eq!(
+        frames.last().copied(),
+        Some(SECOND as u64),
+        "the end of the first file is heard before the stream is replaced"
+    );
+    assert!(frames.iter().all(|&f| f <= SECOND as u64));
+}

@@ -64,8 +64,15 @@
 //!   first mark of the new track is a `Continuation` like at any other boundary.
 //! - A load, seek or device switch parks after its flush: there is nothing to wait for, and the
 //!   command is answered (`applied_gen`) when the track has started in the new stream.
-//! - Any command that restarts the stream cancels a park (`command_taken`). Appends and queue
-//!   edits do not: the track is chosen when the stream is there.
+//! - Any command that restarts the stream cancels a park (`command_taken`). Appends do not: the
+//!   track is chosen when the stream is there.
+//! - A queue edit re-evaluates a park at a track boundary (`reconsider_park`), because it may
+//!   have changed the track that follows: the request is withdrawn and the decoder carries on
+//!   as if it had not parked. A successor at the stream's rate then continues gapless in the same
+//!   ring, and one of another rate parks again, for that rate. The request is a slot that the
+//!   engine and the decoder race for (`Shared::take_reopen`): when the engine has taken it
+//!   already it is reopening the stream, the decoder stays parked, and the edited track is
+//!   looked at when the `Resume` arrives. So a `Resume` always answers the park that is pending.
 //! - A rate the device refused (`Shared::refused`) is resampled to the engine's rate like in
 //!   shared mode; marks carry the stream's rate (`Mark::out_rate`) because the frames the
 //!   renderer counts are frames of whatever stream played them.
@@ -258,6 +265,8 @@ struct State {
 /// The decoder is stopped before the track at `cur` until the output stream runs at `target`.
 struct Parked {
     id: u32,
+    /// The sample rate the engine was asked for.
+    target: u32,
     /// Timeline frame to open the track at once the stream is there.
     frame: u64,
     /// The command (load, seek, device switch) to answer with `applied_gen` once the track has
@@ -537,8 +546,10 @@ impl Decoder {
         let parked = match st.parked.take() {
             Some(parked) if parked.id == id => parked,
             other => {
-                // The engine only answers the request of its latest command, and only commands
-                // cancel a request: this cannot happen. The stream it opened has nobody to feed it.
+                // The engine takes a request (`Shared::take_reopen`) before it opens the stream,
+                // and the decoder withdraws one only if it is still there; a command that cancels
+                // one is sent after the engine's earlier `Resume` on the same queue. So this
+                // cannot happen. The stream it opened has nobody to feed it.
                 st.parked = other;
                 tracing::error!(
                     id,
@@ -606,6 +617,7 @@ impl Decoder {
         st.park_id = st.park_id.wrapping_add(1).max(1);
         st.parked = Some(Parked {
             id: st.park_id,
+            target,
             frame,
             gen,
             boundary,
@@ -673,9 +685,35 @@ impl Decoder {
                     st.cur = base + 1;
                 }
                 self.revive_if_ended(st);
+                // Before the edit is reported: whoever sees `QueueEdited` sees the request gone.
+                self.reconsider_park(st);
                 self.emit(EventKind::QueueEdited { edit, head });
             }
             Err(error) => self.emit(EventKind::QueueEditRejected { edit, head, error }),
+        }
+    }
+
+    /// A queue edit changed what follows the head: a request for a stream (or one about to be
+    /// made) was for the track that followed it before, which may be gone. It is withdrawn, and the
+    /// decoder opens `st.cur` again as it would after any boundary, which asks for a stream only
+    /// if the new successor needs another rate (see the module docs). Only a park at a track
+    /// boundary can be wrong: a park for a load, seek or device switch is for the head itself,
+    /// which an edit never changes.
+    ///
+    /// Nothing is pushed or opened at a boundary park (the tails were pushed before it parked), so
+    /// there is nothing to undo. If the engine took the request first it is reopening the stream,
+    /// and the park stays: the `Resume` for it is answered like any other.
+    fn reconsider_park(&mut self, st: &mut State) {
+        if st.park_req.take().is_some() {
+            // Not published yet: the tail of the head is still being pushed.
+            return;
+        }
+        let withdrawn = match &st.parked {
+            Some(parked) if parked.boundary => self.sh.take_reopen(parked.id, parked.target),
+            _ => false,
+        };
+        if withdrawn {
+            st.parked = None;
         }
     }
 
@@ -1294,6 +1332,17 @@ mod tests {
         }
     }
 
+    impl Events {
+        fn take(&self) -> Vec<EventKind> {
+            std::mem::take(
+                &mut *self
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
+        }
+    }
+
     fn track(id: u64) -> Arc<Track> {
         Arc::new(Track {
             id: QueueItemId(id),
@@ -1566,5 +1615,110 @@ mod tests {
                 error: PlaybackError::Decode("resampler: test".into()),
             }]
         );
+    }
+
+    fn decoder_with_events() -> (Decoder, Arc<Events>) {
+        let events = Arc::new(Events::default());
+        let mut decoder = decoder_on(48_000);
+        decoder.sink = events.clone();
+        (decoder, events)
+    }
+
+    fn queue_ids(st: &State) -> Vec<u64> {
+        st.queue.iter().map(|t| t.id.0).collect()
+    }
+
+    #[test]
+    fn a_queue_edit_withdraws_a_boundary_park_and_the_tail_is_the_new_one() {
+        let (mut decoder, events) = decoder_with_events();
+        // Item 1 has been pushed; the decoder waits for a 96 kHz stream for item 2.
+        let mut st = state(vec![track(1), track(2)], 1, Some(0));
+        st.stream_rate = 44_100;
+        decoder.park(&mut st, 96_000, 0, None, true, false);
+        assert_eq!(decoder.sh.reopen_request(), (1, 96_000));
+
+        decoder.edit_queue(&mut st, EditId(7), QueueItemId(1), vec![track(3)]);
+        assert!(st.parked.is_none(), "the park was for a track that is gone");
+        assert_eq!(
+            decoder.sh.reopen_request(),
+            (1, 0),
+            "the request is withdrawn"
+        );
+        assert_eq!((st.cur, queue_ids(&st)), (1, vec![1, 3]));
+        let seen = events.take();
+        assert_eq!(
+            seen,
+            vec![EventKind::QueueEdited {
+                edit: EditId(7),
+                head: QueueItemId(1)
+            }]
+        );
+    }
+
+    #[test]
+    fn a_queue_edit_after_the_engine_took_the_request_leaves_the_decoder_parked_for_the_resume() {
+        let (mut decoder, events) = decoder_with_events();
+        let mut st = state(vec![track(1), track(2)], 1, Some(0));
+        st.stream_rate = 44_100;
+        decoder.park(&mut st, 96_000, 0, None, true, false);
+        // The engine got to the request first: it is reopening the output for it.
+        assert!(decoder.sh.take_reopen(1, 96_000));
+
+        decoder.edit_queue(&mut st, EditId(1), QueueItemId(1), vec![track(3)]);
+        let parked = st.parked.as_ref().expect("still parked");
+        assert_eq!(
+            parked.id, 1,
+            "the Resume for it is the one that will arrive"
+        );
+        // The edit is applied all the same: the track is chosen when the stream is there.
+        assert_eq!((st.cur, queue_ids(&st)), (1, vec![1, 3]));
+        assert!(matches!(
+            events.take().as_slice(),
+            [EventKind::QueueEdited { .. }]
+        ));
+    }
+
+    #[test]
+    fn a_queue_edit_before_the_park_is_published_cancels_the_pending_request() {
+        let (mut decoder, _events) = decoder_with_events();
+        // The tail of item 1 is still on its way to the ring; the park for item 2 comes after it.
+        let mut st = state(vec![track(1), track(2)], 1, Some(0));
+        st.park_req = Some(ParkRequest {
+            target: 96_000,
+            frame: 0,
+        });
+        decoder.edit_queue(&mut st, EditId(1), QueueItemId(1), vec![track(3)]);
+        assert!(st.park_req.is_none());
+        assert!(st.parked.is_none());
+        assert_eq!(decoder.sh.reopen_request(), (0, 0), "nothing was published");
+    }
+
+    #[test]
+    fn a_queue_edit_does_not_touch_a_park_for_a_load_or_seek() {
+        let (mut decoder, _events) = decoder_with_events();
+        // A load parked for item 1 itself (the head): the edit only replaces what follows it.
+        let mut st = state(vec![track(1), track(2)], 0, None);
+        st.stream_rate = 44_100;
+        decoder.park(&mut st, 96_000, 0, Some(5), false, false);
+        decoder.edit_queue(&mut st, EditId(1), QueueItemId(1), vec![track(3)]);
+        assert!(st.parked.is_some());
+        assert_eq!(decoder.sh.reopen_request(), (1, 96_000));
+        assert_eq!((st.cur, queue_ids(&st)), (0, vec![1, 3]));
+    }
+
+    #[test]
+    fn a_refused_queue_edit_leaves_a_boundary_park_alone() {
+        let (mut decoder, events) = decoder_with_events();
+        let mut st = state(vec![track(1), track(2)], 1, Some(0));
+        st.stream_rate = 44_100;
+        decoder.park(&mut st, 96_000, 0, None, true, false);
+        // Built on an item the decoder has not started: refused, nothing changes.
+        decoder.edit_queue(&mut st, EditId(1), QueueItemId(2), vec![track(3)]);
+        assert!(st.parked.is_some());
+        assert_eq!(decoder.sh.reopen_request(), (1, 96_000));
+        assert!(matches!(
+            events.take().as_slice(),
+            [EventKind::QueueEditRejected { .. }]
+        ));
     }
 }
