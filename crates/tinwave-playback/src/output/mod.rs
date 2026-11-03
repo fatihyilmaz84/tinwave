@@ -22,7 +22,7 @@ mod stream_thread;
 #[cfg(windows)]
 mod windows;
 
-pub use convert::{convert_into, SampleFormat};
+pub use convert::{convert_dithered, convert_into, Dither, SampleFormat};
 pub use cpal::{CpalControl, CpalOutput};
 pub use follow::{DeviceEvent, DeviceFollower, DeviceStateChange, FollowTarget};
 pub use info::{StreamInfo, StreamMode};
@@ -42,8 +42,9 @@ use crate::{PlaybackError, Renderer};
 pub struct OpenRequest<'a> {
     /// Output device id; `None` is the system default.
     pub device: Option<&'a str>,
-    /// Stream sample rate, stereo `f32`. Files must have this rate (resampling is T-0019); a
-    /// backend that has to convert to the device mix rate does so itself.
+    /// Stream sample rate, stereo `f32`. The engine resamples files of other rates to it (decoder
+    /// thread, T-0019), so the callback only ever sees this rate; a backend that has to convert to
+    /// the device mix rate does so itself.
     pub sample_rate: u32,
 }
 

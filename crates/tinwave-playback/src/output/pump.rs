@@ -8,10 +8,10 @@
 //!
 //! # Real-time contract
 //! [`Pump::feed`] and [`Pump::step`] allocate nothing: both scratch buffers are sized in
-//! [`Pump::new`], and the `RenderDevice` implementation must not allocate in `wait`,
+//! [`Pump::new`] (the dither generator is one `u64`), and the `RenderDevice` implementation must not allocate in `wait`,
 //! `available_frames`, `write` or `is_alive` either.
 
-use super::convert::{convert_into, SampleFormat};
+use super::convert::{convert_dithered, Dither, SampleFormat};
 use crate::types::CHANNELS;
 use crate::Renderer;
 
@@ -80,6 +80,7 @@ pub struct Pump {
     stream_latency_frames: u64,
     scratch: Vec<f32>,
     bytes: Vec<u8>,
+    dither: Dither,
 }
 
 impl Pump {
@@ -99,6 +100,7 @@ impl Pump {
             stream_latency_frames,
             scratch: vec![0.0; buffer_frames * CHANNELS],
             bytes: vec![0; buffer_frames * CHANNELS * format.bytes_per_sample()],
+            dither: Dither::new(Dither::DEFAULT_SEED),
         }
     }
 
@@ -128,7 +130,7 @@ impl Pump {
         let real = self.renderer.render(out, latency);
         let width = CHANNELS * self.format.bytes_per_sample();
         let dst = &mut self.bytes[..frames * width];
-        convert_into(self.format, out, dst);
+        convert_dithered(self.format, out, dst, &mut self.dither);
         match device.write(frames, dst) {
             Ok(()) => PumpStep::Fed { frames, real },
             Err(DeviceLost) => PumpStep::Lost,

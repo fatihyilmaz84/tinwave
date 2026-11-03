@@ -12,6 +12,7 @@ tinwave-core = { workspace = true }
 tinwave-signals = { workspace = true }
 cpal = { workspace = true }
 rtrb = { workspace = true }
+rubato = { workspace = true }
 symphonia = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

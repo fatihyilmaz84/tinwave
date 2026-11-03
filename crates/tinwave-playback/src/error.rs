@@ -15,7 +15,8 @@ pub enum PlaybackError {
     /// No decoder for the track's codec, or its parameters are incomplete.
     #[error("unsupported codec: {0}")]
     UnsupportedCodec(String),
-    /// Resampling is not part of the engine core (T-0019).
+    /// The track's rate cannot be converted to the stream rate (a zero rate, or a pair of rates
+    /// with so small a common divisor that the resampler would need a block about a second long).
     #[error("track sample rate {track_rate} Hz differs from output rate {output_rate} Hz")]
     SampleRateMismatch {
         /// The file's rate.

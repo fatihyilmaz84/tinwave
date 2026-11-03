@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use symphonia::core::io::MediaSource;
 use tinwave_core::{ManualClock, UtcMillis};
 use tinwave_playback::{
-    Engine, EngineConfig, EventKind, EventSink, FsOpener, ManualHandle, ManualOutput,
+    EditId, Engine, EngineConfig, EventKind, EventSink, FsOpener, ManualHandle, ManualOutput,
     PlaybackEvent, QueueItemId, SourceOpener, Track,
 };
 
@@ -284,6 +284,27 @@ impl Harness {
             }
         }
         panic!("never happened: {what}");
+    }
+
+    /// Wait (bounded spin, no audio rendered) for the decoder's verdict on a `replace_after` and
+    /// require that the edit was applied. An edit built on an item the decoder has already moved
+    /// past is refused, which would silently leave the old tail in place; this makes that fail
+    /// right here with the reason.
+    pub fn expect_edit_applied(&self, edit: EditId) {
+        for _ in 0..30_000 {
+            let kinds = self.sink.kinds();
+            for kind in &kinds {
+                match kind {
+                    EventKind::QueueEdited { edit: e, .. } if *e == edit => return,
+                    EventKind::QueueEditRejected { edit: e, .. } if *e == edit => {
+                        panic!("the decoder refused the edit: {kinds:?}")
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        panic!("the decoder never answered the edit");
     }
 
     /// True once `pred` matches an event emitted so far.
@@ -724,4 +745,34 @@ pub fn decode_device_bytes(format: SampleFormat, bytes: &[u8]) -> Vec<f32> {
             })
             .collect(),
     }
+}
+
+// ---- the sweep stored at other sample rates ------------------------------------------------
+
+/// Frames `[from, to)` of the 2 s sweep sampled at `rate`, as a float32 WAV (no quantisation) with
+/// 1 (the left channel only), 2 or 3 channels. Pieces cut at the same instant of different rates
+/// join into the sweep sampled at any other rate, which is what the resampling tests compare to.
+pub fn write_sweep_piece(path: &Path, rate: u32, from: usize, to: usize, channels: u16) {
+    let (l, r) = sweep(rate, 2 * rate as usize);
+    write_wav_channels(path, rate, 0, channels, &l[from..to], &r[from..to]);
+}
+
+/// The ideal result at the stream rate: the whole sweep sampled at [`RATE`], as f32.
+pub fn ideal_sweep() -> (Vec<f32>, Vec<f32>) {
+    let (l, r) = sweep(RATE, TOTAL);
+    reference(&l, &r, 0)
+}
+
+/// Three files that together are the 2 s sweep: 0.0 to 0.7 s at 48 kHz, 0.7 to 1.3 s at 44.1 kHz
+/// and 1.3 to 2.0 s at 96 kHz. At the stream rate they are 33,600, 28,800 and 33,600 frames.
+pub fn rate_change_files(dir: &TempDir) -> [PathBuf; 3] {
+    let files = [
+        dir.path("a48.wav"),
+        dir.path("b44.wav"),
+        dir.path("c96.wav"),
+    ];
+    write_sweep_piece(&files[0], 48_000, 0, 33_600, 2);
+    write_sweep_piece(&files[1], 44_100, 30_870, 57_330, 2);
+    write_sweep_piece(&files[2], 96_000, 124_800, 192_000, 2);
+    files
 }

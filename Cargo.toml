@@ -38,6 +38,8 @@ proptest = { version = "1", default-features = false, features = ["std"] }
 # Bundled SQLite (public domain, compiled in): no system SQLite, same engine on every OS.
 rusqlite = { version = "0.41", default-features = false, features = ["bundled", "cache"] }
 rtrb = "0.4"
+# Sample-rate conversion in the decoder thread (ADR 0005 decision 5). MIT OR Apache-2.0, pure Rust.
+rubato = "5"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # MPL-2.0: allowed only for symphonia* crates (deny.toml exceptions, ADR 0005). Never patched in-tree.

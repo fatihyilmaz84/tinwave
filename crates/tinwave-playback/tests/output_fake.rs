@@ -305,3 +305,58 @@ fn a_pinned_device_follows_only_its_own_fate() {
         .iter()
         .any(|k| matches!(k, EventKind::OutputLost)));
 }
+
+/// The dither policy through the output's callback logic (T-0019): with a volume below 1 the
+/// signal leaves the integer grid, and only the formats that quantise it audibly (I16, I24In32)
+/// get dither. F32 and I32 carry the renderer's samples as they are.
+#[test]
+fn a_volume_below_one_is_dithered_only_on_the_integer_outputs_that_need_it() {
+    let dir = TempDir::new("output-fake-dither");
+    let (l, r) = sweep(RATE, TOTAL);
+    let wav = dir.path("a.wav");
+    write_wav(&wav, RATE, 16, &l[..SPLIT], &r[..SPLIT]);
+
+    // Skip the first block: the volume ramps from 1.0 to 0.3 across it.
+    let (skip, frames) = (BLOCK, 4 * BLOCK);
+    let play = |format: SampleFormat| -> Vec<f32> {
+        let mut rig = rig(format);
+        rig.engine.set_volume(0.3).expect("volume");
+        rig.engine.load(vec![track(1, &wav)], 0, 0).expect("load");
+        let mut got = rig.play(frames);
+        got.drain(..skip * 2);
+        got
+    };
+    let float = play(SampleFormat::F32);
+    assert!(
+        float.iter().any(|&s| s != 0.0),
+        "the test signal must not be silent"
+    );
+
+    // I32 is converted without dither: the f32 samples come back unchanged.
+    let wide = play(SampleFormat::I32);
+    assert!(float.iter().zip(&wide).all(|(a, b)| (a - b).abs() < 1e-7));
+
+    for (format, scale) in [
+        (SampleFormat::I16, 32_768.0_f32),
+        (SampleFormat::I24In32, 8_388_608.0_f32),
+    ] {
+        let got = play(format);
+        assert_eq!(got.len(), float.len());
+        let (mut differs, mut worst) = (0usize, 0.0f32);
+        for (g, f) in got.iter().zip(&float) {
+            let plain = (f * scale).round();
+            let step = (g * scale - plain).abs();
+            differs += usize::from(step > 0.5);
+            worst = worst.max(step);
+        }
+        assert!(
+            differs > got.len() / 10,
+            "{format:?}: dither must move many samples off plain rounding, moved {differs} of {}",
+            got.len()
+        );
+        assert!(
+            worst <= 1.01,
+            "{format:?}: dither is at most one step, got {worst}"
+        );
+    }
+}

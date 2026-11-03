@@ -137,6 +137,11 @@ impl TrackReader {
         self.rate
     }
 
+    /// Playable frames of the trimmed timeline (file frames), when the file says.
+    pub fn length(&self) -> Option<u64> {
+        self.length
+    }
+
     pub fn take_corrupt_packets(&mut self) -> u64 {
         std::mem::take(&mut self.corrupt_packets)
     }

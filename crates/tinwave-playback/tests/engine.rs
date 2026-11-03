@@ -237,8 +237,10 @@ fn unplayable_tracks_are_reported_and_skipped() {
     let (l, r) = sweep(RATE, TOTAL);
     let good = dir.path("good.wav");
     write_wav(&good, RATE, 16, &l[..4_800], &r[..4_800]);
+    // A rate the resampler refuses (it shares almost no divisor with 48 kHz, so it would need a
+    // block about a second long); ordinary rate differences are resampled (tests/resampling.rs).
     let wrong_rate = dir.path("rate.wav");
-    write_wav(&wrong_rate, 44_100, 16, &l[..4_800], &r[..4_800]);
+    write_wav(&wrong_rate, 48_001, 16, &l[..4_800], &r[..4_800]);
     let garbage = dir.path("garbage.wav");
     std::fs::write(&garbage, vec![0x55u8; 4_096]).expect("write");
 
@@ -275,7 +277,7 @@ fn unplayable_tracks_are_reported_and_skipped() {
         (
             2,
             PlaybackError::SampleRateMismatch {
-                track_rate: 44_100,
+                track_rate: 48_001,
                 output_rate: 48_000
             }
         )
