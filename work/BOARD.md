@@ -27,6 +27,7 @@ _Maintained by the lead. Last updated: 2026-11-02._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-builder r2 — CHANGES_REQUESTED: Remove of the playing head recorded | `t/T-0023-live-queue-edits` · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 | [T-0026](tickets/T-0026-signalsmith-wrapper.md) Vendored Signalsmith wrapper (E-01) | tw-builder r1 | `t/T-0026-signalsmith-wrapper` · `D:\dev\Tinwave-worktrees\T-0026-signalsmith-wrapper` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -36,7 +37,6 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
 | [T-0051](tickets/T-0051-packaging-hardening.md) Packaging hardening + notices completeness (P1) | tw-reviewer r1 (build-1: 31 packaging cases, std notices, D-0007 pending marker) | `t/T-0051-packaging-hardening` @ f25e5f0 · `D:\dev\Tinwave-worktrees\T-0051-packaging-hardening` |
-| [T-0023](tickets/T-0023-live-queue-edits.md) Live queue edits + queue signals (E-01) | tw-reviewer r1 (build-1 + 1b: deferred no-session queue acts) | `t/T-0023-live-queue-edits` @ 57aca71 · `D:\dev\Tinwave-worktrees\T-0023-live-queue-edits` |
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -125,5 +125,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0196 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+Proposals P-0001..P-0198 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
 needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query), P-0184 (image-stress relink), P-0185 (visible-rows paging), P-0187 (Settings-driven appearance), P-0188 (other-OS probes), P-0192 (XSVG round-trip), P-0193 (installer manifest).

@@ -3,7 +3,7 @@ id: T-0023
 title: Live queue edits in the playback engine (play next, reorder, remove) without a flush
 type: feature
 epic: E-01
-status: in_review
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0016]
@@ -11,7 +11,7 @@ scope:
   - crates/tinwave-playback/
 owner: tw-builder
 branch: t/T-0023-live-queue-edits
-review_round: 1
+review_round: 2
 created_by: from P-0041
 ---
 

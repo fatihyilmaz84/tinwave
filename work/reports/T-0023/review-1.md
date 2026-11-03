@@ -1,0 +1,34 @@
+REVIEW T-0023 (round 1)
+verdict: CHANGES_REQUESTED
+checks (run by reviewer): fmt pass; clippy (--workspace --all-targets -D warnings) pass; tests: `cargo nextest run --workspace` 4 full runs, each 505 passed / 0 failed / 6 skipped (storage_growth passed every time). Stress: `--stress-count 25 -j 24` over queue_edits, controller_edits, controller_thread, controller_random, pairing, rt_alloc, controller_rt_alloc, controller_signals: 25/25 iterations, 2000 passes. `TINWAVE_SEEDS=400` random walk pass. `RUSTDOCFLAGS=-D warnings cargo doc -p tinwave-playback` pass. deny ok. `git merge-tree --write-tree main t/T-0023-live-queue-edits` clean; main hasn't touched crates/tinwave-playback or signal-catalog.md since 77af1fd.
+
+acceptance criteria:
+- [x] Play next / reorder / remove never interrupt the current track — queue_edits.rs `an_edit_during_playback_neither_interrupts_nor_gaps_the_hand_off` (`command_pending` false after the edit, no TrackLeft Replaced/Stopped/Failed, A bit-exact), `reordering_the_tail_plays_the_new_order`, `removing_from_the_tail_skips_it_and_removing_all_ends_after_the_current_track`. decoder.rs `edit_queue` only truncates and extends `st.queue` past the base; never drops the reader, flushes or restarts.
+- [x] Gapless hand-off into an edited next item 0-frame — `max_err == 0.0` vs the uncut sweep, `best_lag == 0` at CUT 100 777 (not codec-aligned); `an_edit_after_the_decoder_found_the_end_of_the_queue_continues_it` (revive; B left at 4800 frames, QueueEnded once).
+- [x] Stale edit rejected visibly, never misapplied — control side `StaleQueue` (`an_edit_built_on_a_track_that_is_no_longer_current_is_refused_by_the_call`); decoder side `QueueEditRejected` (`an_edit_that_loses_the_race_with_the_decoder_is_refused_with_an_event`, `an_edit_that_repeats_an_id_of_an_earlier_item_is_refused_by_the_decoder`); controller (`an_edit_built_on_a_track_that_has_ended_emits_nothing`, `an_edit_the_decoder_refuses_emits_nothing_and_is_counted`). Race-free: the decoder applies the edit only if its last started item equals `head` (decoder.rs:318-348); commands are FIFO so a pending Load/Seek is processed first (`awaiting` makes `cur` the target); with unique ids nothing after the head can be in the ring when the edit applies.
+- [x] Zero callback allocations — rt_alloc.rs (two `replace_after` while rendering), controller_rt_alloc.rs (play next, queue later, reorder, remove; asserts all four kinds emitted). Renderer unchanged; decoder-side HashSet/Vec allocations on the decoder thread; control side only `try_send` (`Busy`), never blocks.
+- [x] Each edit kind emits its catalog signal once in the open session; session rule stated — controller_edits.rs one test per kind; `a_disabled_category_constructs_no_queue_signal` (`queued_total` unchanged, next seq 2); `auto_edits_are_applied_but_are_not_the_listeners_preference`; P-0160: `an_add_with_nothing_loaded_waits_for_the_first_session_and_is_reported_right_after_it` (SessionStarted, RepeatModeChanged, QueuedLater×2, PlayStarted; ts = session start; reported once), `only_the_newest_64_deferred_acts_are_kept_and_the_rest_are_counted`, `a_kind_that_is_off_buffers_nothing_and_one_turned_off_before_the_session_is_not_reported`, `an_edit_after_the_session_expired_waits_for_the_next_session`. Payloads match catalog §4; rule in catalog §8 and controller mod.rs "Queue edits".
+- [x] P-0112: `next_pressed_on_a_track_that_has_already_ended_does_nothing` (A completed, B heard; Next/Previous with leaving=A: no reload, no signals, B advances; leaving=B skips B), `choosing_a_track_does_not_depend_on_what_was_playing`. mod.rs:258.
+- [x] P-0143 `Rig::render_until_heard` — calls `settle()` before counting frames; timeout panic prints status and diagnostics; used by the new tests.
+- [x] P-0147 random-walk minutes property — reviewer's own mutation (`end_session` using `at` instead of `silence_since.unwrap_or(at)`) fails at seed 1 ("SessionEnded claims 30 min, audible for 0 ms"); passes 400 seeds unmutated.
+
+blocking findings:
+- crates/tinwave-playback/src/controller/mod.rs:324-332 (and mapper.rs:293-310) — `QueueEdit::Remove` naming the playing head is accepted and recorded as `RemovedFromQueue` on the track being played. `plan_edit` checks only that a removed id is not in the tail and is in the table; the head is never in the tail and always in the table; `replace_after` never removes the head, so the call returns Ok and the head keeps playing. Scenario: a queue view's "remove selected" includes the now-playing row → −0.4 "pre-listen rejection" on a track being listened to. Contradicts signal-catalog.md:67 ("never the playing track") and the ticket ("remove before it played"). Reproduced (scratch copy): `Remove { items: [item(1)] }` with head 1 → `Ok(())`, `RemovedFromQueue` with `recording(1)`, position still item 1. Fix: in `Controller::edit_queue` return `InvalidArgument` (nothing sent or recorded) when a `Remove` item equals `head` (or pass `head` into `plan_edit`); add a case to `an_edit_that_contradicts_its_own_description_is_rejected_before_it_is_sent`.
+
+design check: n/a
+
+non-blocking findings:
+- decoder.rs:325-329 — once the queue is exhausted, "last started" is `cur - 1`; if the items after A all failed to open, `cur - 1` is a failed item never started, so a valid edit on the still-audible last track A is refused with StaleQueue. Safe (refused and counted), but a play-next on the last playable track is lost. Track the index of the last opened item.
+- mod.rs:258 — Next/Previous with `leaving: Some(x)` are a no-op when nothing is current (queue ended). Consistent with the doc, but a shell still showing the ended last track gets a silent no-op. Document on `LoadRequest.leaving`, or the shell passes `None` after QueueEnded.
+- mapper.rs:293-310 — Remove of an item that already played (in the table, before the head) is also recorded; covered by the parked queue mirror (P-0162).
+
+proposals:
+- P: Reject Remove/Reorder/PlayNext items at or before the head once the queue mirror exists | size: S
+- P: Track the last *opened* queue index in the decoder instead of `cur - 1` | size: S
+
+notes for lead: rest solid; staleness design race-free; deferred-acts buffer matches catalog §8. Round 2 small. Housekeeping: a `git archive` scratch copy built against the worktree's target dir made cargo reuse mutated binaries, so the reviewer ran `cargo clean -p tinwave-playback -p tinwave-core -p tinwave-signals -p tinwave-test-alloc` in the worktree target (removed 5.5 GiB), rebuilt, re-ran 505/505 and clippy from real sources. Scratch deleted; worktree sources untouched; nothing left running.
+
+---
+Lead (2026-11-03): round 2 = the head check (blocking) + the last-opened index (P-0198, in scope, small) + the
+`leaving` doc line. P-0197 merged into P-0162 (parked queue mirror). Reviewer note for the agent definitions: a scratch
+copy must use its own target dir (CARGO_TARGET_DIR), never the worktree's.
