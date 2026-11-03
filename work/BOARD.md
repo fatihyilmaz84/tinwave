@@ -29,7 +29,6 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | tw-builder r1 | `t/T-0067-exclusive-setting-signal` · `D:\dev\Tinwave-worktrees\T-0067-exclusive-setting-signal` |
 | [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-builder r1 | `t/T-0064-signal-wipe-per-tier` · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-builder r1 | `t/T-0066-exclusive-reopen-device-check` · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
@@ -37,7 +36,9 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | tw-reviewer r1 | `t/T-0067-exclusive-setting-signal` @ f97fd0f · `D:\dev\Tinwave-worktrees\T-0067-exclusive-setting-signal` |
 
 ## Recently done
 - [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups: wipe epoch (writer CPU back to baseline), rollup plays kept, stale-start guard, checkpoint after wipe — merged 4950c97 (review r1 APPROVE).
@@ -75,6 +76,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
 | [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake again (P2) | — |
+| [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | T-0066, T-0067 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |

@@ -3,7 +3,7 @@ id: T-0067
 title: ExclusiveModeToggled from the listener's setting, not from stream modes
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0057]
