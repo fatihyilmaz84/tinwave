@@ -3,7 +3,7 @@ id: T-0055
 title: Canvas — refresh stale prose in Main.dc.html and add a local render harness
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0046]
