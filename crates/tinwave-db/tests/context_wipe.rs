@@ -9,7 +9,10 @@ mod common;
 
 use std::time::Instant;
 
-use common::{burn_in_trigger, count, during_a_wipe, write_batch_when_unlocked, Ids, TempDb, T0};
+use common::{
+    burn_in_trigger, count, during_a_wipe, statements_of, write_batch_after_the_wipe,
+    write_batch_when_unlocked, Ids, TempDb, T0,
+};
 use rusqlite::{params, Connection};
 use tinwave_core::{ManualClock, SignalEventId, Tier, UtcMillis};
 use tinwave_db::{
@@ -693,25 +696,9 @@ fn many_distinct_keys_are_rewritten_exactly_as_clear_raw_does() {
     }
 }
 
-/// The reference listener's `play` table (120 plays a day for 3 years, 131 400 rows) with
-/// thousands of distinct keys. A wipe must hold the write lock for about a scan, not one scan per
-/// key: with the one-statement-per-key rewrite it ran for tens of seconds, the writer's batches
-/// waited out their 5 s busy timeout and failed with "database is locked".
-///
-/// The batch is issued while the wipe runs (the probe sees its lock) and must be stored.
-#[test]
-fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
-    const PLAYS: usize = 131_400;
-    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
-    let mut distinct: Vec<u32> = (0..4_000).map(|_| random_key(&mut rng)).collect();
-    distinct.sort_unstable();
-    distinct.dedup();
-    assert!(distinct.len() >= 1_500, "{} distinct keys", distinct.len());
-    let plays: Vec<u32> = (0..PLAYS).map(|i| distinct[i % distinct.len()]).collect();
-    let Fixture { db, mut wiper } = Fixture::new(&plays, &distinct);
-
-    let mut store = SignalStore::open(&db.path).unwrap();
-    let mut ids = Ids::new(61);
+/// A play that starts and is skipped: what the writer sends while a wipe runs. Each `Ids` gives a
+/// new device, session and recording.
+fn play_events(ids: &mut Ids) -> [SignalEvent; 2] {
     let (device, session, rec, source) =
         (ids.device(), ids.session(), ids.recording(), ids.source());
     let make = |seq: u64, at: i64, payload: SignalPayload| SignalEvent {
@@ -724,7 +711,7 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
         payload,
         ctx: None,
     };
-    let events = [
+    [
         make(
             0,
             0,
@@ -743,7 +730,28 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
                 queue_origin: QueueOrigin::Manual,
             }),
         ),
-    ];
+    ]
+}
+
+/// The reference listener's `play` table (120 plays a day for 3 years, 131 400 rows) with
+/// thousands of distinct keys. A wipe must hold the write lock for about a scan, not one scan per
+/// key: with the one-statement-per-key rewrite it ran for tens of seconds, the writer's batches
+/// waited out their 5 s busy timeout and failed with "database is locked".
+///
+/// The batch is issued while the wipe runs (the probe sees its lock) and must be stored.
+#[test]
+fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
+    const PLAYS: usize = 131_400;
+    let mut rng = Rng(0xD1B5_4A32_D192_ED03);
+    let mut distinct: Vec<u32> = (0..4_000).map(|_| random_key(&mut rng)).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() >= 1_500, "{} distinct keys", distinct.len());
+    let plays: Vec<u32> = (0..PLAYS).map(|i| distinct[i % distinct.len()]).collect();
+    let Fixture { db, mut wiper } = Fixture::new(&plays, &distinct);
+
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let events = play_events(&mut Ids::new(61));
 
     // The wipe holds the lock for at least the burn of this trigger (it fires once, on the first
     // row it rewrites), so the probe below cannot miss it on a fast machine.
@@ -790,4 +798,97 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
         .map(|k| ContextKey::clear_raw(*k, ContextCategory::NetworkPlace.fields()))
         .collect();
     assert_eq!(keys, expect);
+
+    // The wiper keeps no lock after it returned. The batch above got in the moment the wipe
+    // committed, so it cannot show one; a batch sent now would wait out the busy timeout and fail
+    // if the wiper still held the write lock (an open transaction on its connection).
+    let after = write_batch_after_the_wipe(&mut store, &play_events(&mut Ids::new(62)));
+    assert_eq!(after.events_inserted, 2);
+    assert_eq!(after.plays_written, 1);
+}
+
+/// The cost of a context wipe is a number of statements, each one scan, **not** a number of rows
+/// or of distinct keys (`wipe.rs`, "Cost and locking"): the first version ran a statement per
+/// distinct key, and on the reference table that held the write lock for tens of seconds. The
+/// contention test above only shows that a batch gets in once the wipe is over, so this pins the
+/// cost itself: every context wipe runs the same statements on a database of a few rows and on one
+/// of three thousand plays and snapshots with hundreds of distinct keys.
+///
+/// A wipe that changes a context field is: `BEGIN IMMEDIATE`; for each of `play` and
+/// `context_snapshot` a scan for a stored key that is not a `u32` and one `UPDATE`; `COMMIT`; the
+/// two checkpoint pragmas. 8 statements. A wipe that clears no field (T0 has no context, no
+/// category at all) returns before it opens a transaction: none.
+#[test]
+fn a_context_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
+    const WIPE: usize = 8;
+    let mut rng = Rng(0x2545_F491_4F6C_DD1D);
+    let mut distinct: Vec<u32> = (0..600).map(|_| random_key(&mut rng)).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+    assert!(distinct.len() > 400, "{} distinct keys", distinct.len());
+    let many: Vec<u32> = (0..3_000).map(|i| distinct[i % distinct.len()]).collect();
+    let few = [
+        full(),
+        full_without(&[FieldName::Daypart]),
+        ContextKey::UNKNOWN,
+    ]
+    .map(ContextKey::raw);
+
+    type WipeCall = Box<dyn Fn(&mut SignalWiper) -> WipeReport>;
+    let mut cases: Vec<(String, usize, WipeCall)> = Vec::new();
+    for category in ContextCategory::ALL {
+        cases.push((
+            format!("{category:?}"),
+            WIPE,
+            Box::new(move |wiper| wiper.wipe_context(&[category]).unwrap()),
+        ));
+    }
+    cases.push((
+        "every category at once".to_owned(),
+        WIPE,
+        Box::new(|wiper| wiper.wipe_context(&ContextCategory::ALL).unwrap()),
+    ));
+    cases.push((
+        "no category".to_owned(),
+        0,
+        Box::new(|wiper| wiper.wipe_context(&[]).unwrap()),
+    ));
+    for tier in Tier::ALL {
+        cases.push((
+            format!("tier {tier}"),
+            if tier == Tier::T0 { 0 } else { WIPE },
+            Box::new(move |wiper| wiper.wipe_context_tier(tier).unwrap()),
+        ));
+    }
+
+    let mut wrong = Vec::new();
+    for (name, expected, wipe) in cases {
+        let mut small = Fixture::new(&few, &few);
+        let (small_report, small_sql) = statements_of(&mut small.wiper, |w| wipe(w));
+        let mut large = Fixture::new(&many, &many);
+        let (large_report, large_sql) = statements_of(&mut large.wiper, |w| wipe(w));
+
+        if large_sql != small_sql {
+            wrong.push(format!(
+                "{name}: the statements depend on the rows: {} on the small database, {} on the large one",
+                small_sql.len(),
+                large_sql.len()
+            ));
+        }
+        if large_sql.len() != expected {
+            wrong.push(format!(
+                "{name}: {} statements, expected {expected}: {large_sql:#?}",
+                large_sql.len()
+            ));
+        }
+        // The large database really had more to rewrite.
+        if (expected == 0) != (large_report == WipeReport::default())
+            || (expected != 0 && large_report.plays_rewritten <= small_report.plays_rewritten)
+        {
+            wrong.push(format!(
+                "{name}: rewrote {small_report:?} of the small database and {large_report:?} of the large one"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
 }

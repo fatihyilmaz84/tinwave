@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common::{
-    burn_in_trigger, count, during_a_wipe, favorited, write_batch_when_unlocked, Ids, TempDb,
-    AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
+    burn_in_trigger, count, during_a_wipe, favorited, statements_of, write_batch_after_the_wipe,
+    write_batch_when_unlocked, Ids, TempDb, AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
 };
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
@@ -1227,6 +1227,172 @@ fn a_failed_wipe_changes_nothing_and_works_once_the_fault_is_gone() {
     }
 }
 
+// ---------------------------------------------------------------- cost
+
+/// 3 000 more rows in every table a wipe reaches, on top of [`populate`]: distinct context keys,
+/// events of 90 kinds, and play and rollup rows that every category and tier wipe changes. A
+/// statement per row (or per distinct key, or per kind) would make a wipe of this database run
+/// thousands of statements more than a wipe of the three-row one.
+fn populate_many(conn: &Connection) {
+    const ROWS: &str =
+        "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3000)";
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {ROWS} INSERT INTO dict_recording (id, uuid) SELECT 100 + x, randomblob(16) FROM c;
+         {ROWS} INSERT INTO dict_source (id, uuid) SELECT 100 + x, randomblob(16) FROM c;
+         {ROWS} INSERT INTO dict_entity (id, kind, uuid) SELECT 100 + x, 1, randomblob(16) FROM c;
+         {ROWS} INSERT INTO session (id, uuid, device, started_ts, tz_offset_min)
+                SELECT 100 + x, randomblob(16), 1, 1000, 60 FROM c;
+         {ROWS} INSERT INTO context_snapshot (id, hash, key, fields)
+                SELECT 100 + x, 1000 + x * 7919, x % 4000, x'00' FROM c;
+         {ROWS} INSERT INTO signal_event (device, seq, session, ts_off, kind, recording, ctx)
+                SELECT 1, 10000 + x, 1, x, x % 90 + 1, 1 + x % 3, 1 FROM c;
+         {ROWS} INSERT INTO ui_counter (day, kind, entity_kind, entity, count)
+                SELECT 20261101, 65 + x % 3, 0, 100 + x, 1 FROM c;
+         {ROWS} INSERT INTO play (device, session, recording, source, started_ts, listened_ds,
+                                  end_reason, end_frac, flags, peak_section, context_key)
+                SELECT 1, 1, 1 + x % 3, NULL, 10000 + x, 100 + x, x % 4, 100, x % 2048, x % 4,
+                       x % 4000 FROM c;
+         {ROWS} INSERT INTO rollup_monthly (month, recording, plays, completes, skips_early,
+                                            skips_late, fav_delta, listened_s, score_sum)
+                SELECT 202601 + x % 12, 100 + x, 3, 1, 1, 1, 1, 600, 1.5 FROM c;
+         COMMIT;"
+    ))
+    .unwrap();
+}
+
+/// Everything a wipe report counts, added up.
+fn touched(report: &SignalWipeReport) -> usize {
+    report.events_deleted
+        + report.counter_rows_deleted
+        + report.plays_deleted
+        + report.plays_cleared
+        + report.rollups_deleted
+        + report.rollups_cleared
+        + report.snapshots_deleted
+        + report.sessions_deleted
+        + report.dictionary_rows_deleted
+}
+
+type WipeCall = Box<dyn Fn(&mut SignalWiper) -> usize>;
+
+/// The statements a wipe of one signal category runs, counted off the SQL of `signal_wipe.rs` and
+/// `wipe.rs`. Around the work there are always 4: `BEGIN IMMEDIATE`, `COMMIT` and the two
+/// checkpoint pragmas. Then 2 deletes (events, counters) and
+/// - the category that owns `PlayStarted` (queue and library) deletes the play and rollup rows:
+///   2 more, 8 in all;
+/// - the others clear the rollups (the score is derived from every kind): a `DELETE` of the rows
+///   left empty and an `UPDATE`, and a category with a column or a flag of `play` derived from it
+///   (volume, speed, seek/skip/replay, browsing) an `UPDATE play`: 9 in all, 8 without.
+fn category_statements(category: SignalCategory) -> usize {
+    match category {
+        SignalCategory::QueueLibrary | SignalCategory::OutputSound | SignalCategory::Session => 8,
+        SignalCategory::Volume
+        | SignalCategory::Speed
+        | SignalCategory::SeekSkipReplay
+        | SignalCategory::Browsing => 9,
+    }
+}
+
+/// The statements a wipe of the signals of a tier runs (see [`category_statements`]): T0 holds
+/// `PlayStarted` (8), T1 has no play column but the score (8), and T2 and T3 have no signal kind:
+/// only the 4 around the work, because nothing is scanned.
+fn tier_statements(tier: Tier) -> usize {
+    match tier {
+        Tier::T0 | Tier::T1 => 8,
+        Tier::T2 | Tier::T3 => 4,
+    }
+}
+
+/// A tier wipe with its context fields: the statements of the signal part ([`tier_statements`]) and,
+/// when the tier has context fields (T1 to T3; T0 has none), a scan of the stored keys and an
+/// `UPDATE` for each of `play` and `context_snapshot`: 4 more.
+fn tier_with_context_statements(tier: Tier) -> usize {
+    match tier {
+        Tier::T0 => 8,
+        Tier::T1 => 12,
+        Tier::T2 | Tier::T3 => 8,
+    }
+}
+
+/// Wipe everything: `BEGIN IMMEDIATE`, the read and the write of the wipe epoch, one `DELETE` for
+/// each of the ten tables, `COMMIT` and the two checkpoint pragmas.
+const EVERYTHING_STATEMENTS: usize = 16;
+
+/// The cost of a wipe is a number of statements, each one scan, **not** a number of rows
+/// (`signal_wipe.rs`, "Cost and locking"): the wiper holds the write lock of `signals.db` for its
+/// whole transaction, and a statement per row, per distinct key or per kind would hold it for
+/// seconds on the reference listener's tables (that is what made the first context wipe starve the
+/// writer). The contention tests only show that a batch gets in once the wipe is over, so this
+/// pins the cost itself: every kind of wipe runs the same statements on a database of three
+/// plays and on one of three thousand, and the number of them is the one counted above.
+#[test]
+fn a_wipe_runs_a_fixed_number_of_statements_whatever_the_row_count() {
+    let mut cases: Vec<(String, usize, WipeCall)> = Vec::new();
+    for category in SignalCategory::ALL {
+        cases.push((
+            format!("category {category:?}"),
+            category_statements(category),
+            Box::new(move |wiper| touched(&wiper.wipe_signal_categories(&[category]).unwrap())),
+        ));
+    }
+    for tier in Tier::ALL {
+        cases.push((
+            format!("signal tier {tier}"),
+            tier_statements(tier),
+            Box::new(move |wiper| touched(&wiper.wipe_signal_tiers(&[tier]).unwrap())),
+        ));
+    }
+    for tier in Tier::ALL {
+        cases.push((
+            format!("tier {tier} with its context"),
+            tier_with_context_statements(tier),
+            Box::new(move |wiper| {
+                let (signals, context) = wiper.wipe_tiers(&[tier]).unwrap();
+                touched(&signals) + context.plays_rewritten + context.snapshots_rewritten
+            }),
+        ));
+    }
+    cases.push((
+        "everything".to_owned(),
+        EVERYTHING_STATEMENTS,
+        Box::new(|wiper| touched(&wiper.wipe_everything().unwrap())),
+    ));
+
+    let mut wrong = Vec::new();
+    for (name, expected, wipe) in cases {
+        let mut small = Fixture::new();
+        let (small_touched, small_sql) = statements_of(&mut small.wiper, |w| wipe(w));
+        let mut large = Fixture::new();
+        populate_many(&large.db.reader());
+        let (large_touched, large_sql) = statements_of(&mut large.wiper, |w| wipe(w));
+
+        if large_sql != small_sql {
+            wrong.push(format!(
+                "{name}: the statements depend on the rows: {} on the small database, {} on the large one",
+                small_sql.len(),
+                large_sql.len()
+            ));
+        }
+        if large_sql.len() != expected {
+            wrong.push(format!(
+                "{name}: {} statements, expected {expected}: {large_sql:#?}",
+                large_sql.len()
+            ));
+        }
+        // The large database really was bigger for the wipe (the tiers and categories that change
+        // nothing in `signals.db` change nothing in either).
+        if (large_touched == 0 && small_touched != 0)
+            || (large_touched > 0 && large_touched <= small_touched)
+        {
+            wrong.push(format!(
+                "{name}: touched {small_touched} rows of the small database and {large_touched} of the large one"
+            ));
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
 // ---------------------------------------------------------------- contention
 
 /// How long a test waits for a condition of the machine (events stored, a wipe returned) before it
@@ -1514,6 +1680,13 @@ fn a_write_batch_during_a_wipe_of_the_reference_tables_is_stored() {
                 assert_eq!(keys, expected);
             }
         }
+
+        // The wiper keeps no lock after it returned. The batch above cannot show one: it got in
+        // the moment the wipe committed. A batch sent now would wait out the busy timeout and
+        // fail if the wiper still held the write lock (an open transaction on its connection).
+        let after = write_batch_after_the_wipe(&mut store, &play_batch(&mut Ids::new(74)));
+        assert_eq!(after.events_inserted, 2, "{mode:?}");
+        assert_eq!(after.plays_written, 1, "{mode:?}");
     }
 }
 

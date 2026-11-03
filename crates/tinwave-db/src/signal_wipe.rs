@@ -527,13 +527,26 @@ mod tests {
             SignalCategory::QueueLibrary,
             "the start identifies the row"
         );
-        let section_categories: Vec<_> = SECTIONED.iter().map(|k| SignalCategory::of(*k)).collect();
-        for category in [
+        // The categories of the sectioned signals are exactly these three, not "at least": a sectioned
+        // signal of another category would make that category's wipe clear `peak_section` too, without
+        // a test noticing.
+        let expected = [
             SignalCategory::Volume,
             SignalCategory::Speed,
             SignalCategory::SeekSkipReplay,
-        ] {
-            assert!(section_categories.contains(&category), "{category:?}");
+        ];
+        for kind in SECTIONED {
+            assert!(
+                expected.contains(&SignalCategory::of(*kind)),
+                "{kind} is sectioned and belongs to {:?}",
+                SignalCategory::of(*kind)
+            );
+        }
+        for category in expected {
+            assert!(
+                SECTIONED.iter().any(|k| SignalCategory::of(*k) == category),
+                "{category:?} has no sectioned signal"
+            );
         }
     }
 

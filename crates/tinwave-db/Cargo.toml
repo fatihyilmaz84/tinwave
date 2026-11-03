@@ -17,6 +17,8 @@ tracing = { workspace = true }
 [dev-dependencies]
 cpu-time = { workspace = true }
 criterion = { workspace = true }
+# `Connection::trace_v2`: the wipe tests count the statements a wipe runs.
+rusqlite = { workspace = true, features = ["trace"] }
 tempfile = { workspace = true }
 
 [[bench]]

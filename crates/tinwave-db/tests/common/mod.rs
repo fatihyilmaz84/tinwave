@@ -5,15 +5,16 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use rusqlite::trace::{TraceEvent, TraceEventCodes};
 use rusqlite::Connection;
 use tinwave_core::{
     DeviceId, IdGenerator, ManualClock, RecordingId, Rng, SeededRng, SessionId, SignalEventId,
     SourceId, UtcMillis,
 };
-use tinwave_db::{BatchReport, DbError, SignalStore};
+use tinwave_db::{BatchReport, DbError, SignalStore, SignalWiper};
 use tinwave_signals::{
     CompletedPayload, ContextSnapshotId, ElapsedDs, GestureTime, InputSource, PausedPayload,
     PlayOrigin, PlayStartedPayload, PositionDs, QueueOrigin, QueuedPayload, ResumedPayload,
@@ -455,6 +456,40 @@ pub fn is_busy(error: &DbError) -> bool {
     )
 }
 
+/// The SQL statements `wipe` runs on the wiper's connection, in order, with its result: every
+/// statement SQLite starts, so the `BEGIN IMMEDIATE`, the scans, the `COMMIT` and the checkpoint
+/// of the wipe. A test pins the length of this list per kind of wipe, and compares it between a
+/// small and a large database: a statement per row, per distinct key or per kind shows up as a
+/// longer list.
+pub fn statements_of<R>(
+    wiper: &mut SignalWiper,
+    wipe: impl FnOnce(&mut SignalWiper) -> R,
+) -> (R, Vec<String>) {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let sink = Arc::clone(&log);
+    wiper
+        .connection_for_tests()
+        .trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT,
+            Some(move |event: TraceEvent<'_>| {
+                if let TraceEvent::Stmt(_, sql) = event {
+                    sink.lock().unwrap().push(sql.to_owned());
+                }
+            }),
+        )
+        .unwrap();
+    let result = wipe(wiper);
+    wiper
+        .connection_for_tests()
+        .trace_v2(
+            TraceEventCodes::SQLITE_TRACE_STMT,
+            None::<fn(TraceEvent<'_>)>,
+        )
+        .unwrap();
+    let statements = std::mem::take(&mut *log.lock().unwrap());
+    (result, statements)
+}
+
 /// The end of a wipe: set by [`during_a_wipe`] the moment the wipe call returned.
 pub type WipeEnd = OnceLock<Instant>;
 
@@ -504,6 +539,30 @@ pub fn write_batch_when_unlocked(
             _ => return (result, contended),
         }
     }
+}
+
+/// Writes `events` after a wipe returned and nothing else holds the database: a bare
+/// `write_batch`, not [`write_batch_when_unlocked`], because it must not be retried. The batch that
+/// waited during the wipe gets in the moment the wipe commits, before the wipe returns, so it cannot
+/// show a lock the wiper keeps afterwards (an open transaction on its connection); this batch can:
+/// it waits out the 5 s busy timeout and fails with "database is locked". It must be stored in
+/// under [`AFTER_WIPE_SLACK`] (a write to an idle database takes milliseconds).
+pub fn write_batch_after_the_wipe(store: &mut SignalStore, events: &[SignalEvent]) -> BatchReport {
+    let started = Instant::now();
+    let report = store.write_batch(events, &[]).unwrap_or_else(|e| {
+        panic!(
+            "a batch sent after the wipe returned was not stored ({:?} later): the wiper still \
+             holds a lock? {}",
+            started.elapsed(),
+            e.chain()
+        )
+    });
+    assert!(
+        started.elapsed() < AFTER_WIPE_SLACK,
+        "a batch sent after the wipe returned took {:?}",
+        started.elapsed()
+    );
+    report
 }
 
 /// Runs `wipe` on a thread and calls `during` once a second connection sees the wipe holding the
