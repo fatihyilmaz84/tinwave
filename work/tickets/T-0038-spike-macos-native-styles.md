@@ -24,3 +24,5 @@ Blocked: needs a macOS machine or CI runner (D-0001). Must run before E-01 accep
 ## Note from T-0036 (2026-11-03)
 - The platform bridge maps non-Windows to `Popup.Window` for the app menu until this spike verifies `Popup.Native`
   here; flip `PlatformSettings.nativeMenus` in the platform impl when it does (P-0188: add QML probe coverage).
+- (P-0216, T-0053) `platform::has_native_window_handles(qpa)` returns true on non-Windows today; narrow it to this
+  OS's native QPA plugin names when its platform impl lands.
