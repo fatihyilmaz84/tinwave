@@ -3,7 +3,7 @@ id: T-0074
 title: Test-only connection access behind a feature; pin write_batch statement count
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0073]
@@ -12,6 +12,7 @@ scope:
 owner: tw-builder
 branch: t/T-0074-test-only-connection-access
 review_round: 1
+merge: 1de23a8
 created_by: from P-0298, P-0299 (T-0073 build-1)
 ---
 

@@ -3,7 +3,7 @@ id: T-0075
 title: Contention tests that do not equate the SQLite busy timeout with wall time
 type: chore
 epic: E-01
-status: backlog
+status: ready
 priority: P3
 size: S
 depends_on: [T-0074]
@@ -12,7 +12,7 @@ scope:
 owner:
 branch:
 review_round: 0
-created_by: from P-0304 (T-0074 build-1)
+created_by: from P-0304 (T-0074 build-1), P-0310 (T-0074 review-1)
 ---
 
 ## Context
@@ -24,6 +24,8 @@ busy timeout took 6.1-6.4 s of wall time (T-0074). T-0074 fixed one test that re
 ## Scope
 - Grep `crates/tinwave-db/tests/` for fixed waits derived from the busy timeout; replace each with an event the test
   can observe (an attempt's busy error, a counter, a channel), or justify the margin in a comment.
+- (P-0310) In `signal_store.rs` `with_stored_plays`, grow `ui_counter`, `dict_entity` and `session` rows in the
+  large template too, so the write_batch small-vs-large comparison covers the counter and session paths.
 - No production code change unless a test shows a real bug (then stop and report).
 
 ## Acceptance criteria
