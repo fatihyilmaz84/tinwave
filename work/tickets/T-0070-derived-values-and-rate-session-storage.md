@@ -3,7 +3,7 @@ id: T-0070
 title: Derived signal values as a first-class path; store RateSession with the play
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: M
 depends_on: [T-0062]
@@ -16,9 +16,9 @@ scope:
   - apps/tinwave-desktop/src/app/wiring.rs   # only if the composition root must connect them
   - docs/guides/signal-catalog.md            # RateSession row and §9 estimate
   - docs/rules/database.md, docs/rules/storage-budget.md   # play row columns only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0070-derived-values-and-rate-session-storage
+review_round: 1
 created_by: from P-0275, P-0276 (T-0062 build-1)
 ---
 

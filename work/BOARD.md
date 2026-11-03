@@ -31,6 +31,8 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | tw-builder r1 | `t/T-0068-queue-edit-cancels-boundary-park` · `D:\dev\Tinwave-worktrees\T-0068-queue-edit-cancels-boundary-park` |
+| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | tw-builder r1 | `t/T-0070-derived-values-and-rate-session-storage` · `D:\dev\Tinwave-worktrees\T-0070-derived-values-and-rate-session-storage` |
 | [T-0075](tickets/T-0075-busy-timeout-wall-clock.md) Contention tests vs busy-timeout wall time (P3) | tw-builder r1 | `t/T-0075-busy-timeout-wall-clock` · `D:\dev\Tinwave-worktrees\T-0075-busy-timeout-wall-clock` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -60,8 +62,6 @@ _none_
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | feature | M | signals, db play, playback controller | free once T-0063 merges (playback) |
-| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | fix | S | playback decoder | playback slot |
 | [T-0069](tickets/T-0069-harden-controller-thread-tests.md) Harden controller tests under load (P2) | chore | S | playback tests | playback slot |
 | [T-0079](tickets/T-0079-image-stress-teardown-under-load.md) image-stress teardown under load: slow or hung; HANG_AFTER; stress docs (P3) | chore | S | desktop tests, tools/stress | free |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
