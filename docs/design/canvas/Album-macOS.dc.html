@@ -22,7 +22,7 @@ button{font:inherit;color:inherit}
 <label style="position: relative; display: block; padding-bottom: 10px"><span style="position: absolute; left: 0; width: 1px; height: 1px; overflow: hidden">Search</span><input type="search" placeholder="Search" style="width: 100%; height: 28px; box-sizing: border-box; padding: 0 8px 0 28px; border-radius: 6px; border: 0; background: #FFFFFF14; color: #F2F2F4; font: inherit; font-size: 13px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#A6A6AF" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 9px; top: 8px"><path d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4"></path></svg></label>
 <sc-for list="{{nav}}" as="g" hint-placeholder-count="4">
 <div style="display: flex; flex-direction: column; gap: 1px; padding-bottom: 12px">
-<span style="font-size: 11px; font-weight: 600; color: #8C8C95; padding: 4px 8px">{{g.label}}</span>
+<span style="font-size: 11px; font-weight: 600; color: #94949C; padding: 4px 8px">{{g.label}}</span>
 <sc-for list="{{g.items}}" as="i" hint-placeholder-count="4">
 <a href="#" style="height: 28px; display: flex; align-items: center; gap: 8px; padding: 0 8px; border-radius: 6px; text-decoration: none; color: #F2F2F4; background: {{i.bg}}">
 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="{{i.ic}}" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{i.d}}"></path></svg>
@@ -43,7 +43,7 @@ button{font:inherit;color:inherit}
 <span style="display: flex; gap: 8px; align-items: center">
 <span style="display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 4px; background: #202023; color: #A6A6AF; font-size: 11px; font-weight: 600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"></path></svg>Local · 9</span>
 <span style="display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 4px; background: #1A2533; color: #7BB0EE; font-size: 11px; font-weight: 600"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01"></path></svg>Jellyfin · Home · 2</span>
-<span style="font-size: 12px; color: #8C8C95">FLAC 24-bit / 96 kHz</span>
+<span style="font-size: 12px; color: #94949C">FLAC 24-bit / 96 kHz</span>
 </span>
 <div style="display: flex; gap: 8px; padding-top: 6px">
 <button style="height: 28px; padding: 0 14px; border-radius: 6px; border: 0; background: #0A84FF; color: #FFFFFF; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M7 4l13 8-13 8z"></path></svg>Play</button>
@@ -55,7 +55,7 @@ button{font:inherit;color:inherit}
 </div>
 </div>
 <div style="padding: 0 24px; display: flex; flex-direction: column">
-<div style="display: grid; grid-template-columns: 36px minmax(0, 1fr) 150px 56px; align-items: center; height: 26px; padding: 0 8px; font-size: 11px; color: #8C8C95; border-bottom: 1px solid #FFFFFF14">
+<div style="display: grid; grid-template-columns: 36px minmax(0, 1fr) 150px 56px; align-items: center; height: 26px; padding: 0 8px; font-size: 11px; color: #94949C; border-bottom: 1px solid #FFFFFF14">
 <span>#</span><span>Title</span><span>Source</span><span style="text-align: right">Time</span>
 </div>
 <sc-for list="{{tracks}}" as="t" hint-placeholder-count="9">
@@ -78,20 +78,20 @@ button{font:inherit;color:inherit}
 </div>
 <button style="border: 0; background: transparent; color: #4DA3FF; font-size: 12px">Clear</button>
 </div>
-<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8C8C95">Now playing</span>
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #94949C">Now playing</span>
 <div style="display: flex; gap: 10px; align-items: center">
 <span style="width: 40px; height: 40px; border-radius: 4px; background: #2F4858; flex: none"></span>
 <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0"><span style="font-weight: 600">Low Tide Choir</span><span style="color: #A6A6AF; font-size: 12px">Marlo Venn</span></span>
 </div>
-<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8C8C95; padding-top: 4px">Up next · from Harbour Lights</span>
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #94949C; padding-top: 4px">Up next · from Harbour Lights</span>
 <sc-for list="{{queue}}" as="q" hint-placeholder-count="4">
 <div style="display: flex; gap: 10px; align-items: center">
 <span style="width: 32px; height: 32px; border-radius: 4px; background: #2F4858; flex: none"></span>
 <span style="display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1"><span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{q.t}}</span><span style="color: #A6A6AF; font-size: 12px">{{q.a}}</span></span>
-<span style="color: #8C8C95; font-size: 12px; font-variant-numeric: tabular-nums">{{q.d}}</span>
+<span style="color: #94949C; font-size: 12px; font-variant-numeric: tabular-nums">{{q.d}}</span>
 </div>
 </sc-for>
-<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #8C8C95; padding-top: 4px">Then · Smart Radio continues</span>
+<span style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #94949C; padding-top: 4px">Then · Smart Radio continues</span>
 <sc-for list="{{radio}}" as="q" hint-placeholder-count="2">
 <div style="display: flex; flex-direction: column; gap: 6px">
 <div style="display: flex; gap: 10px; align-items: center">
@@ -154,7 +154,7 @@ signals: 'M3 12h4l3-8 4 16 3-8h4'
 const it = (t, d, sel) => ({ t, d, bg: sel ? '#FFFFFF1F' : 'transparent', ic: sel ? '#4DA3FF' : '#A6A6AF' });
 const L = { s: 'Local', si: I.local, sc: '#A6A6AF' };
 const S = { s: 'Jellyfin · Home', si: I.server, sc: '#7BB0EE' };
-const row = (n, t, d, src, playing) => Object.assign({ n: playing ? '▶' : n, t, d, bg: playing ? '#0A84FF26' : 'transparent', nc: playing ? '#4DA3FF' : '#8C8C95', tc: '#F2F2F4', w: playing ? '600' : '400' }, src);
+const row = (n, t, d, src, playing) => Object.assign({ n: playing ? '▶' : n, t, d, bg: playing ? '#0A84FF26' : 'transparent', nc: playing ? '#4DA3FF' : '#94949C', tc: '#F2F2F4', w: playing ? '600' : '400' }, src);
 return {
 nav: [
 { label: 'Library', items: [it('Songs', I.songs), it('Albums', I.album, true), it('Artists', I.artist)] },

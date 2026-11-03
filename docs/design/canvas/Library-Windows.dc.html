@@ -24,7 +24,7 @@ button{font:inherit;color:inherit}
 <div style="flex: 1; min-height: 0; display: flex">
 <nav aria-label="Main" style="width: 232px; flex: none; background: #EDEFF3; display: flex; flex-direction: column; padding: 8px 8px 12px; box-sizing: border-box; gap: 4px">
 <div style="display: flex; gap: 6px; align-items: center; padding: 4px 4px 8px">
-<button aria-label="App menu" style="width: 32px; height: 32px; border: 0; background: transparent; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
+<button aria-label="App menu" style="width: 32px; height: 32px; border: 0; background: transparent; border-radius: 4px; display: flex; align-items: center; justify-content: center; flex: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="1.75" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg></button>
 <label style="flex: 1; position: relative; display: block"><span style="position: absolute; left: 0; width: 1px; height: 1px; overflow: hidden">Search</span><input type="search" placeholder="Search" style="width: 100%; height: 32px; box-sizing: border-box; padding: 0 10px 0 30px; border-radius: 4px; border: 1px solid #E0E0E0; border-bottom-color: #8A8A8A; background: #FFFFFF; font: inherit; font-size: 13px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5D5D66" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="position: absolute; left: 10px; top: 9px"><path d="M11 4a7 7 0 100 14 7 7 0 000-14zM20 20l-4-4"></path></svg></label>
 </div>
 <sc-for list="{{nav}}" as="g" hint-placeholder-count="4">
@@ -33,7 +33,7 @@ button{font:inherit;color:inherit}
 <sc-for list="{{g.items}}" as="i" hint-placeholder-count="4">
 <a href="#" style="position: relative; height: 34px; display: flex; align-items: center; gap: 12px; padding: 0 12px; border-radius: 4px; text-decoration: none; color: #1B1B1F; font-size: 14px; background: {{i.bg}}; font-weight: {{i.w}}">
 <span style="position: absolute; left: 0; top: 9px; width: 3px; height: 16px; border-radius: 2px; background: {{i.pill}}"></span>
-<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{i.d}}"></path></svg>
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1B1B1F" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{i.d}}"></path></svg>
 <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{i.t}}</span>
 <span style="font-size: 12px; color: #5D5D66">{{i.meta}}</span>
 </a>
@@ -136,7 +136,7 @@ signals: 'M3 12h4l3-8 4 16 3-8h4',
 settings: 'M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4'
 };
 const it = (t, d, meta, sel) => ({ t, d, meta: meta || '', bg: sel ? '#E1E4EA' : 'transparent', pill: sel ? '#005FB8' : 'transparent', w: sel ? '600' : '400' });
-const src = { L: { si: I.local, sc: '#5D5D66', sl: 'Local' }, S: { si: I.server, sc: '#1F5FA8', sl: 'Jellyfin · Home' }, D: { si: I.download, sc: '#2E7D46', sl: 'Downloaded' } };
+const src = { L: { si: I.local, sc: '#5D5D66', sl: 'Local' }, S: { si: I.server, sc: '#1F5FA8', sl: 'Jellyfin · Home' }, D: { si: I.download, sc: '#2A7240', sl: 'Downloaded' } };
 const al = (t, ar, bg, fg, r, x, y, s, k) => Object.assign({ t, ar, bg, fg, r, x, y, s }, src[k]);
 return {
 nav: [
