@@ -16,6 +16,7 @@
 //! | `end_frac` | `Skipped`: its fraction. `Completed`: 255 (it reached the end, or the last 3 %) |
 //! | `flags` | [`PlayFlags`] |
 //! | `peak_section` | `NULL`: there is no audio analysis yet (E-03 fills it) |
+//! | `rate` | `NULL` at first; a derived value stores it afterwards, see "Derived values" |
 //! | `context_key` | the `key` of the `context_snapshot` the `PlayStarted` event points at; 0 (nothing known) when it has none, or the row or key is unusable |
 //!
 //! # Pairing: per device, in `seq` order, never per session
@@ -51,11 +52,21 @@
 //!   indistinguishable from a failure. [`EndReason::Stopped`] and [`EndReason::Quit`] therefore
 //!   exist as stable codes, but nothing writes them until a signal says which it was.
 //!
+//! # Derived values
+//!
+//! A derived signal (catalog class D) is never a `signal_event` row; its value goes into the `play`
+//! row of the play it describes ([`write_derived`]). The value names its play by what the row copies
+//! from the start (device, session, recording and the `PlayStarted` time), so the row is found by
+//! an equality `UPDATE` on those four and the `play_rec_ts` index, and no dictionary or session row is
+//! created for a play that has none: a value whose play has no row is [`DerivedWrite::NoPlay`].
+//! Today that is `RateSession` into `rate` (a `u8` of hundredths minus 50, `NULL` when not measured).
+//! Storing the same value twice (a retried batch) leaves the same row.
+//!
 //! Writing is idempotent per event: a row is derived only for an outcome event that was newly
 //! inserted, so a re-sent event (sync) or a retried batch never doubles a play.
 
 use rusqlite::{params, OptionalExtension, Transaction};
-use tinwave_signals::{ContextKey, PositionDs, SignalKind};
+use tinwave_signals::{ContextKey, DerivedPayload, DerivedValue, PositionDs, SignalKind};
 
 use crate::DbError;
 
@@ -211,6 +222,18 @@ pub(crate) enum PlayWrite {
     Unpaired,
 }
 
+/// What [`write_derived`] did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DerivedWrite {
+    /// The value is in the `play` row it describes.
+    Stored,
+    /// No `play` row has that identity: nothing was written.
+    NoPlay,
+}
+
+/// Sets `play.rate` of the play identified by device, session, recording and start time.
+const UPDATE_PLAY_RATE: &str = "UPDATE play SET rate = ?1     WHERE recording = (SELECT id FROM dict_recording WHERE uuid = ?2) AND started_ts = ?3     AND device = (SELECT id FROM dict_device WHERE uuid = ?4)     AND session = (SELECT id FROM session WHERE uuid = ?5)";
+
 /// The nearest earlier play-lifecycle event of the device: the start the outcome would pair with.
 const FIND_BOUNDARY: &str = "SELECT e.seq, e.kind, e.session, e.recording, e.source, e.ctx, \
     e.ts_off + s.started_ts \
@@ -317,6 +340,36 @@ pub(crate) fn write_play(tx: &Transaction<'_>, outcome: &Outcome) -> Result<Play
         ])
         .map_err(DbError::sqlite("inserting a play record"))?;
     Ok(PlayWrite::Written)
+}
+
+/// Stores `value` into the `play` row of the play it describes, if there is one (module docs).
+///
+/// The `match` has no wildcard: a new derived payload does not compile until it is decided here
+/// which column it fills.
+pub(crate) fn write_derived(
+    tx: &Transaction<'_>,
+    value: &DerivedValue,
+) -> Result<DerivedWrite, DbError> {
+    let (sql, stored) = match value.payload {
+        DerivedPayload::RateSession(p) => (UPDATE_PLAY_RATE, p.rate.raw()),
+    };
+    let play = value.play;
+    let changed = tx
+        .prepare_cached(sql)
+        .map_err(DbError::sqlite("preparing the update of a play record"))?
+        .execute(params![
+            stored,
+            &play.recording.as_bytes()[..],
+            play.started.as_i64(),
+            &value.id.device.as_bytes()[..],
+            &play.session.as_bytes()[..],
+        ])
+        .map_err(DbError::sqlite("storing a derived value in a play record"))?;
+    Ok(if changed == 0 {
+        DerivedWrite::NoPlay
+    } else {
+        DerivedWrite::Stored
+    })
 }
 
 /// Whether `start` already has its `play` row. The row's identity is what it copies from the

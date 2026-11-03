@@ -41,18 +41,19 @@ use tinwave_db::{
 };
 use tinwave_signals::{
     ActivityGuess, BusConfig, CompletedPayload, ContextKey, ContextScope, ContextSnapshotId,
-    CounterEntity, CrossfadePayload, Daypart, ElapsedDs, EntityKind, EqPayload, EventContext,
-    ExclusiveModePayload, ExplanationOpenedPayload, Fraction, GestureCoalescer, GestureTick,
-    GestureTime, Hash32, InputSource, MetadataEditedPayload, MetadataFields, MutePayload,
-    OutputClass, OutputDevicePayload, OutputTransport, PausedPayload, PlaceSlot, PlayOrigin,
-    PlayStartedPayload, PlaylistEditPayload, PlaylistKind, PositionDs, QueueOrigin,
-    QueueReorderedPayload, QueuedPayload, RadioFeedbackKind, RadioFeedbackPayload, Rate,
-    RatePayload, RatedPayload, RemovedFromQueuePayload, RepeatMode, RepeatModePayload,
-    ReplayedPayload, ResumedPayload, SearchNoResultPayload, SearchPerformedPayload,
-    SearchResultOpenedPayload, SearchScope, Section, SeekPayload, SessionEndedPayload,
-    SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload, SignalSettings,
-    SkipPayload, Stars, SystemVolumePayload, TemperatureBand, View, ViewOpenedPayload, Volume,
-    VolumePayload, WeatherCondition, WeekdayType, WindowStateKind, WindowStatePayload,
+    CounterEntity, CrossfadePayload, Daypart, DerivedPayload, DerivedValue, ElapsedDs, EntityKind,
+    EqPayload, EventContext, ExclusiveModePayload, ExplanationOpenedPayload, Fraction,
+    GestureCoalescer, GestureTick, GestureTime, Hash32, InputSource, MetadataEditedPayload,
+    MetadataFields, MutePayload, OutputClass, OutputDevicePayload, OutputTransport, PausedPayload,
+    PlaceSlot, PlayOrigin, PlayRef, PlayStartedPayload, PlaylistEditPayload, PlaylistKind,
+    PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload, RadioFeedbackKind,
+    RadioFeedbackPayload, Rate, RatePayload, RateSessionPayload, RatedPayload,
+    RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ReplayedPayload, ResumedPayload,
+    SearchNoResultPayload, SearchPerformedPayload, SearchResultOpenedPayload, SearchScope, Section,
+    SeekPayload, SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind,
+    SignalPayload, SignalSettings, SkipPayload, Stars, SystemVolumePayload, TemperatureBand, View,
+    ViewOpenedPayload, Volume, VolumePayload, WeatherCondition, WeekdayType, WindowStateKind,
+    WindowStatePayload,
 };
 
 use crate::common::{Ids, TempDb, T0};
@@ -542,6 +543,9 @@ impl Sim {
         self.ui.flush_all();
         self.sys.flush_all();
         let pos_ds = u32::try_from(ends_after / 100).unwrap();
+        // Just before the outcome, as the controller does: the outcome flushes the writer at once
+        // and takes the value with it.
+        self.emit_rate_session(start);
         if skipped {
             self.emit_here(
                 pos_ds,
@@ -1052,6 +1056,33 @@ impl Sim {
 
     // ---- lock step with the writer --------------------------------------------------------
 
+    /// The play's `RateSession`, as the controller emits it: just before the outcome event, naming the
+    /// play by the session and time of its `PlayStarted` (`started`, ms). The simulated listener
+    /// plays at the rate its last gesture left, which is mostly 1.0.
+    fn emit_rate_session(&mut self, started: i64) {
+        let (session, recording, rate) = (self.session, self.current.0, self.rate);
+        let outcome = self
+            .bus
+            .emit_derived(SignalKind::RateSession, |stamp| DerivedValue {
+                id: stamp.id,
+                ts: stamp.ts,
+                play: PlayRef {
+                    session,
+                    recording,
+                    started: UtcMillis::new(started),
+                },
+                payload: DerivedPayload::RateSession(RateSessionPayload {
+                    rate: Rate::from_raw(rate),
+                }),
+            })
+            .unwrap();
+        assert_eq!(
+            outcome,
+            tinwave_signals::EmitOutcome::Queued,
+            "the rate session was not queued"
+        );
+    }
+
     /// Waits until the writer has committed every event the bus accepted. The last event of a
     /// tick ends a play, which the writer flushes at once, so this returns within a commit.
     ///
@@ -1061,12 +1092,16 @@ impl Sim {
     fn barrier(&mut self) {
         let waiting = Instant::now();
         let target = self.bus.queued_total();
+        let derived_target = self.bus.derived_queued_total();
         let writer = self.writer.as_ref().unwrap();
         let start = Instant::now();
         let mut pause = BARRIER_POLL_FIRST;
         loop {
             let s = writer.stats();
-            if s.events_inserted + s.events_duplicate + s.events_rejected >= target {
+            // Derived values are not events: they are counted by what became of them.
+            if s.events_inserted + s.events_duplicate + s.events_rejected >= target
+                && s.derived_stored + s.derived_unmatched + s.derived_withdrawn >= derived_target
+            {
                 self.barrier_wait += waiting.elapsed();
                 return;
             }

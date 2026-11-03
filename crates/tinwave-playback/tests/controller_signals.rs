@@ -10,11 +10,32 @@ mod controller_support;
 use controller_support::*;
 use tinwave_playback::{LoadIntent, ManualOutput, PlaybackError, StreamInfo, StreamMode};
 use tinwave_signals::{
-    Fraction, InputSource, PlayOrigin, PositionDs, QueueOrigin, Rate, RepeatMode, Section,
-    SignalCategory, SignalKind, SignalPayload, Volume,
+    CounterRow, DerivedPayload, DerivedValue, Fraction, InputSource, PlayOrigin, PositionDs,
+    QueueOrigin, Rate, RepeatMode, Section, SignalCategory, SignalEvent, SignalKind, SignalPayload,
+    SignalSink, SignalsError, Volume,
 };
 
 const SECOND: usize = 48_000;
+
+/// Keeps the derived values of every batch the drain hands over, for the test that drives the drain
+/// itself (the controller thread has no `Rig`).
+struct ValueSink<'a>(&'a mut Vec<DerivedValue>);
+
+impl SignalSink for ValueSink<'_> {
+    fn write(&mut self, _: &[SignalEvent], _: &[CounterRow]) -> Result<(), SignalsError> {
+        Ok(())
+    }
+
+    fn write_with_derived(
+        &mut self,
+        _: &[SignalEvent],
+        _: &[CounterRow],
+        derived: &[DerivedValue],
+    ) -> Result<(), SignalsError> {
+        self.0.extend_from_slice(derived);
+        Ok(())
+    }
+}
 
 fn ds(ms: u64) -> PositionDs {
     PositionDs::from_ms(ms)
@@ -1320,9 +1341,15 @@ fn wait_applied(rig: &mut Rig, rate: f64) {
     );
 }
 
-/// Within 0.1 % of `expected`.
+/// The rate of a `RateSession` value, as stored: hundredths.
+fn rate_of(value: &DerivedValue) -> f64 {
+    let DerivedPayload::RateSession(payload) = value.payload;
+    f64::from(payload.rate.rate())
+}
+
+/// Within the half hundredth the stored rate is rounded to.
 fn near(measured: f64, expected: f64) -> bool {
-    (measured - expected).abs() / expected < 0.001
+    (measured - expected).abs() <= 0.005 + 1e-6
 }
 
 #[test]
@@ -1347,30 +1374,50 @@ fn a_heard_play_has_one_rate_session_with_the_time_weighted_rate_of_its_schedule
         played += frames as f64;
     }
     assert!(
-        rig.ctl.take_rate_sessions().is_empty(),
+        rig.take_rate_sessions().is_empty(),
         "a play that is still going has no value yet"
     );
     rig.clock.advance(5_000);
     rig.ctl.stop().expect("stop");
 
-    let sessions = rig.ctl.take_rate_sessions();
+    let sessions = rig.take_rate_sessions();
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     let expected = weighted / played;
     assert!(
-        near(sessions[0].time_weighted_rate, expected),
+        near(rate_of(&sessions[0]), expected),
         "measured {}, the schedule is {expected}",
-        sessions[0].time_weighted_rate
+        rate_of(&sessions[0])
     );
-    assert_eq!(sessions[0].recording, recording(1));
-    assert_eq!(sessions[0].source, source(1));
-    assert_eq!(sessions[0].at.as_i64(), T0 + 5_000, "when the play ended");
-    assert!(
-        rig.ctl.take_rate_sessions().is_empty(),
-        "taken once, not again"
-    );
+    assert_eq!(sessions[0].play.recording, recording(1));
+    assert_eq!(sessions[0].ts.as_i64(), T0 + 5_000, "when the play ended");
+    assert!(rig.take_rate_sessions().is_empty(), "taken once, not again");
     assert!(
         !kinds(&rig.signals()).contains(&SignalKind::RateSession),
         "a derived kind is never a bus event"
+    );
+}
+
+/// The value names its play by the `PlayStarted` it follows, and comes just before the play's
+/// outcome event, so the writer commits both together and finds the record the outcome makes.
+#[test]
+fn the_value_names_the_play_by_its_start_and_precedes_its_outcome() {
+    let mut rig = Rig::new("sig-ratesession-names");
+    let a = rig.wav("a.wav", SECOND);
+    let e = rig.entry(1, &a, SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.play_to_end();
+    let signals = rig.signals();
+    let started = only(&signals, SignalKind::PlayStarted);
+    let outcome = only(&signals, SignalKind::Completed);
+    let values: [DerivedValue; 1] = rig.take_rate_sessions().try_into().expect("one value");
+    let [value] = values;
+    assert_eq!(value.play.session, started.session);
+    assert_eq!(value.play.recording, started.recording.expect("recording"));
+    assert_eq!(value.play.started, started.ts);
+    assert_eq!(value.id.device, outcome.id.device);
+    assert!(
+        value.id.seq > started.id.seq && value.id.seq < outcome.id.seq,
+        "between the start and the outcome"
     );
 }
 
@@ -1395,21 +1442,24 @@ fn each_play_is_measured_on_its_own() {
     rig.render_exact(SECOND, 480);
     rig.ctl.stop().expect("stop");
 
-    let sessions = rig.ctl.take_rate_sessions();
+    let sessions = rig.take_rate_sessions();
     assert_eq!(
-        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        sessions
+            .iter()
+            .map(|s| s.play.recording)
+            .collect::<Vec<_>>(),
         [recording(1), recording(2)]
     );
     let first = (4_800.0 + 1.5 * SECOND as f64) / (4_800.0 + SECOND as f64);
     assert!(
-        near(sessions[0].time_weighted_rate, first),
+        near(rate_of(&sessions[0]), first),
         "{} against {first}",
-        sessions[0].time_weighted_rate
+        rate_of(&sessions[0])
     );
     assert!(
-        near(sessions[1].time_weighted_rate, 1.0),
+        near(rate_of(&sessions[1]), 1.0),
         "the first play's 1.5 must not leak into the second: {}",
-        sessions[1].time_weighted_rate
+        rate_of(&sessions[1])
     );
 }
 
@@ -1420,12 +1470,17 @@ fn a_play_at_normal_speed_throughout_has_a_rate_session_of_one() {
     let e = rig.entry(1, &a, SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
     rig.play_to_end();
-    let sessions = rig.ctl.take_rate_sessions();
+    let sessions = rig.take_rate_sessions();
     assert_eq!(sessions.len(), 1, "{sessions:?}");
     assert!(
-        near(sessions[0].time_weighted_rate, 1.0),
+        near(rate_of(&sessions[0]), 1.0),
         "{}",
-        sessions[0].time_weighted_rate
+        rate_of(&sessions[0])
+    );
+    assert_eq!(
+        rate_of(&sessions[0]).to_bits(),
+        1.0f64.to_bits(),
+        "stored as exactly 1.00"
     );
 }
 
@@ -1442,7 +1497,8 @@ fn no_rate_session_with_the_speed_category_off() {
     apply_rate(&mut rig, 1.25);
     rig.render_exact(SECOND, 480);
     rig.ctl.stop().expect("stop");
-    assert_eq!(rig.ctl.take_rate_sessions(), []);
+    assert_eq!(rig.take_rate_sessions(), []);
+    assert_eq!(rig.bus.derived_queued_total(), 0, "nothing was even queued");
 
     // Switched back on, the next play is measured again.
     rig.bus.settings().set_category(SignalCategory::Speed, true);
@@ -1450,7 +1506,7 @@ fn no_rate_session_with_the_speed_category_off() {
     let e = rig.entry(2, &b, SECOND);
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
     rig.play_to_end();
-    assert_eq!(rig.ctl.take_rate_sessions().len(), 1);
+    assert_eq!(rig.take_rate_sessions().len(), 1);
 }
 
 #[test]
@@ -1461,7 +1517,7 @@ fn no_rate_session_for_a_play_that_was_never_heard_or_could_not_be_played() {
     rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
     // Left before its first audio: not a play.
     rig.ctl.stop().expect("stop");
-    assert_eq!(rig.ctl.take_rate_sessions(), []);
+    assert_eq!(rig.take_rate_sessions(), []);
 
     // A track that fails to open is between two that play: only those have a value.
     let ok1 = rig.wav("ok1.wav", SECOND / 2);
@@ -1474,9 +1530,12 @@ fn no_rate_session_for_a_play_that_was_never_heard_or_could_not_be_played() {
     ];
     rig.select(entries, 0, PlayOrigin::Album, InputSource::Mouse);
     rig.play_to_end();
-    let sessions = rig.ctl.take_rate_sessions();
+    let sessions = rig.take_rate_sessions();
     assert_eq!(
-        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        sessions
+            .iter()
+            .map(|s| s.play.recording)
+            .collect::<Vec<_>>(),
         [recording(1), recording(3)],
         "{sessions:?}"
     );
@@ -1539,22 +1598,21 @@ fn rate_sessions_stay_right_across_exclusive_mode_reopens() {
         [48_000, 44_100, 96_000, 44_100],
         "the output was reopened for each file"
     );
-    let sessions = rig.ctl.take_rate_sessions();
+    let sessions = rig.take_rate_sessions();
     assert_eq!(
-        sessions.iter().map(|s| s.recording).collect::<Vec<_>>(),
+        sessions
+            .iter()
+            .map(|s| s.play.recording)
+            .collect::<Vec<_>>(),
         [recording(1), recording(2), recording(3)]
     );
     for s in &sessions {
-        assert!(
-            near(s.time_weighted_rate, 1.25),
-            "{} is not 1.25",
-            s.time_weighted_rate
-        );
+        assert!(near(rate_of(s), 1.25), "{} is not 1.25", rate_of(s));
     }
 }
 
 #[test]
-fn the_handle_hands_over_rate_sessions_from_the_controller_thread() {
+fn the_controller_thread_emits_rate_sessions_on_the_bus() {
     use std::sync::Arc;
     use std::time::Duration;
     use tinwave_core::{DeviceId, IdGenerator, ManualClock, SeededRng, TzOffsetMin, UtcMillis};
@@ -1565,7 +1623,7 @@ fn the_handle_hands_over_rate_sessions_from_the_controller_thread() {
 
     let clock = ManualClock::new(UtcMillis::new(T0));
     let device = DeviceId::from_parts(UtcMillis::new(T0), [4; 10]).expect("id");
-    let (bus, _drain) = SignalBus::channel(
+    let (bus, mut drain) = SignalBus::channel(
         BusConfig::new(device),
         clock.clone(),
         Arc::new(SignalSettings::new()),
@@ -1603,19 +1661,19 @@ fn the_handle_hands_over_rate_sessions_from_the_controller_thread() {
         .expect("load");
 
     let mut block = vec![0.0f32; 960];
-    let mut sessions = Vec::new();
+    let mut collected = Vec::new();
     for _ in 0..30_000 {
         let real = out.render(&mut block, 0).unwrap_or(0);
-        sessions.extend(handle.take_rate_sessions());
-        if !sessions.is_empty() {
+        let _ = drain.pump(&mut ValueSink(&mut collected)).expect("pump");
+        if !collected.is_empty() {
             break;
         }
         if real < 480 {
             std::thread::sleep(Duration::from_micros(200));
         }
     }
-    assert_eq!(sessions.len(), 1, "{sessions:?}");
-    assert_eq!(sessions[0].recording, recording(1));
-    assert!(near(sessions[0].time_weighted_rate, 1.0));
+    assert_eq!(collected.len(), 1, "{collected:?}");
+    assert_eq!(collected[0].play.recording, recording(1));
+    assert!(near(rate_of(&collected[0]), 1.0));
     handle.shutdown();
 }

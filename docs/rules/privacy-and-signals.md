@@ -67,7 +67,14 @@ Never collect, even with consent:
   `WindowState` and `OutputDeviceChanged` are T1, every other stored kind is T0, and T2 and T3 have no signal
   kind) with the same derived-data rule, computed from the wiped kinds: a column is cleared when any signal it is
   folded from is wiped (the start of a play, `PlayStarted`, is T0, so wiping T0 deletes the play records), and the
-  score, which blends every signal, is reset by any signal wipe. Wiping a tier in the Signal Center is one call
+  score, which blends every signal, is reset by any signal wipe. A column that holds a **derived value** (signal
+  catalog class D: today `play.rate`, the `RateSession`) is cleared by the wipe of the derived kind **and of every
+  input it is computed from** (`SignalKind::derived_inputs`), whatever the category or tier of the wipe: `play.rate`
+  by the Speed category (and by T0, which holds its input `RateChanged` but also `PlayStarted`, so it deletes the play
+  rows), and a derived kind with a T1 input and T0 inputs, like `PerceivedLevel`, by a T0 wipe, a T1 wipe, and the
+  Volume and Output and sound categories alike. A derived value is also not collected
+  while a category or tier of any of its inputs is off, and a value that was queued when its kind was switched off
+  is dropped, not stored. Wiping a tier in the Signal Center is one call
   (`SignalWiper::wipe_tiers`): the tier's signals, their derived data and the tier's context fields (T1: clock and
   output device, T2: foreground app and network place, T3: weather) go in **one transaction**.
   Each wipe is one transaction, and right after it commits the wiper folds the WAL into the main

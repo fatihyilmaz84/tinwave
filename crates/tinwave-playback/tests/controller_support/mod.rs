@@ -18,8 +18,9 @@ use tinwave_playback::{
     StreamInfo, TimezoneSource, DEFAULT_POLL_INTERVAL,
 };
 use tinwave_signals::{
-    BusConfig, CounterRow, InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus,
-    SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink, SignalsError,
+    BusConfig, CounterRow, DerivedValue, InputSource, PlayOrigin, QueueOrigin, RepeatMode,
+    SignalBus, SignalDrain, SignalEvent, SignalKind, SignalPayload, SignalSettings, SignalSink,
+    SignalsError,
 };
 
 use crate::common::{sweep, write_wav, TempDir, RATE};
@@ -28,12 +29,24 @@ use crate::common::{sweep, write_wav, TempDir, RATE};
 pub const T0: i64 = 1_793_577_600_000;
 pub const SEED: u64 = 2026;
 
+/// The events and the derived values the drain handed over.
 #[derive(Default)]
-struct Collector(Vec<SignalEvent>);
+struct Collector(Vec<SignalEvent>, Vec<DerivedValue>);
 
 impl SignalSink for Collector {
     fn write(&mut self, events: &[SignalEvent], _: &[CounterRow]) -> Result<(), SignalsError> {
         self.0.extend_from_slice(events);
+        Ok(())
+    }
+
+    fn write_with_derived(
+        &mut self,
+        events: &[SignalEvent],
+        counters: &[CounterRow],
+        derived: &[DerivedValue],
+    ) -> Result<(), SignalsError> {
+        self.write(events, counters)?;
+        self.1.extend_from_slice(derived);
         Ok(())
     }
 }
@@ -332,6 +345,12 @@ impl Rig {
                 break;
             }
         }
+    }
+
+    /// The derived `RateSession` values emitted since the previous call, oldest first.
+    pub fn take_rate_sessions(&mut self) -> Vec<DerivedValue> {
+        self.pump();
+        std::mem::take(&mut self.collected.1)
     }
 
     /// Every signal emitted so far.

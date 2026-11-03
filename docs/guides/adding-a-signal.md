@@ -22,6 +22,20 @@ Follow every step. A signal missing any of them is not done.
     Add it to the growth-test generator.
 12. **Benchmark** if it fires more than once per second.
 
+## A derived signal (class D)
+
+A signal computed from other signals (`RateSession`, `PerceivedLevel`) is not a `signal_event`: the bus refuses it
+(`NotAnEvent`). Steps 4, 5 (give it `StorageClass::Derived` and its `derived_inputs`), 8, 9 and 11 apply as above. Then:
+
+- Add a `DerivedPayload` variant in `tinwave-signals/src/derived.rs`; every consumer `match`es it without a wildcard.
+- Emit it with `SignalBus::emit_derived`, **just before** the event that ends the thing it describes, so the writer
+  stores both in one transaction. It is collected only while the category and tier of the kind and of every input are on.
+- Give it a place in `signals.db` (a nullable column on the play record, by a new migration) and a branch in
+  `tinwave-db/src/play.rs::write_derived`.
+- Register the column in `signal_wipe.rs` (`PLAY_COLUMNS`, `from: &[the derived kind]`): a wipe of the kind or of any
+  of its inputs clears it. Test the wipe of every category and tier the kind or an input belongs to.
+- Size it (a derived column costs bytes in every play record) and add it to the growth-test generator.
+
 ## Payload evolution
 
 Never change a payload in place. Bump `payload_version`, keep a decoder for every old version, and add a

@@ -10,17 +10,17 @@ use std::sync::Arc;
 
 use tinwave_core::{IdGenerator, RecordingId, SessionId, SourceId, UtcMillis};
 use tinwave_signals::{
-    CompletedPayload, ElapsedDs, EmitOutcome, EventContext, ExclusiveModePayload, Fraction,
-    GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, PlayOrigin,
-    PlayStartedPayload, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload, Rate,
-    RatePayload, RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section,
-    SeekPayload, SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind,
-    SignalPayload, SkipPayload, View, Volume, VolumePayload,
+    CompletedPayload, DerivedPayload, DerivedValue, ElapsedDs, EmitOutcome, EventContext,
+    ExclusiveModePayload, Fraction, GestureCoalescer, GestureTick, GestureTime, InputSource,
+    PausedPayload, PlayOrigin, PlayRef, PlayStartedPayload, PositionDs, QueueOrigin,
+    QueueReorderedPayload, QueuedPayload, Rate, RatePayload, RateSessionPayload,
+    RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section, SeekPayload,
+    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
+    SkipPayload, View, Volume, VolumePayload,
 };
 
-use super::rate_session::RateSessionQueue;
 use super::session::Session;
-use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, RateSession, TimezoneSource};
+use super::types::{PlayState, PlaybackStatus, QueueEdit, QueueEntry, TimezoneSource};
 use crate::event::{EventKind, LeaveCause, PlaybackEvent, StartCause};
 use crate::{EditId, PlaybackError, QueueItemId, RateStats};
 
@@ -159,6 +159,11 @@ struct Play {
     /// `None` when that signal was off then: a play is not measured from a moment the listener had
     /// not agreed to be measured at.
     rate_from: Option<RateStats>,
+    /// The session and time of this play's `PlayStarted` event, once it was emitted: what a derived
+    /// value names its play by (the `play` row is made of them). `None` before the play is heard,
+    /// and for a play whose start was not recorded (its category was off, or no session could be
+    /// opened): there is no row to attach a value to.
+    started: Option<(SessionId, UtcMillis)>,
 }
 
 impl Play {
@@ -204,8 +209,6 @@ pub(super) struct Mapper {
     /// `SessionStarted`, so a preference change is never lost for want of a session.
     reported_repeat: RepeatMode,
     reported_exclusive: bool,
-    /// Where finished `RateSession`s wait for their consumer.
-    rate_sessions: RateSessionQueue,
 }
 
 impl std::fmt::Debug for Mapper {
@@ -245,13 +248,7 @@ impl Mapper {
             exclusive: initial_exclusive,
             reported_repeat: initial_repeat,
             reported_exclusive: initial_exclusive,
-            rate_sessions: RateSessionQueue::default(),
         }
-    }
-
-    /// The hand-over point of the `RateSession`s this mapper derives.
-    pub fn rate_sessions(&self) -> &RateSessionQueue {
-        &self.rate_sessions
     }
 
     /// The queue the engine was given: what each item is, for the events that name it.
@@ -713,6 +710,7 @@ impl Mapper {
             // The play begins here, not at its `PlayStarted`: that waits for 100 ms of heard audio,
             // which this would leave out of the average.
             rate_from: self.bus.enabled(SignalKind::RateSession).then_some(*rates),
+            started: None,
         });
         self.set_audible(at, !self.paused);
 
@@ -740,12 +738,23 @@ impl Mapper {
             return;
         };
         let meta = play.meta;
-        self.play_started(at, meta, start);
+        let started = self.play_started(at, meta, start);
+        if let Some(play) = self.play.as_mut().filter(|p| p.item == item) {
+            play.started = started;
+        }
     }
 
     /// Emits `PlayStarted`. The session, if none is open, opens here: it begins with the first
     /// play that is heard.
-    fn play_started(&mut self, at: UtcMillis, meta: Meta, start: PendingStart) {
+    ///
+    /// Returns the session and the time the event was emitted with, which is how the play's row is
+    /// named later; `None` when no event is emitted (no session, or the signal is off).
+    fn play_started(
+        &mut self,
+        at: UtcMillis,
+        meta: Meta,
+        start: PendingStart,
+    ) -> Option<(SessionId, UtcMillis)> {
         let PendingStart {
             origin,
             input,
@@ -756,9 +765,15 @@ impl Mapper {
             session.tracks = session.tracks.saturating_add(1);
         }
         let scope = self.scope_of(Some(meta), Some(start_ms));
+        let started = self
+            .session
+            .as_ref()
+            .filter(|_| self.bus.enabled(SignalKind::PlayStarted))
+            .map(|session| (session.id, session.stamp(at)));
         self.send(SignalKind::PlayStarted, at, scope, || {
             SignalPayload::PlayStarted(PlayStartedPayload { origin, input })
         });
+        started
     }
 
     fn track_left(
@@ -771,7 +786,7 @@ impl Mapper {
         rates: &RateStats,
     ) {
         let _ = self.coalescer.flush_all();
-        let Some(play) = self.play.take().filter(|p| p.item == item) else {
+        let Some(mut play) = self.play.take().filter(|p| p.item == item) else {
             // Its start was never handled (unknown item), so there is nothing to close.
             return;
         };
@@ -786,7 +801,7 @@ impl Mapper {
             }
             // Played to its end, so it was heard (a track shorter than one position mark): the
             // play starts and ends now.
-            self.play_started(at, play.meta, start);
+            play.started = self.play_started(at, play.meta, start);
         }
         let position_ms = self.frame_ms(frame);
         let near_end = position_ms.saturating_mul(100)
@@ -797,8 +812,11 @@ impl Mapper {
             // Neither completed nor skipped: the track could not be played to its end.
             LeaveCause::Failed => return,
         };
-        // Every heard play that was not cut short by a failure, outcome or not (a stop in the
-        // middle of a track is heard and leaves no `Skipped`, but it has a rate).
+        // Before the outcome event, so that the value and the outcome reach the writer in one
+        // transaction: the value takes the next `seq`, the drain hands events and values over in
+        // `seq` order, and the play-end event makes the writer commit at once. The writer applies
+        // the value to the record that outcome makes. A stop in the middle of a track is heard and
+        // leaves no outcome, but it has a rate (the writer has no record for it and drops it).
         self.derive_rate_session(at, &play, rates);
         if completed || cause == LeaveCause::Replaced {
             // A play that outlived its session (paused over 30 minutes) is left by a real user
@@ -835,16 +853,26 @@ impl Mapper {
     }
 
     /// `RateSession` of a heard play that is being left: the time-weighted rate between the
-    /// counters at its `TrackStarted` and now. One per heard play, including a play that never
-    /// left 1.0 (the catalog row has no such exception, and a consumer needs the 1.0 to tell
-    /// "not rushed" from "not measured"). None when the signal was off at the start or is off now,
-    /// or when no audio was played in between (nothing to average). It is a derived value, so it
-    /// goes to the hand-over queue, not to the bus.
+    /// counters at its `TrackStarted` and now. One per heard play that was not cut short by a
+    /// failure, outcome or not, including a play that never left 1.0 (the catalog row has no such
+    /// exception, and a consumer needs the 1.0 to tell "not rushed" from "not measured"). None when
+    /// the signal was off at the start or is off now, when no audio was played in between (nothing
+    /// to average), or when the play's start was not recorded (no record to attach it to).
+    ///
+    /// It is a derived value, so it goes to the bus as a [`DerivedValue`], not as an event: the
+    /// writer stores it in the play's record, quantized to hundredths.
     fn derive_rate_session(&self, at: UtcMillis, play: &Play, rates: &RateStats) {
         if !self.bus.enabled(SignalKind::RateSession) {
             return;
         }
         let Some(from) = &play.rate_from else {
+            return;
+        };
+        let Some((session, started)) = play.started else {
+            tracing::debug!(
+                item = play.item.0,
+                "a play with no recorded start has no record; no RateSession"
+            );
             return;
         };
         let Some(time_weighted_rate) = rates.time_weighted_rate_since(from) else {
@@ -854,12 +882,36 @@ impl Mapper {
             );
             return;
         };
-        self.rate_sessions.push(RateSession {
-            at,
-            recording: play.meta.recording,
-            source: play.meta.source,
-            time_weighted_rate,
-        });
+        // Within 0.75 to 1.5 by construction, so the narrowing loses nothing the hundredths keep.
+        let rate = match Rate::from_rate(time_weighted_rate as f32) {
+            Ok(rate) => rate,
+            Err(error) => {
+                tracing::warn!(%error, "a play's rate is out of range; no RateSession");
+                return;
+            }
+        };
+        let outcome = self
+            .bus
+            .emit_derived(SignalKind::RateSession, |stamp| DerivedValue {
+                id: stamp.id,
+                ts: at,
+                play: PlayRef {
+                    session,
+                    recording: play.meta.recording,
+                    started,
+                },
+                payload: DerivedPayload::RateSession(RateSessionPayload { rate }),
+            });
+        match outcome {
+            Ok(EmitOutcome::Queued | EmitOutcome::Disabled) => {}
+            // The bus has counted it (`SignalBus::dropped`, shown in Diagnostics).
+            Ok(EmitOutcome::Dropped) => {
+                tracing::warn!(kind = %SignalKind::RateSession, "derived value lost to bus overflow");
+            }
+            Err(error) => {
+                tracing::error!(kind = %SignalKind::RateSession, %error, "derived value rejected by the bus");
+            }
+        }
     }
 
     // --- pause, seek, volume ----------------------------------------------------------------
@@ -1183,17 +1235,47 @@ mod tests {
     // --- RateSession ------------------------------------------------------------------------
 
     use tinwave_core::{DeviceId, ManualClock, SeededRng, TzOffsetMin};
-    use tinwave_signals::{BusConfig, SignalCategory, SignalDrain, SignalSettings};
+    use tinwave_signals::{
+        BusConfig, CounterRow, DerivedPayload, SignalCategory, SignalDrain, SignalSettings,
+        SignalSink, SignalsError,
+    };
 
     use super::super::types::FixedTimezone;
     use crate::{Position, Track};
 
     const T0: i64 = 1_793_577_600_000;
 
+    /// What the drain handed over, in the order it did.
+    #[derive(Default)]
+    struct Collected {
+        events: Vec<SignalEvent>,
+        derived: Vec<DerivedValue>,
+    }
+
+    impl SignalSink for Collected {
+        fn write(&mut self, events: &[SignalEvent], _: &[CounterRow]) -> Result<(), SignalsError> {
+            self.events.extend_from_slice(events);
+            Ok(())
+        }
+
+        fn write_with_derived(
+            &mut self,
+            events: &[SignalEvent],
+            counters: &[CounterRow],
+            derived: &[DerivedValue],
+        ) -> Result<(), SignalsError> {
+            self.write(events, counters)?;
+            self.derived.extend_from_slice(derived);
+            Ok(())
+        }
+    }
+
     struct Rig {
         mapper: Mapper,
         settings: Arc<SignalSettings>,
-        _drain: SignalDrain,
+        bus: SignalBus,
+        drain: SignalDrain,
+        collected: Collected,
     }
 
     fn rig() -> Rig {
@@ -1204,7 +1286,7 @@ mod tests {
             SignalBus::channel(BusConfig::new(device), clock.clone(), settings.clone())
                 .expect("bus");
         let mut mapper = Mapper::new(
-            bus,
+            bus.clone(),
             IdGenerator::new(clock, SeededRng::new(7)),
             Arc::new(FixedTimezone(TzOffsetMin::new(0).expect("offset"))),
             48_000,
@@ -1216,7 +1298,9 @@ mod tests {
         Rig {
             mapper,
             settings,
-            _drain: drain,
+            bus,
+            drain,
+            collected: Collected::default(),
         }
     }
 
@@ -1292,12 +1376,21 @@ mod tests {
             );
         }
 
-        fn sessions(&self) -> Vec<(RecordingId, f64)> {
-            self.mapper
-                .rate_sessions()
-                .take()
+        /// Everything the bus has accepted so far, drained into `collected`.
+        fn pump(&mut self) -> &Collected {
+            while self.drain.pump(&mut self.collected).expect("pump").more {}
+            &self.collected
+        }
+
+        /// The rate sessions emitted since the last call, as `(recording, rate)`.
+        fn sessions(&mut self) -> Vec<(RecordingId, f64)> {
+            self.pump();
+            std::mem::take(&mut self.collected.derived)
                 .into_iter()
-                .map(|s| (s.recording, s.time_weighted_rate))
+                .map(|v| {
+                    let DerivedPayload::RateSession(p) = v.payload;
+                    (v.play.recording, f64::from(p.rate.rate()))
+                })
                 .collect()
         }
     }
@@ -1417,27 +1510,98 @@ mod tests {
     }
 
     #[test]
-    fn a_consumer_that_never_collects_loses_the_oldest_and_it_is_counted() {
-        use super::super::rate_session::MAX_PENDING_RATE_SESSIONS as KEPT;
+    fn the_value_is_quantized_to_hundredths() {
         let mut rig = rig();
-        for n in 0..KEPT + 3 {
-            let wall = n as u64 * 48_000;
-            rig.start(1, &stats(wall, wall as f64));
-            rig.hear(1, &stats(wall + 4_800, (wall + 4_800) as f64));
-            // Play n runs at 0.75 + n/1000, so the survivors are told apart by their rate.
-            let rate = 0.75 + n as f64 / 1000.0;
-            rig.leave(
-                1,
-                LeaveCause::Stopped,
-                &stats(wall + 48_000, wall as f64 + 48_000.0 * rate),
-            );
-        }
-        assert_eq!(rig.mapper.rate_sessions().dropped(), 3);
-        let kept = rig.sessions();
-        assert_eq!(kept.len(), KEPT);
-        assert!(
-            (kept[0].1 - 0.753).abs() < 1e-9,
-            "the oldest three are gone"
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        // 1.2349 plays as 1.23, 1.2351 as 1.24: the rate type's resolution.
+        rig.leave(1, LeaveCause::Replaced, &stats(48_000, 48_000.0 * 1.2349));
+        rig.start(2, &stats(48_000, 48_000.0 * 1.2349));
+        rig.hear(2, &stats(52_800, 48_000.0 * 1.2349 + 4_800.0));
+        rig.leave(
+            2,
+            LeaveCause::Replaced,
+            &stats(96_000, 48_000.0 * 1.2349 + 48_000.0 * 1.2351),
         );
+        let got = rig.sessions();
+        assert_eq!(got.len(), 2);
+        assert!((got[0].1 - 1.23).abs() < 1e-6, "{}", got[0].1);
+        assert!((got[1].1 - 1.24).abs() < 1e-6, "{}", got[1].1);
+    }
+
+    /// The value names its play by the session and time of the `PlayStarted` event it follows,
+    /// and takes the `seq` just before the outcome event, so that the two are committed together
+    /// and the writer finds the record the outcome makes.
+    #[test]
+    fn the_value_names_its_play_and_precedes_the_outcome_event() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Replaced, &stats(48_000, 48_000.0 * 1.5));
+        let collected = rig.pump();
+        let started = collected
+            .events
+            .iter()
+            .find(|e| e.kind() == SignalKind::PlayStarted)
+            .expect("PlayStarted");
+        let outcome = collected
+            .events
+            .iter()
+            .find(|e| e.kind() == SignalKind::Skipped)
+            .expect("Skipped");
+        let [value] = collected.derived.as_slice() else {
+            panic!("one value, got {:?}", collected.derived);
+        };
+        assert_eq!(value.play.session, started.session);
+        assert_eq!(value.play.recording, started.recording.expect("recording"));
+        assert_eq!(value.play.started, started.ts);
+        assert!(
+            value.id.seq < outcome.id.seq && value.id.seq > started.id.seq,
+            "between the start and the outcome"
+        );
+        assert_eq!(value.kind(), SignalKind::RateSession);
+    }
+
+    /// With the start of the play not recorded there is no record to attach a value to: none is
+    /// emitted (the Queue and library category holds `PlayStarted`).
+    #[test]
+    fn a_play_whose_start_was_not_recorded_has_no_value() {
+        let mut rig = rig();
+        rig.settings
+            .set_category(SignalCategory::QueueLibrary, false);
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Replaced, &stats(48_000, 60_000.0));
+        assert_eq!(rig.sessions(), []);
+        assert_eq!(rig.bus.derived_queued_total(), 0);
+    }
+
+    /// A value is emitted for a play that has no outcome event (stopped mid-track): it is the
+    /// writer that drops it for want of a record, not the controller.
+    #[test]
+    fn a_stopped_play_still_emits_its_value() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Stopped, &stats(24_000, 30_000.0));
+        let collected = rig.pump();
+        assert!(!collected
+            .events
+            .iter()
+            .any(|e| matches!(e.kind(), SignalKind::Completed | SignalKind::Skipped)));
+        assert_eq!(rig.sessions(), [(recording_of(1), 1.25)]);
+    }
+
+    /// A value still waiting in the bus when the listener switches Speed off is not delivered.
+    #[test]
+    fn a_value_queued_before_speed_was_switched_off_is_not_delivered() {
+        let mut rig = rig();
+        rig.start(1, &stats(0, 0.0));
+        rig.hear(1, &stats(4_800, 4_800.0));
+        rig.leave(1, LeaveCause::Replaced, &stats(48_000, 60_000.0));
+        assert_eq!(rig.bus.derived_queued_total(), 1);
+        rig.settings.set_category(SignalCategory::Speed, false);
+        assert_eq!(rig.sessions(), []);
+        assert_eq!(rig.bus.derived_withdrawn(), 1);
     }
 }

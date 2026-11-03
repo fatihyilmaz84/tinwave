@@ -11,6 +11,9 @@ pub enum SignalsError {
     /// The kind is a counter or derived signal; it never has a packed event payload.
     #[error("signal kind {0} is not stored as a raw event and has no packed payload")]
     NotAnEvent(SignalKind),
+    /// The kind is a raw event or a counter, not a derived value: the bus refuses it as one.
+    #[error("signal kind {0} is not a derived value")]
+    NotDerived(SignalKind),
     /// The kind requires payload fields but the stored payload is `NULL`.
     #[error("payload for {0} is missing but the kind carries fields")]
     MissingPayload(SignalKind),

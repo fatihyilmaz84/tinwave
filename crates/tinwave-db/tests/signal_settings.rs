@@ -425,7 +425,7 @@ fn a_database_from_before_the_settings_table_is_upgraded_with_the_defaults() {
     assert_eq!(settings.settings().mask(), SignalSettings::new().mask());
     assert_eq!(
         count(&db.reader(), "SELECT count(*) FROM schema_migration"),
-        2
+        3
     );
     assert_eq!(count(&db.reader(), "SELECT count(*) FROM signal_event"), 1);
 }

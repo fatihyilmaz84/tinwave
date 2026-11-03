@@ -12,6 +12,11 @@ fields; they are stored as tiny packed, quantized structs (see [storage-budget.m
 **C** = counter only (never a raw event), **D** = derived (computed, not stored per occurrence).
 A derived signal's privacy tier is the **highest tier among its inputs** (e.g. `PerceivedLevel` is T1 because it
 uses the output device's gain); the code enforces this through `SignalKind::derived_inputs()`.
+A derived value is collected only while **every input's** category and tier is on as well as its own
+(`SignalSettings::enabled`), and it reaches the writer as a `DerivedValue` on the bus
+(`SignalBus::emit_derived`), never as a `signal_event` row ([ADR 0010](../adr/0010-derived-values-on-the-bus.md)).
+A wipe of any category or tier a derived kind is derived from clears it
+([privacy-and-signals.md](../rules/privacy-and-signals.md), "Wipe").
 
 Common enums:
 - `InputSource`: `Mouse | Keyboard | MediaKey | Tray | MiniPlayer | Remote(device_id) | Auto | System`
@@ -45,7 +50,7 @@ coalesced gesture (T-0027); `RateSession` is derived from the engine's `RateStat
 | Signal | Tier | Trigger | Payload | Meaning |
 |---|---|---|---|---|
 | `RateChanged` | T0 | Rate gesture ends | `from`, `to`, `input`, `section` | > 1.0 ⇒ impatience with this track (−0.2) unless context is Workout-like. < 1.0 ⇒ studying/learning (neutral, flags "practice track"). |
-| `RateSession` | derived | Once per heard play, when it ends (finished, skipped or stopped). None for a play never heard or one that failed, none while the Speed category is off, none for a play that straddles the toggle. A play spent entirely at 1.0 still has one (1.0), so "not rushed" differs from "not measured". | `time_weighted_rate` | Tracks always played fast ⇒ candidates for "radio edit" starts (skip intro). Source frames advanced per frame played, from the engine's counters (T-0062); accurate to about one device latency plus one poll at a play's edges (ADR 0006), exact when the rate did not change. Class D: never a `signal_event` row (the bus refuses derived kinds), so 0 B/day in the event table. The controller hands each value over (`Controller::take_rate_sessions`); keeping it in a play record would cost about one byte per play (≈ 0.1 KB/day at ~120 plays) and is added to §9 by the ticket that stores it. Toggled with `RateChanged`, by the Speed category. |
+| `RateSession` | derived | Once per heard play, when it ends (finished, skipped or stopped). None for a play never heard or one that failed, none while the Speed category is off, none for a play that straddles the toggle. A play spent entirely at 1.0 still has one (1.0), so "not rushed" differs from "not measured". | `time_weighted_rate` | Tracks always played fast ⇒ candidates for "radio edit" starts (skip intro). Source frames advanced per frame played, from the engine's counters (T-0062); accurate to about one device latency plus one poll at a play's edges (ADR 0006), exact when the rate did not change. Class D: never a `signal_event` row (the bus refuses derived kinds), so 0 B/day in the event table. The controller emits each value as a `DerivedValue` (`SignalBus::emit_derived`) just before the play's `Completed` or `Skipped`, and the writer stores it, quantized to hundredths (the `u8` of `Rate`: hundredths minus 50), in the `rate` column of that play's `play` row, in the transaction that writes the row: a nullable byte per play, about 2 B on disk (≈ 0.25 KB/day at ~120 plays, §9). A stopped play ends with no outcome, so it has no row and its value is dropped and counted. Toggled with `RateChanged`, by the Speed category; the value is not stored if Speed is switched off while it waits, and a Speed wipe resets the column to NULL (the Queue and library wipe, and with it a T0 wipe, deletes the play rows). |
 
 ## 3. Seek, skip, replay — "where is the good part?"
 
@@ -178,7 +183,7 @@ Session boundaries (T-0024):
 | Context snapshots (deduped, quantized; ~70 B per row incl. 64-bit hash, its UNIQUE index and key) | — | ~60 | ~4.5 KB |
 | UI counters (dwell, hover, impressions) | C | ~300 rows | ~7 KB |
 | Dictionaries and sessions (UUID ↔ small id for recordings, sources, entities; session rows) | — | — | ~20 KB while the library is being discovered, saturating as it is covered |
-| Play records (warm tier) | — | ~120 | ~6 KB |
+| Play records (warm tier), including the `rate` byte of the derived `RateSession` (D, ~2 B per play: ≈ 0.25 KB) | — | ~120 | ~6 KB |
 | **Total** | | | **~70 KB/day upper bound; measured ~49 KB/day ≈ 4.4 MB per 90-day hot window (T-0007)** |
 
 Measured by the storage growth test (T-0007, real pipeline, seed 2026): events average ~39 B on disk (29–47 by kind),

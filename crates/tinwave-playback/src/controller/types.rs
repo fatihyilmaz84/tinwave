@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tinwave_core::{Clock, IdGenerator, RecordingId, SessionId, SourceId, TzOffsetMin, UtcMillis};
+use tinwave_core::{Clock, IdGenerator, RecordingId, SessionId, SourceId, TzOffsetMin};
 use tinwave_signals::{InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalBus, View};
 
 use super::sink::SinkStats;
@@ -120,31 +120,6 @@ pub enum PlayState {
     Paused,
 }
 
-/// The time-weighted playback rate of one heard play: the catalog's derived `RateSession`.
-///
-/// Source frames advanced per frame played, over the play (1.0 is normal speed; a play spent
-/// half at 1.0 and half at 1.5 is 1.25). **Not exact per play:** the engine books its counters
-/// when the audio callback takes the frames, not when they reach the speaker, and the controller
-/// reads them when it handles the play's `TrackStarted` / `TrackLeft`, up to one poll (100 ms)
-/// later. A play's edges are therefore off by about one device latency plus one poll (ADR 0006,
-/// "Implementation (T-0027)", note 8); consecutive plays share their boundary, so no audio is
-/// counted twice or lost between them. The value is not quantized: storing it is the consumer's
-/// choice.
-///
-/// Delivered by [`Controller::take_rate_sessions`](crate::Controller::take_rate_sessions) because
-/// the bus carries raw events only (a derived kind is `SignalsError::NotAnEvent`).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RateSession {
-    /// When the play ended (the injected clock).
-    pub at: UtcMillis,
-    /// The recording that was played.
-    pub recording: RecordingId,
-    /// Its source.
-    pub source: SourceId,
-    /// Source frames per played frame over the play, within 0.75 to 1.5.
-    pub time_weighted_rate: f64,
-}
-
 /// A snapshot the shell reads (the desktop wiring adapts it to `tinwave-context`'s
 /// `PlaybackContextSource`; this crate does not depend on that one).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -200,9 +175,6 @@ pub struct ControllerDiagnostics {
     /// Listener queue acts (play next, add, reorder, remove) made with no session open that were
     /// lost because more than 64 were waiting for the next one. Normally 0.
     pub queue_acts_dropped: u64,
-    /// `RateSession` values lost because more than 64 were waiting to be collected with
-    /// [`Controller::take_rate_sessions`](crate::Controller::take_rate_sessions). Normally 0.
-    pub rate_sessions_dropped: u64,
 }
 
 /// The local timezone, which the controller needs once per listening session.

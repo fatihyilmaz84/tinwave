@@ -36,7 +36,7 @@
 //! | `Seeked` | `SeekForward` / `SeekBack`, through the 2 s [`GestureCoalescer`](tinwave_signals::GestureCoalescer) |
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
 //! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
-//! | `TrackStarted` / `TrackLeft` (not `Failed`, heard) | the play's `RateSession`, a derived value collected with [`Controller::take_rate_sessions`], not a bus event (see "`RateSession`") |
+//! | `TrackStarted` / `TrackLeft` (not `Failed`, heard) | the play's `RateSession`, a derived value the bus carries to the writer (`SignalBus::emit_derived`), not a bus event; emitted just before the play's outcome event (see "`RateSession`") |
 //! | `OutputOpened` / `OutputReopened` | **nothing**, whatever the stream's mode: a reopen at another sample rate (T-0057), an automatic fallback (a device that refuses exclusive mode or a rate) and a stream that is exactly what was asked for are facts about the engine, not preferences. A fallback's reason is logged at `warn`. `ExclusiveModeToggled` has another source, the listener's setting (see "Rules the mapping follows" below) |
 //! | `QueueEnded` | none (silence starts) |
 //! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
@@ -160,10 +160,15 @@
 //! `TrackLeft` are handled (the plays of one drain share one reading).
 //!
 //! - **Delivery.** `RateSession` is a *derived* kind (catalog class D): the bus refuses it as an
-//!   event (`SignalsError::NotAnEvent`). Each value is a [`RateSession`] collected with
-//!   [`Controller::take_rate_sessions`] (or [`ControllerHandle::take_rate_sessions`]); a consumer
-//!   that never collects costs 64 entries, then the oldest are dropped and counted
-//!   ([`ControllerDiagnostics::rate_sessions_dropped`]).
+//!   event (`SignalsError::NotAnEvent`) and carries it as a `DerivedValue`
+//!   (`SignalBus::emit_derived`, ADR 0010). The controller emits it **just before the play's
+//!   `Completed` or `Skipped`**, quantized to hundredths (`Rate`), naming the play by the session
+//!   and time of its `PlayStarted`; the signals writer stores it in that play's `play` row, in the
+//!   same transaction as the outcome that makes the row.
+//!   A queue that overflows because the writer stalled loses the new value and counts it in
+//!   `SignalBus::dropped(SignalKind::RateSession)`. A play that ends with no outcome event (a stop
+//!   before the last 3 %) has a value but no row to hold it: the writer drops it and counts it
+//!   (`WriterStats::derived_unmatched`) until stopped plays get a record.
 //! - **One per heard play**, when the play ends (`Finished`, `Replaced` or `Stopped`; a play that
 //!   outlived its session still gets its value). None for a play that was never heard or that
 //!   failed (`Failed`), for a play with no counted audio between its two readings (also a heard
@@ -185,7 +190,6 @@
 //! [`GestureCoalescer::rate`]: tinwave_signals::GestureCoalescer::rate
 
 mod mapper;
-mod rate_session;
 mod runtime;
 mod session;
 mod setting;
@@ -205,8 +209,7 @@ pub use runtime::ControllerHandle;
 pub use sink::{BoundedSink, SinkStats, CRITICAL_CAPACITY, MARK_CAPACITY};
 pub use types::{
     ControllerConfig, ControllerDiagnostics, FixedTimezone, LoadIntent, LoadRequest, PlayState,
-    PlaybackStatus, QueueEdit, QueueEditRequest, QueueEntry, RateSession, TimezoneSource,
-    DEFAULT_POLL_INTERVAL,
+    PlaybackStatus, QueueEdit, QueueEditRequest, QueueEntry, TimezoneSource, DEFAULT_POLL_INTERVAL,
 };
 
 /// The synchronous controller. See the module docs.
@@ -477,13 +480,6 @@ impl Controller {
         self.engine.rate_stats()
     }
 
-    /// The `RateSession`s derived since the last call, oldest first: one per heard play that
-    /// has ended (see "Playback rate" in the module docs). At most 64 are kept for a consumer that
-    /// does not collect; see [`ControllerDiagnostics::rate_sessions_dropped`].
-    pub fn take_rate_sessions(&mut self) -> Vec<RateSession> {
-        self.mapper.rate_sessions().take()
-    }
-
     /// Record the listener's repeat choice and emit `RepeatModeChanged` when it changed. The
     /// controller does not loop anything: enforcing repeat is the queue layer's (T-0023), which
     /// reads [`PlaybackStatus::repeat`].
@@ -555,7 +551,6 @@ impl Controller {
             edits_pending: self.mapper.edits_pending(),
             edits_refused: self.mapper.edits_refused(),
             queue_acts_dropped: self.mapper.queue_acts_dropped(),
-            rate_sessions_dropped: self.mapper.rate_sessions().dropped(),
         }
     }
 

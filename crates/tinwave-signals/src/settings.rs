@@ -122,6 +122,19 @@ const fn all_categories() -> u32 {
     mask
 }
 
+/// The bits that must be on for `kind` to be collected: its category and tier and, for a derived
+/// kind, the category and tier of every input.
+const fn required_bits(kind: SignalKind) -> u32 {
+    let mut need = SignalCategory::of(kind).bit() | tier_bit(kind.tier());
+    let inputs = kind.derived_inputs();
+    let mut i = 0;
+    while i < inputs.len() {
+        need |= SignalCategory::of(inputs[i]).bit() | tier_bit(inputs[i].tier());
+        i += 1;
+    }
+    need
+}
+
 /// Every bit a stored mask may have: the categories and the four tiers.
 const KNOWN_BITS: u32 = all_categories()
     | tier_bit(Tier::T0)
@@ -134,6 +147,11 @@ const KNOWN_BITS: u32 = all_categories()
 ///
 /// A kind is enabled when **both** its category and its tier are on. The default is the
 /// privacy-rules default: every category on, tiers T0 and T1 on, T2 and T3 (opt-in) off.
+///
+/// A derived kind is computed from other signals, so it is enabled only while **everything it is
+/// computed from** is: the category and the tier of each of its inputs
+/// ([`SignalKind::derived_inputs`]) as well as its own. `PerceivedLevel` needs the Volume and
+/// Output and sound categories and tiers T0 and T1.
 #[derive(Debug)]
 pub struct SignalSettings {
     /// Bits `0..7`: categories. Bits `8..12`: tiers T0..T3. One word so a check is one load.
@@ -188,7 +206,7 @@ impl SignalSettings {
     /// This is the check that runs before an event is constructed.
     #[must_use]
     pub fn enabled(&self, kind: SignalKind) -> bool {
-        let need = SignalCategory::of(kind).bit() | tier_bit(kind.tier());
+        let need = required_bits(kind);
         self.mask.load(Ordering::Relaxed) & need == need
     }
 
@@ -301,16 +319,17 @@ mod tests {
     }
 
     #[test]
-    fn a_category_toggle_disables_exactly_its_kinds() {
+    fn a_category_toggle_disables_exactly_its_kinds_and_what_is_derived_from_them() {
         for category in SignalCategory::ALL {
             let s = SignalSettings::new();
             s.set_category(category, false);
             for &kind in SignalKind::ALL {
-                assert_eq!(
-                    s.enabled(kind),
-                    SignalCategory::of(kind) != category,
-                    "{kind} with {category:?} off"
-                );
+                let uses = SignalCategory::of(kind) == category
+                    || kind
+                        .derived_inputs()
+                        .iter()
+                        .any(|input| SignalCategory::of(*input) == category);
+                assert_eq!(s.enabled(kind), !uses, "{kind} with {category:?} off");
             }
             s.set_category(category, true);
             assert!(SignalKind::ALL.iter().all(|&k| s.enabled(k)));
@@ -327,6 +346,29 @@ mod tests {
         assert!(!s.enabled(SignalKind::OutputDeviceChanged));
         assert!(!s.enabled(SignalKind::PerceivedLevel), "derived T1");
         assert!(s.enabled(SignalKind::VolumeChanged));
+    }
+
+    /// A derived kind is computed from its inputs, so each input's tier must be on too, not only
+    /// the highest: `PerceivedLevel` (T1) also holds volumes (T0).
+    #[test]
+    fn a_derived_kind_needs_every_tier_and_category_of_its_inputs() {
+        let s = SignalSettings::new();
+        s.set_tier(Tier::T0, false);
+        assert!(!s.enabled(SignalKind::VolumeChanged));
+        assert!(
+            !s.enabled(SignalKind::PerceivedLevel),
+            "its T1 is on but its volume inputs are T0"
+        );
+        assert!(!s.enabled(SignalKind::RateSession));
+        assert!(s.enabled(SignalKind::OutputDeviceChanged), "the T1 event");
+        s.set_tier(Tier::T0, true);
+        s.set_category(SignalCategory::OutputSound, false);
+        assert!(
+            !s.enabled(SignalKind::PerceivedLevel),
+            "the output device is one of its inputs"
+        );
+        assert!(s.enabled(SignalKind::VolumeChanged));
+        assert!(s.enabled(SignalKind::RateSession));
     }
 
     #[test]

@@ -220,10 +220,10 @@ fn play_rows(db: &TempDb) -> Vec<Vec<Option<i64>>> {
     let mut stmt = conn
         .prepare(
             "SELECT device, session, recording, source, started_ts, listened_ds, end_reason, \
-             end_frac, flags, peak_section, context_key FROM play ORDER BY id",
+             end_frac, flags, peak_section, context_key, rate FROM play ORDER BY id",
         )
         .unwrap();
-    stmt.query_map([], |r| (0..11).map(|i| r.get(i)).collect())
+    stmt.query_map([], |r| (0..12).map(|i| r.get(i)).collect())
         .unwrap()
         .map(Result::unwrap)
         .collect()

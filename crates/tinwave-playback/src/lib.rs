@@ -53,8 +53,7 @@ mod types;
 pub use controller::{
     BoundedSink, Controller, ControllerConfig, ControllerDiagnostics, ControllerHandle,
     FixedTimezone, LoadIntent, LoadRequest, PlayState, PlaybackStatus, QueueEdit, QueueEditRequest,
-    QueueEntry, RateSession, SinkStats, TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL,
-    MARK_CAPACITY,
+    QueueEntry, SinkStats, TimezoneSource, CRITICAL_CAPACITY, DEFAULT_POLL_INTERVAL, MARK_CAPACITY,
 };
 pub use engine::{Engine, EngineConfig, RateStats};
 pub use error::PlaybackError;

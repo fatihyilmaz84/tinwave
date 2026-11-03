@@ -193,6 +193,10 @@ pub struct Report {
     pub play_bytes: u64,
     /// `play` rows whose `context_key` is 0 (nothing known).
     pub plays_without_context: u64,
+    /// `play` rows that hold a `RateSession` (`rate` is not NULL).
+    pub plays_with_rate: u64,
+    /// Derived values the writer could not attach to a play row.
+    pub rates_unmatched: u64,
     /// Plays the simulation ran (each ends with `Completed` or `Skipped`).
     pub plays_simulated: u64,
     /// Outcomes the writer stored without a start to pair with.
@@ -346,6 +350,8 @@ pub fn measure(run: &Run) -> Report {
         play_rows: count("SELECT count(*) FROM play"),
         play_bytes: table_bytes("play"),
         plays_without_context: count("SELECT count(*) FROM play WHERE context_key = 0"),
+        plays_with_rate: count("SELECT count(*) FROM play WHERE rate IS NOT NULL"),
+        rates_unmatched: run.writer.derived_unmatched,
         plays_simulated: run.plays,
         plays_unpaired: run.writer.plays_unpaired,
         tables,
@@ -475,6 +481,12 @@ impl Report {
             out.push(format!(
                 "{} plays ended but the play table has {} rows ({} outcomes had no start)",
                 self.plays_simulated, self.play_rows, self.plays_unpaired
+            ));
+        }
+        if self.plays_with_rate != self.plays_simulated || self.rates_unmatched != 0 {
+            out.push(format!(
+                "{} plays were simulated but {} play rows hold their RateSession ({} values found no row)",
+                self.plays_simulated, self.plays_with_rate, self.rates_unmatched
             ));
         }
         if self.plays_without_context != 0 {
