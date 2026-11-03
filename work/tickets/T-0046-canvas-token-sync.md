@@ -3,15 +3,15 @@ id: T-0046
 title: Sync the design canvas token sheets with design-system §3.1 (post-T-0035 values)
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0035]
 scope:
   - docs/design/canvas/
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0046-canvas-token-sync
+review_round: 1
 created_by: from P-0133
 ---
 
