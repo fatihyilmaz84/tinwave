@@ -3,7 +3,7 @@ id: T-0045
 title: Run Theme.selfCheck() as a committed test (15 accents × 2 schemes)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0035]
@@ -37,3 +37,6 @@ None.
 ## Added from P-0156 (T-0043 build-1)
 - Also a headless probe that loads a `TwIcon` scene through `TINWAVE_MAIN_QML` (debug) and asserts no `qrc:` warnings,
   so TwIcon has coverage while the app does not use it yet.
+
+## Outcome
+2026-11-03: merged c5667c4 after review-1 APPROVE + post-approval Rust-side ratio re-check (P-0208). Gates on main green: 571 passed / 6 skipped.
