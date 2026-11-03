@@ -555,7 +555,7 @@ impl Decoder {
     ///
     /// This is the seam for time-stretch (ADR 0006, T-0027): the stretcher works at the file rate
     /// and runs on `st.chunk` first, then the resampler converts its output.
-    fn to_stream_rate(&mut self, st: &mut State) -> Result<(), PlaybackError> {
+    fn convert_chunk(st: &mut State) -> Result<(), PlaybackError> {
         match st.resampler.as_mut() {
             Some(resampler) => resampler.push(&st.chunk, &mut st.pending),
             None => {
@@ -593,7 +593,7 @@ impl Decoder {
             };
             st.chunk.clear();
             let result = match reader.next_chunk(&mut st.chunk) {
-                Ok(true) => self.to_stream_rate(st).map(|()| true),
+                Ok(true) => Self::convert_chunk(st).map(|()| true),
                 other => other,
             };
             match result {

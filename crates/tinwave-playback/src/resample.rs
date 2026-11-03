@@ -16,7 +16,7 @@
 //! # Where time-stretch goes (ADR 0006, T-0027)
 //! The chain is `reader -> [stretch] -> [resample] -> ring`. The stretcher works at the file rate
 //! and its output is what [`StreamResampler::push`] takes, so it slots in between the reader and
-//! the resampler in `Decoder::to_stream_rate`; nothing in this module changes.
+//! the resampler in `Decoder::convert_chunk`; nothing in this module changes.
 
 use std::fmt::Display;
 
