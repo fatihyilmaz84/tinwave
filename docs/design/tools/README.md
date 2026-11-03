@@ -24,12 +24,21 @@ as="x">` loops and `{{path}}` substitutions, and drops the runtime `<script>` ta
 constructs the boards use. If a board uses anything else, a `{{path}}` with no value, or a `list` that is not an array,
 the script stops with an error naming the file rather than writing a half-rendered page.
 
+**Remote resources are dropped.** A render never loads anything from the network. The script removes tags that load
+over http(s) (`<link href>`, `<img src>`, `<script src>`, `<iframe src>` and similar), CSS `@import` of an http(s) URL, and
+`url(http(s)://...)` values (they become `none`), and prints one `dropped remote resource` line per drop on stderr. The
+local or fallback font from the board's `font-family` list is then used. Ordinary links (`<a href>`) and text are
+untouched. The boards themselves should not carry remote references; the note tells you when one does.
+
 ### Screenshot
 
 Add `--screenshot` and the script also saves `<out-dir>/<Name>.png` with a locally installed headless Edge, Chrome or
 Chromium (found in the usual install paths; set `TINWAVE_BROWSER` to an executable path to override). The window is the
 board's size from `canvas.json` (1440 × 1900 for Main, 1440 × 900 for the screen boards), with a throw-away browser
-profile and sync, background networking and component update switched off.
+profile; sync, background networking and component update are off, and
+`--host-resolver-rules="MAP * ~NOTFOUND"` makes every host name unresolvable, so a screenshot cannot reach the network
+even if a remote reference slipped through. The old PNG is deleted before the browser starts, and a non-zero browser exit
+fails the run, so a stale PNG never passes for a fresh one.
 
 ```
 node docs/design/tools/render-canvas.js docs/design/canvas <out-dir> --screenshot

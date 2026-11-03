@@ -67,6 +67,32 @@ function expand(s, ctx, file) {
   });
 }
 
+// Remote resources are never fetched: a render must work offline and must not call out. Drops
+// - tags that load something over http(s) (<link href>, <img src>, <script src>, <iframe src>, ...);
+// - CSS @import of an http(s) URL, and url(http(s)://...) values (replaced by `none`).
+// Plain links (<a href>) and text are left alone. Returns the cleaned HTML and a description of each drop.
+const REMOTE = '(?:https?:)?//';
+const REMOTE_TAG = new RegExp(
+  '<(?:link|img|script|iframe|source|video|audio|embed|object|image|use)\\b[^>]*?\\b(?:href|src|data|xlink:href)\\s*=\\s*["\']?' +
+    REMOTE +
+    '[^>]*>',
+  'gi',
+);
+const REMOTE_IMPORT = new RegExp('@import\\s+(?:url\\(\\s*)?["\']?' + REMOTE + '[^;]*;?', 'gi');
+const REMOTE_URL = new RegExp('url\\(\\s*["\']?' + REMOTE + '[^)]*\\)', 'gi');
+
+function dropRemote(html) {
+  const dropped = [];
+  const drop = (kind, replacement) => (m) => {
+    dropped.push(`${kind}: ${m.replace(/\s+/g, ' ').slice(0, 120)}`);
+    return replacement;
+  };
+  html = html.replace(REMOTE_TAG, drop('tag', ''));
+  html = html.replace(REMOTE_IMPORT, drop('@import', ''));
+  html = html.replace(REMOTE_URL, drop('url()', 'none'));
+  return { html, dropped };
+}
+
 function render(file) {
   let html = fs.readFileSync(file, 'utf8');
   const vals = loadValues(html, file);
@@ -74,6 +100,9 @@ function render(file) {
     .replace(/<script type="text\/x-dc"[\s\S]*?<\/script>/, '')
     .replace(/<script src="\.\/support\.js"><\/script>/, '');
   html = expand(html, vals, file);
+  const cleaned = dropRemote(html);
+  html = cleaned.html;
+  for (const d of cleaned.dropped) console.error(`${path.basename(file)}: dropped remote resource, ${d}`);
   const leftover = /<sc-[a-z-]+|\{\{/.exec(html);
   if (leftover) throw new Error(`${file}: unsupported canvas construct left in output: ${leftover[0]}`);
   return html;
@@ -98,6 +127,8 @@ function findBrowser() {
 function screenshot(browser, htmlFile, pngFile, width, height) {
   // A throw-away profile so the run neither touches nor waits on the user's own browser profile.
   const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'tinwave-canvas-'));
+  // A stale PNG from an earlier run must never make a failed run look successful.
+  fs.rmSync(pngFile, { force: true });
   try {
     const r = spawnSync(
       browser,
@@ -109,6 +140,8 @@ function screenshot(browser, htmlFile, pngFile, width, height) {
         '--disable-sync',
         '--disable-background-networking',
         '--disable-component-update',
+        // Belt and braces: even if a remote reference slipped through, no host name resolves.
+        '--host-resolver-rules=MAP * ~NOTFOUND',
         `--user-data-dir=${profile}`,
         `--window-size=${width},${height}`,
         `--screenshot=${pngFile}`,
@@ -116,7 +149,7 @@ function screenshot(browser, htmlFile, pngFile, width, height) {
       ],
       { stdio: 'ignore', timeout: 60000 },
     );
-    if (r.error || !fs.existsSync(pngFile)) {
+    if (r.error || r.status !== 0 || !fs.existsSync(pngFile)) {
       throw new Error(`screenshot of ${htmlFile} failed (${r.error ? r.error.message : 'exit ' + r.status})`);
     }
   } finally {
