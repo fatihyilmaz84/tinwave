@@ -809,11 +809,11 @@ impl SignalDrain {
 
     /// Merges the queues into `events` and `derived` by `seq`, up to `max_batch` items in all.
     ///
-    /// The derived lane is looked at **before** the event lanes in every round. A producer sends
-    /// the event that ends a play before it sends that play's derived value, so once the value has
-    /// been received the event is visible to the peeks that follow: a value is never taken while
+    /// The derived lane is looked at **before** the event lanes in every round. A producer thread
+    /// sends in `seq` order, so once a value has been received every event that producer sent
+    /// before it (lower `seq`) is visible to the peeks that follow: a value is never taken while
     /// an event with a lower `seq` is still on its way, and the batch is a prefix of the merged
-    /// order. A value taken is dropped, and counted, if its kind is no longer collected.
+    /// order. (The controller sends a play's value just before its outcome event.) A value taken is dropped, and counted, if its kind is no longer collected.
     fn fill(&mut self) {
         while self.events.len() + self.derived.len() < self.max_batch {
             let next_derived = self.derived_lane.peek_seq();

@@ -78,16 +78,17 @@ fn migrations_apply_on_an_empty_database_and_are_idempotent() {
             "missing table {expected}"
         );
     }
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 2);
+    // Every migration is recorded once; the counts follow the migration list, not a literal.
+    let migrations = SIGNALS_MIGRATIONS.len();
+    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), migrations as i64);
 
     // Running the runner again, and reopening the file, changes nothing.
     let report = store.migrate().unwrap();
-    assert_eq!((report.applied, report.version), (0, 2));
+    assert_eq!((report.applied, report.version as usize), (0, migrations));
     drop(store);
     let _again = SignalStore::open(&db.path).unwrap();
     assert_eq!(tables(&r), first);
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), 2);
-    assert_eq!(SIGNALS_MIGRATIONS.len(), 2);
+    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), migrations as i64);
 }
 
 #[test]
@@ -195,7 +196,8 @@ fn schema_matches_database_md() {
             "end_frac",
             "flags",
             "peak_section",
-            "context_key"
+            "context_key",
+            "rate"
         ]
     );
     assert_eq!(
