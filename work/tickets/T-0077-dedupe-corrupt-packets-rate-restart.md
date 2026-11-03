@@ -14,7 +14,7 @@ scope:
 owner:
 branch:
 review_round: 0
-created_by: from P-0305 (T-0063 build-1)
+created_by: from P-0305 (T-0063 build-1), P-0313 (T-0063 review-1)
 ---
 
 ## Context
@@ -22,6 +22,9 @@ A rate restart re-reads the item from the audible frame, so packets reported bef
 
 ## Scope
 - Track a "reported up to source frame N" per item (or per-packet source frames) so `drop_reader` sends only new ones.
+
+- (P-0313) A device switch (`Reconfigure` -> `restart`, decoder.rs ~713) that re-reads a broken track must not
+  report a second TrackFailed: keep `reported` across it as a rate restart does.
 
 ## Acceptance criteria
 - [ ] A track with a corrupt packet before the restart point reports it once across one or more restarts (test).
