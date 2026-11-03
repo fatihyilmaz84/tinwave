@@ -11,7 +11,8 @@ use tinwave_playback::{
     LoadIntent, LoadRequest, PlaybackError, QueueEdit, QueueEditRequest, QueueEntry,
 };
 use tinwave_signals::{
-    InputSource, PlayOrigin, QueueOrigin, SignalCategory, SignalKind, SignalPayload, View,
+    InputSource, PlayOrigin, QueueOrigin, RepeatMode, SignalCategory, SignalKind, SignalPayload,
+    View,
 };
 
 const SECOND: usize = 48_000;
@@ -418,19 +419,134 @@ fn an_edit_on_a_track_restored_paused_opens_the_session_like_any_other_act() {
     assert_eq!((p.tracks, p.minutes), (0, 0));
 }
 
-#[test]
-fn an_add_with_nothing_loaded_and_no_session_is_applied_and_not_recorded() {
-    let mut rig = Rig::new("edit-sig-idle");
-    let x = extra(&rig, 3, QueueOrigin::Manual);
-    rig.ctl
-        .queue_later(vec![x], View::Library, InputSource::Mouse)
-        .expect("queue later");
-    assert!(rig.signals().is_empty(), "no session, nothing recorded");
-    assert_eq!(rig.ctl.status().session, None, "and none was opened for it");
+/// A fresh rig, with nothing loaded, whose first session is started by a track played from
+/// `a.wav`.
+fn start_playing(rig: &mut Rig) {
+    let a = rig.wav("first.wav", 20 * SECOND);
+    let e = rig.entry(1, &a, 20 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.render_until_heard();
 }
 
 #[test]
-fn an_edit_after_the_session_expired_is_applied_and_not_recorded() {
+fn an_add_with_nothing_loaded_waits_for_the_first_session_and_is_reported_right_after_it() {
+    let mut rig = Rig::new("edit-sig-idle");
+    // A repeat choice made before any session is reported first, then the queue acts.
+    rig.ctl.set_repeat_mode(RepeatMode::All);
+    let (x, y) = (
+        extra(&rig, 3, QueueOrigin::Manual),
+        extra(&rig, 4, QueueOrigin::Album),
+    );
+    rig.ctl
+        .queue_later(vec![x], View::Library, InputSource::Mouse)
+        .expect("queue later");
+    rig.ctl
+        .queue_later(vec![y], View::Album, InputSource::Keyboard)
+        .expect("queue later");
+    assert!(rig.signals().is_empty(), "no session yet: nothing yet");
+    assert_eq!(rig.ctl.status().session, None, "and none was opened for it");
+    assert_eq!(rig.ctl.diagnostics().queue_acts_dropped, 0);
+
+    start_playing(&mut rig);
+    let signals = rig.signals();
+    assert_eq!(
+        kinds(&signals),
+        [
+            SignalKind::SessionStarted,
+            SignalKind::RepeatModeChanged,
+            SignalKind::QueuedLater,
+            SignalKind::QueuedLater,
+            SignalKind::PlayStarted
+        ],
+        "SessionStarted, the deferred preference changes, the deferred queue acts, the play"
+    );
+    for (event, id, view) in [
+        (&signals[2], 3, View::Library),
+        (&signals[3], 4, View::Album),
+    ] {
+        assert_eq!(event.session, signals[0].session);
+        assert_eq!(event.ts, signals[0].ts, "stamped with the session's start");
+        assert_eq!(event.recording, Some(recording(id)), "captured at the act");
+        assert_eq!(event.source, Some(source(id)));
+        let SignalPayload::QueuedLater(p) = event.payload else {
+            panic!("kind");
+        };
+        assert_eq!(p.from_view, view);
+    }
+    // Reported once: the next session has none of them.
+    rig.ctl.pause(InputSource::Mouse);
+    rig.clock.advance(30 * 60_000);
+    rig.ctl.poll();
+    rig.ctl.resume(InputSource::Mouse);
+    assert_eq!(rig.of_kind(SignalKind::QueuedLater).len(), 2);
+}
+
+#[test]
+fn only_the_newest_64_deferred_acts_are_kept_and_the_rest_are_counted() {
+    let mut rig = Rig::new("edit-sig-overflow");
+    let path = rig.wav("shared.wav", SECOND);
+    // 65 acts in 13 calls (the engine takes at most 64 commands at a time).
+    for first in (100..165u64).step_by(5) {
+        let entries: Vec<_> = (first..first + 5)
+            .map(|id| entry(id, &path, SECOND, QueueOrigin::Album))
+            .collect();
+        rig.ctl
+            .queue_later(entries, View::Library, InputSource::Mouse)
+            .expect("queue later");
+    }
+    assert_eq!(rig.ctl.diagnostics().queue_acts_dropped, 1);
+    start_playing(&mut rig);
+    let later = rig.of_kind(SignalKind::QueuedLater);
+    assert_eq!(later.len(), 64);
+    assert_eq!(later[0].recording, Some(recording(101)), "100 was dropped");
+    assert_eq!(later[63].recording, Some(recording(164)));
+    assert_eq!(rig.ctl.diagnostics().queue_acts_dropped, 1);
+}
+
+#[test]
+fn a_kind_that_is_off_buffers_nothing_and_one_turned_off_before_the_session_is_not_reported() {
+    let mut rig = Rig::new("edit-sig-deferred-toggle");
+    let settings = rig.bus.settings().clone();
+    let (x, y, z) = (
+        extra(&rig, 3, QueueOrigin::Manual),
+        extra(&rig, 4, QueueOrigin::Manual),
+        extra(&rig, 5, QueueOrigin::Manual),
+    );
+    // Off when the act is made: nothing is kept, even though the category is on again when the
+    // session starts.
+    settings.set_category(SignalCategory::QueueLibrary, false);
+    rig.ctl
+        .queue_later(vec![x], View::Library, InputSource::Mouse)
+        .expect("while off");
+    settings.set_category(SignalCategory::QueueLibrary, true);
+    rig.ctl
+        .queue_later(vec![y], View::Library, InputSource::Mouse)
+        .expect("while on");
+    start_playing(&mut rig);
+    let later = rig.of_kind(SignalKind::QueuedLater);
+    assert_eq!(later.len(), 1, "only the act made while on");
+    assert_eq!(later[0].recording, Some(recording(4)));
+
+    // On when the act is made, off by the time the next session starts: nothing is built, and
+    // nothing is kept for later.
+    rig.ctl.pause(InputSource::Mouse);
+    rig.clock.advance(30 * 60_000);
+    rig.ctl.poll();
+    rig.ctl
+        .queue_later(vec![z], View::Library, InputSource::Mouse)
+        .expect("between sessions");
+    settings.set_category(SignalCategory::QueueLibrary, false);
+    rig.ctl.resume(InputSource::Mouse);
+    settings.set_category(SignalCategory::QueueLibrary, true);
+    rig.ctl.pause(InputSource::Mouse);
+    rig.clock.advance(30 * 60_000);
+    rig.ctl.poll();
+    rig.ctl.resume(InputSource::Mouse);
+    assert_eq!(rig.of_kind(SignalKind::QueuedLater).len(), 1);
+}
+
+#[test]
+fn an_edit_after_the_session_expired_waits_for_the_next_session() {
     let (mut rig, entries) = playing("edit-sig-expired");
     rig.ctl.pause(InputSource::Mouse);
     rig.clock.advance(30 * 60_000);
@@ -451,9 +567,10 @@ fn an_edit_after_the_session_expired_is_applied_and_not_recorded() {
     .expect("edit");
     settle_edits(&mut rig);
     assert_eq!(rig.ctl.status().session, None, "the edit opened none");
-    assert_eq!(rig.of_kind(SignalKind::QueuedNext).len(), 0);
+    assert_eq!(rig.of_kind(SignalKind::QueuedNext).len(), 0, "not yet");
 
-    // The listener comes back: resuming starts the next session, and then edits count again.
+    // The listener comes back: resuming starts the next session, which reports the earlier edit
+    // right after its start, before the resume; then edits count as they happen.
     rig.ctl.resume(InputSource::Mouse);
     edit(
         &mut rig,
@@ -464,11 +581,24 @@ fn an_edit_after_the_session_expired_is_applied_and_not_recorded() {
     )
     .expect("edit in the new session");
     settle_edits(&mut rig);
+    let signals = rig.signals();
+    let tail: Vec<_> = kinds(&signals).into_iter().rev().take(4).rev().collect();
+    assert_eq!(
+        tail,
+        [
+            SignalKind::SessionStarted,
+            SignalKind::QueuedNext,
+            SignalKind::Resumed,
+            SignalKind::QueuedNext
+        ]
+    );
     let queued = rig.of_kind(SignalKind::QueuedNext);
-    assert_eq!(queued.len(), 1);
-    assert_eq!(queued[0].recording, Some(recording(4)));
+    assert_eq!(
+        [queued[0].recording, queued[1].recording],
+        [Some(recording(3)), Some(recording(4))]
+    );
     let session = rig.ctl.status().session.expect("a new session");
-    assert_eq!(queued[0].session, session);
+    assert_eq!((queued[0].session, queued[1].session), (session, session));
 }
 
 #[test]

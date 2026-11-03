@@ -31,6 +31,10 @@ const COMPLETED_FROM_PERCENT: u64 = 97;
 /// can be in flight; this only guards against a decoder that never answers.
 const MAX_PENDING_EDITS: usize = 256;
 
+/// Queue acts made with no session to record them in, kept until the next session starts. When
+/// it is full the oldest is dropped and counted.
+const MAX_DEFERRED_QUEUE_ACTS: usize = 64;
+
 /// What caused the events being handled: the command in progress, or nothing (the engine's own
 /// doing, which is `Auto`).
 #[derive(Debug, Clone, Copy)]
@@ -178,6 +182,9 @@ pub(super) struct Mapper {
     table: HashMap<QueueItemId, Meta>,
     edits: VecDeque<PendingEdit>,
     edits_refused: u64,
+    /// Listener queue acts waiting for a session (pre-sized, never grows).
+    deferred_acts: VecDeque<QueueAct>,
+    acts_dropped: u64,
     session: Option<Session>,
     play: Option<Play>,
     /// The engine's pause flag as last reported (it survives a `load`).
@@ -218,6 +225,8 @@ impl Mapper {
             table: HashMap::new(),
             edits: VecDeque::new(),
             edits_refused: 0,
+            deferred_acts: VecDeque::with_capacity(MAX_DEFERRED_QUEUE_ACTS),
+            acts_dropped: 0,
             session: None,
             play: None,
             paused: false,
@@ -333,8 +342,10 @@ impl Mapper {
     /// Emits the signals of queue preferences. A listener's act only: `Auto` is the queue layer
     /// refilling, not a preference. Needs a session; a play that has not been heard yet and has none
     /// opens one, like any other act of the listener on it (`open_session_for_unheard`). With no
-    /// session and no such play (nothing loaded, or the play outlived its session) the edit is
-    /// applied and not recorded, as for a seek or a volume change.
+    /// session and no such play (nothing loaded, or the play outlived its session) the act waits in
+    /// a bounded buffer and is reported right after the next `SessionStarted`
+    /// ([`report_queue_acts`](Self::report_queue_acts)): a preference is not lost for want of a
+    /// session. A kind that is switched off buffers nothing.
     fn record_queue_acts(&mut self, at: UtcMillis, input: InputSource, acts: &[QueueAct]) {
         self.expire(at);
         if input == InputSource::Auto {
@@ -347,15 +358,45 @@ impl Mapper {
         };
         for act in acts {
             let kind = act.kind();
+            if !self.bus.enabled(kind) {
+                continue;
+            }
             self.open_session_for_unheard(at, cx, kind);
-            let meta = act.meta();
-            let scope = Scope {
-                recording: Some(meta.recording),
-                source: Some(meta.source),
-                pos_ds: None,
-            };
-            self.send(kind, at, scope, || act.payload());
+            if self.session.is_some() {
+                self.send_queue_act(at, *act);
+            } else {
+                if self.deferred_acts.len() >= MAX_DEFERRED_QUEUE_ACTS {
+                    self.deferred_acts.pop_front();
+                    self.acts_dropped = self.acts_dropped.saturating_add(1);
+                }
+                self.deferred_acts.push_back(*act);
+            }
         }
+    }
+
+    fn send_queue_act(&self, at: UtcMillis, act: QueueAct) {
+        let meta = act.meta();
+        let scope = Scope {
+            recording: Some(meta.recording),
+            source: Some(meta.source),
+            pos_ds: None,
+        };
+        self.send(act.kind(), at, scope, || act.payload());
+    }
+
+    /// Queue acts made while there was no session are reported now, right after `SessionStarted`
+    /// and the deferred preference changes, oldest first. They carry the time the session started
+    /// (not the time of the act) and the recording and source captured at the act. A kind that has
+    /// been switched off since constructs nothing.
+    fn report_queue_acts(&mut self, at: UtcMillis) {
+        while let Some(act) = self.deferred_acts.pop_front() {
+            self.send_queue_act(at, act);
+        }
+    }
+
+    /// Queue acts dropped because more than 64 were waiting for a session.
+    pub fn queue_acts_dropped(&self) -> u64 {
+        self.acts_dropped
     }
 
     /// Queue edits waiting for the decoder thread's verdict.
@@ -538,6 +579,7 @@ impl Mapper {
         );
         self.session = Some(session);
         self.report_preferences(at);
+        self.report_queue_acts(at);
     }
 
     /// Preference changes made while there was no session are reported now, right after

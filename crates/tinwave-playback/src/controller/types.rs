@@ -163,6 +163,9 @@ pub struct ControllerDiagnostics {
     /// was not changed and nothing was recorded for them; the shell should re-read the queue and
     /// offer the edit again.
     pub edits_refused: u64,
+    /// Listener queue acts (play next, add, reorder, remove) made with no session open that were
+    /// lost because more than 64 were waiting for the next one. Normally 0.
+    pub queue_acts_dropped: u64,
 }
 
 /// The local timezone, which the controller needs once per listening session.

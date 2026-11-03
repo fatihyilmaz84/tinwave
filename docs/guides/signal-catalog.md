@@ -150,10 +150,13 @@ Session boundaries (T-0024):
   one signal per item, scoped to that item's recording and source (`was_radio_pick` is whether its `queue_origin` is
   `Radio`). An edit made by the queue layer itself (`Auto`, e.g. a radio refill) is applied and records nothing. Only
   an edit the engine applied is recorded: one built on a track that is no longer playing, or refused because the next
-  track was already decoding (the decoder reads up to a second ahead), changes nothing and emits nothing. An edit needs
-  a session like a pause or a seek: with none open, a listener's edit on a play that has not been heard yet (restored
-  paused at launch) opens one with that play's origin; otherwise (nothing loaded, or the play outlived its session) it
-  is applied and not recorded. Unlike a repeat or exclusive-mode change it is not deferred to the next session.
+  track was already decoding (the decoder reads up to a second ahead), changes nothing and emits nothing. An edit is
+  recorded in a session: with none open, a listener's edit on a play that has not been heard yet (restored paused at
+  launch) opens one with that play's origin. Otherwise (nothing loaded, or the play outlived its session) the act waits
+  in a buffer of 64 (oldest dropped, counted in diagnostics) and is reported right after the next `SessionStarted` and
+  after any deferred repeat/exclusive-mode change, stamped with the session's start time but carrying the recording and
+  source of the act: `SessionStarted`, preference changes, queue acts, then the first `PlayStarted`. A kind switched off
+  when the act is made buffers nothing; one switched off by the time the session starts is not reported.
 - A track that plays to its end before any position mark (shorter than 100 ms) was heard: its `PlayStarted` is
   emitted at the end, immediately before its `Completed`. A file that "finishes" without a single decoded frame (empty
   or truncated, every packet undecodable) or a seek to the very end of an unheard track is not a play and leaves no

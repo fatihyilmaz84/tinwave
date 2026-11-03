@@ -71,10 +71,17 @@
 //!   still waiting); `queue_later` has no verdict to wait for and records at once.
 //! - **A listener's act.** `Auto` (the queue layer's own refill) applies the edit and records
 //!   nothing.
-//! - **Sessions.** Like a pause or a seek, an edit needs a session. If none is open and the
-//!   playing track has not been heard yet (restored paused at launch), a listener's edit opens
-//!   one, with that play's origin (see "Sessions"). Otherwise (nothing loaded, or the play
-//!   outlived its session) the edit is applied and not recorded.
+//! - **Sessions.** An edit is recorded in a session. If none is open and the playing track has not
+//!   been heard yet (restored paused at launch), a listener's edit opens one, with that play's
+//!   origin (see "Sessions"). Otherwise (nothing loaded, or the play outlived its session) the act
+//!   is applied and kept in a buffer of 64 acts (the oldest is dropped when it is full, counted in
+//!   [`ControllerDiagnostics::queue_acts_dropped`]) and reported right after the next
+//!   `SessionStarted` and after any deferred `RepeatModeChanged` / `ExclusiveModeToggled`, so a
+//!   session reads `SessionStarted`, preference changes, queue acts, then the first `PlayStarted`.
+//!   Deferred acts carry the session's start time and the recording and source captured at the
+//!   act. A kind that is switched off when the act is made buffers nothing, and one switched off
+//!   by the time the session starts constructs nothing. Acts still waiting when the controller
+//!   closes with no session are lost.
 //! - The signals carry no `InputSource` (the catalog gives these kinds no `input` field); it only
 //!   tells a listener's edit from `Auto`.
 //!
@@ -115,13 +122,13 @@
 //!   play in the new session, then the new `PlayStarted`. (Only a `stop` in the last 3 % of such
 //!   a play has no command origin and is not kept.) `SessionEnded.minutes` runs from the start to the last
 //!   audible moment (not including the 30 minutes of silence).
-//! - **Gestures and queue edits need a session.** A volume change, a seek or a queue edit with no
-//!   session (nothing has played for 30 minutes, or ever; for a seek or an edit: a paused play whose
-//!   session has ended) is applied but not recorded.
+//! - **Gestures need a session.** A volume change or a seek with no session (nothing has played
+//!   for 30 minutes, or ever; for a seek: a paused play whose session has ended) is applied but
+//!   not recorded.
 //! - **Preference changes are not lost for want of a session.** `RepeatModeChanged` and
 //!   `ExclusiveModeToggled` made while no session is open are emitted right after the next
-//!   `SessionStarted`, if the value still differs from the last one reported. (Queue edits are
-//!   many small acts, not one value, and are not deferred.)
+//!   `SessionStarted`, if the value still differs from the last one reported. Queue acts are
+//!   deferred the same way, from a bounded buffer (see "Queue edits").
 //! - **Disabled categories construct nothing**: payloads are built inside the bus's emit closure,
 //!   after the toggle check.
 //! - **`ctx`** (the context snapshot id) is `None`: attaching snapshots is the context engine's
@@ -438,6 +445,7 @@ impl Controller {
             sink: self.sink_stats(),
             edits_pending: self.mapper.edits_pending(),
             edits_refused: self.mapper.edits_refused(),
+            queue_acts_dropped: self.mapper.queue_acts_dropped(),
         }
     }
 
