@@ -1,6 +1,6 @@
 # Board
 
-_Maintained by the lead. Last updated: 2026-11-02._
+_Maintained by the lead. Last updated: 2026-11-03._
 
 ## Needs the PO
 - [D-0009](decisions/D-0009-project-licence.md): the GitHub repo says GPL-3.0 but the project and package say
@@ -35,14 +35,17 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither (E-01) | tw-reviewer r2 (build-2: race fixed, edits asserted, past-end seek, flush attribution) | `t/T-0019-resampler-and-dither` @ d6d7e74 · `D:\dev\Tinwave-worktrees\T-0019-resampler-and-dither` |
+_none_
+
+## Recently done
+- [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither — merged 2e83776 (review r2 APPROVE; P-0223 docs applied).
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
 |---|---|---|---|---|
-| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | after T-0019 (same engine paths) |
+| [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | feature | M | tinwave-playback | next playback ticket |
+| [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | feature | M | tinwave-db, tinwave-signals (ContextKey), taste-engine.md | free: no overlap with playback |
+| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | feature | M | tinwave-playback | after T-0027 |
 | [T-0025](tickets/T-0025-flush-fade.md) Fade on seek/skip flush (P2) | feature | S | tinwave-playback | free (T-0026 merges first if it lands) |
 
 Max 3 agents in flight, reviewers included. Root `Cargo.toml` [workspace.dependencies] and `Cargo.lock` don't count as
@@ -59,8 +62,7 @@ overlap (work/README.md); the branch merging second merges main first.
 ## Backlog
 | Ticket | Depends on |
 |---|---|
-| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | T-0019 |
-| [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | T-0019 |
+| [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
 | [T-0010](tickets/T-0010-spike-jellyfin.md) Spike: Jellyfin | — (P2) |

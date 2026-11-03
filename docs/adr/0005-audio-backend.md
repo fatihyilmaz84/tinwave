@@ -119,7 +119,10 @@ sample exact.
   `ExclusiveModeToggled` from the backend open/close path.
 - Library scanning must extract gapless info for M4A (`iTunSMPB`, `elst`) and keep it with the file record. Files
   without it are played untrimmed (documented limitation, same as every other player).
-- Float -> integer conversion for exclusive mode needs a policy (dither/noise shaping). The spike truncates.
+- Float -> integer conversion for exclusive mode: **TPDF dither** (2 LSB peak to peak) on `I16`/`I24In32` outputs,
+  except for samples already exactly on the target grid, so 16-bit material through `I16` (or 24-bit through
+  `I24In32`) at unity gain stays bit-perfect. `F32` and `I32` are never dithered. No noise shaping (T-0019;
+  policy in `output/convert.rs`).
 - Licensing: see below. MPL-2.0 (Symphonia) is file-level copyleft; we do not modify it, so no obligation beyond
   notices. AAC decoding in software has no patent license attached to the crate (Via LA licenses decoders/encoders
   sold in products; bitstreams are free). Tinwave is free local software but this needs a PO/legal decision; the
@@ -133,8 +136,10 @@ sample exact.
   endpoint and back) is verified; the OS events are registered but untriggered. `PO-RUNBOOK.md` has the procedure.
 - Real-world files: no ffmpeg/iTunes/libFLAC on the machine, so AAC/ALAC/FLAC were produced by Rust crates and the Windows
   MF encoder. iTunes-style M4A priming, VBR MP3 seeking, HE-AAC and Opus remain unverified.
-- 24-bit exclusive audible quality, ASIO, WASAPI offload, 5.1+ outputs (engine is stereo-only), sample-rate change
-  between tracks (needs the rubato path wired in).
+- 24-bit exclusive audible quality, ASIO, WASAPI offload, 5.1+ outputs (engine is stereo-only).
+- Sample-rate change between tracks: verified on the fake output (T-0019: 44.1 -> 48 -> 44.1 -> 96 -> 48 kHz with no
+  gap, no callback allocation), not yet listened to on a real endpoint. Exclusive mode still plays every track at
+  the stream rate; reopening at the file rate is T-0057.
 
 ## Licenses
 

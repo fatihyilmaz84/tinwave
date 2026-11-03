@@ -99,8 +99,9 @@ fn render_never_allocates_across_play_seek_volume_pause_and_device_change() {
         .replace_after(QueueItemId(1), vec![track(2, &b)])
         .expect("remove");
     rig.h.expect_edit_applied(edit);
-    // First fill: callbacks race the decoder, so some are starved (underrun path) -- they must
-    // not allocate either.
+    // Play from a ring the decoder has been filling during the edit waits above. Starved callbacks
+    // (the underrun path) come later, from the seek, the device switch and the end of the queue;
+    // they must not allocate either.
     rig.run(40, false);
     // Play.
     rig.run(30, true);
@@ -219,7 +220,9 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
     rig.settle();
     rig.run(30, true);
     // Play on through 44.1 -> 48 -> 44.1 -> 96 -> 48 kHz (about 199,000 frames from here), then
-    // past the end of the queue.
+    // past the end of the queue. Budget: 470 waiting callbacks x 441 = 207,270 frames against
+    // about 211,675 left after the seek. Lengthening these steps, or shortening the fixtures in
+    // `rate_change_files`, makes `wait_buffered` panic: keep the margin.
     rig.run(440, true);
     rig.run(100, false);
 
