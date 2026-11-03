@@ -37,8 +37,20 @@
 //! the output frames before the flush, which the control side may still be hearing). At most one
 //! such flush happens per [`RATE_FLUSH_INTERVAL`]; a change that arrives sooner waits, and the
 //! value current when the interval is over is the one applied, so the final value of a drag is
-//! never lost. With nothing audible (nothing loaded, or everything has been played) there is
-//! nothing to flush and the rate is simply adopted.
+//! never lost. The interval is over when it has passed on the monotonic clock or on the engine's
+//! injected clock (`Decoder::clock`, the same wall time in production), so a test ends it by
+//! moving its manual clock instead of sleeping, and a wall clock set back never holds a change up
+//! (`Decoder::throttle_wait`). While the acknowledgement of such a flush is awaited the thread
+//! polls at `FLUSH_WAIT_MIN` for its first `RATE_ACK_FAST_POLLS` polls, with no backoff
+//! (`Decoder::wait_for_ack`): the listener hears a gap until the new stream starts, and a running
+//! stream acknowledges within a callback. A stream that does not (a failed device switch leaves a
+//! ring nobody plays) then gets the command flush's backoff, so it costs about 20 wakeups per
+//! second and not 1000. With nothing audible (nothing loaded, or everything has been played) there is nothing to flush and
+//! the rate is simply adopted.
+//!
+//! The restart reads the track again from the audible frame. An item that fails again there is
+//! not reported twice (`State::reported`), and one that cannot be reopened at all leaves as
+//! `Failed` (`State::heard`), not `Finished`.
 //!
 //! # Exclusive mode: the stream follows the file (T-0057)
 //! In exclusive mode (`Shared::follow`) the output is not resampled to one rate: it is reopened
@@ -66,7 +78,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use rtrb::Producer;
-use tinwave_core::Clock;
+use tinwave_core::{Clock, UtcMillis};
 
 use crate::event::{EventKind, EventSink, PlaybackEvent};
 use crate::rate_stage::StretchStage;
@@ -143,10 +155,32 @@ impl std::fmt::Debug for Cmd {
 /// least ~97 % full while costing about 40 wakeups per second.
 const FULL_RING_WAIT: Duration = Duration::from_millis(25);
 /// Poll interval while waiting for the renderer to acknowledge a flush: starts short (a running
-/// stream acks within a callback) and backs off, so a stream that is not running (failed device
-/// switch) costs about 20 wakeups per second instead of 1000.
+/// stream acks within a callback) and, for a command's flush, backs off, so a stream that is not
+/// running (failed device switch) costs about 20 wakeups per second instead of 1000. A rate
+/// flush polls at the minimum for its first [`RATE_ACK_FAST_POLLS`] polls before it backs off too.
 const FLUSH_WAIT_MIN: Duration = Duration::from_millis(1);
 const FLUSH_WAIT_MAX: Duration = Duration::from_millis(50);
+/// Polls at `FLUSH_WAIT_MIN` that a rate flush gets before its backoff starts (30 ms on a precise
+/// timer): a running stream acknowledges within a callback, so the gap the listener hears is not
+/// stretched by a backoff, and a stream that never does is not polled 1000 times a second.
+const RATE_ACK_FAST_POLLS: u32 = 30;
+
+/// How long the next wait for a flush's acknowledgement is, and how it grows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct AckPoll {
+    interval: Duration,
+    /// Timeouts left before a rate flush's interval starts doubling.
+    fast_left: u32,
+}
+
+impl AckPoll {
+    const fn new() -> Self {
+        Self {
+            interval: FLUSH_WAIT_MIN,
+            fast_left: RATE_ACK_FAST_POLLS,
+        }
+    }
+}
 /// At most one rate flush per this long (ADR 0006: 100 to 150 ms while a slider is dragged). Each
 /// flush costs the listener a 15 ms dip, so a drag must not produce one per pixel.
 pub(crate) const RATE_FLUSH_INTERVAL: Duration = Duration::from_millis(125);
@@ -185,8 +219,16 @@ struct State {
     stretch: Option<StretchStage>,
     /// Stretched audio on its way to the resampler.
     stretched: Vec<f32>,
-    /// When the last rate flush began (the throttle's clock).
-    last_rate_flush: Option<Instant>,
+    /// When the last rate flush began, on the monotonic clock and on `Decoder::clock` (the
+    /// throttle's clocks).
+    last_rate_flush: Option<(Instant, UtcMillis)>,
+    /// Items whose failure has been reported since the last command restarted the stream. A rate
+    /// restart reads the track again, so a file that is broken at some place fails there a second
+    /// time; the listener's session must not see that as a second failure.
+    reported: HashSet<QueueItemId>,
+    /// The item that was audible when a rate restart began, while it is being reopened: if it
+    /// cannot be, it has failed (its `TrackLeft` says so), whatever the items after it do.
+    heard: Option<QueueItemId>,
     /// One decoded packet at the file rate, before the stretcher and the resampler.
     chunk: Vec<f32>,
     /// Stream-rate audio waiting for room in the ring.
@@ -282,6 +324,8 @@ impl Decoder {
             stretch: None,
             stretched: Vec::new(),
             last_rate_flush: None,
+            reported: HashSet::new(),
+            heard: None,
             chunk: Vec::new(),
             pending: Vec::new(),
             pending_off: 0,
@@ -295,7 +339,7 @@ impl Decoder {
             park_req: None,
             park_id: 0,
         };
-        let mut flush_wait = FLUSH_WAIT_MIN;
+        let mut flush_wait = AckPoll::new();
         loop {
             if self.sh.shutdown.load(Acquire) {
                 return;
@@ -317,21 +361,18 @@ impl Decoder {
 
             if let Some(awaiting) = &st.awaiting {
                 if self.sh.flush_ack.load(Acquire) != awaiting.req {
-                    match self.rx.recv_timeout(flush_wait) {
-                        Ok(cmd) => {
-                            flush_wait = FLUSH_WAIT_MIN;
+                    match Self::wait_for_ack(&self.rx, &awaiting.restart, &mut flush_wait) {
+                        Ok(Some(cmd)) => {
                             if !self.accept(&mut st, cmd) {
                                 return;
                             }
                         }
-                        Err(RecvTimeoutError::Timeout) => {
-                            flush_wait = (flush_wait * 2).min(FLUSH_WAIT_MAX);
-                        }
-                        Err(RecvTimeoutError::Disconnected) => return,
+                        Ok(None) => {}
+                        Err(()) => return,
                     }
                     continue;
                 }
-                flush_wait = FLUSH_WAIT_MIN;
+                flush_wait = AckPoll::new();
                 if let Some(awaiting) = st.awaiting.take() {
                     match awaiting.restart {
                         Restart::At { frame, gen } => self.restart(&mut st, frame, gen),
@@ -622,6 +663,9 @@ impl Decoder {
         match Self::edit_base(st, head, &items) {
             Ok(base) => {
                 st.queue.truncate(base + 1);
+                // An id that leaves the queue may come back as a new entry: it reports afresh.
+                let queued: HashSet<QueueItemId> = st.queue.iter().map(|t| t.id).collect();
+                st.reported.retain(|id| queued.contains(id));
                 st.queue.extend(items);
                 if !st.head_is_cur() {
                     // Past the end of the list (the items after `head` failed to open): the next
@@ -688,6 +732,8 @@ impl Decoder {
     /// Start a fresh stream timeline at the renderer's current position and open `st.cur`.
     fn restart(&mut self, st: &mut State, frame: u64, gen: u64) {
         self.reset_stream(st, false);
+        // A command (load, seek, device switch) starts over: failures are reported afresh.
+        st.reported.clear();
         st.mark_kind = MarkKind::Initial;
         if self.begin(st, frame, Some(gen), false) {
             // The command is answered once the stream has been reopened and the track started.
@@ -714,16 +760,59 @@ impl Decoder {
             self.adopt_rate(st, target);
             return None;
         }
+        let now = (Instant::now(), self.clock.now());
         if let Some(last) = st.last_rate_flush {
-            let wait = RATE_FLUSH_INTERVAL.saturating_sub(last.elapsed());
+            let wait = Self::throttle_wait(last, now);
             if !wait.is_zero() {
                 return Some(wait);
             }
         }
-        st.last_rate_flush = Some(Instant::now());
+        st.last_rate_flush = Some(now);
         self.drop_reader(st);
         self.begin_flush(st, Restart::Audible, true);
         None
+    }
+
+    /// How much longer a rate flush has to wait after the one at `last`, with `now` on the same
+    /// clocks: the interval is over when either clock says so. The injected clock is wall time and
+    /// can be set back, which says nothing (the monotonic clock then decides); set forward it
+    /// ends the interval early, which costs at most one extra flush.
+    fn throttle_wait(last: (Instant, UtcMillis), now: (Instant, UtcMillis)) -> Duration {
+        let monotonic = RATE_FLUSH_INTERVAL.saturating_sub(now.0.saturating_duration_since(last.0));
+        let injected = match u64::try_from(now.1.as_i64().saturating_sub(last.1.as_i64())) {
+            Ok(elapsed_ms) => RATE_FLUSH_INTERVAL.saturating_sub(Duration::from_millis(elapsed_ms)),
+            Err(_) => RATE_FLUSH_INTERVAL,
+        };
+        monotonic.min(injected)
+    }
+
+    /// Wait for a command, or for the poll interval to pass, while the renderer's acknowledgement
+    /// of a flush is outstanding. `poll` is the interval reached so far: it doubles on every
+    /// timeout up to `FLUSH_WAIT_MAX` (the stream may not be running at all) and starts over with a
+    /// command. A rate flush gets `RATE_ACK_FAST_POLLS` timeouts at the minimum first: the stream
+    /// is running, the listener hears a gap until the acknowledgement is noticed, and a backoff
+    /// would stretch that gap by up to the backoff. `Ok(None)` is a timeout; `Err` means the
+    /// control side is gone.
+    fn wait_for_ack(
+        rx: &Receiver<Cmd>,
+        restart: &Restart,
+        poll: &mut AckPoll,
+    ) -> Result<Option<Cmd>, ()> {
+        match rx.recv_timeout(poll.interval) {
+            Ok(cmd) => {
+                *poll = AckPoll::new();
+                Ok(Some(cmd))
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                if matches!(restart, Restart::Audible) && poll.fast_left > 0 {
+                    poll.fast_left -= 1;
+                } else {
+                    poll.interval = (poll.interval * 2).min(FLUSH_WAIT_MAX);
+                }
+                Ok(None)
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(()),
+        }
     }
 
     /// Whether the stream this thread has been feeding still has audio that has not been played:
@@ -775,7 +864,10 @@ impl Decoder {
             .unwrap_or(st.queue.len());
         self.reset_stream(st, true);
         st.mark_kind = MarkKind::Rate;
-        if self.begin(st, frame, None, true) {
+        st.heard = Some(item);
+        let parked = self.begin(st, frame, None, true);
+        st.heard = None;
+        if parked {
             return;
         }
         // Last: whoever sees the count has the new rate and the first mark of the new stream.
@@ -835,10 +927,7 @@ impl Decoder {
                     let stage = match Self::stage_for(st, file_rate) {
                         Ok(stage) => stage,
                         Err(error) => {
-                            self.emit(EventKind::TrackFailed {
-                                item: track.id,
-                                error,
-                            });
+                            self.track_failed(st, track.id, error);
                             st.cur += 1;
                             frame = 0;
                             continue;
@@ -857,6 +946,7 @@ impl Decoder {
                             Err(error) => {
                                 // The stage is still unused: keep it for the next track.
                                 st.stretch = stage;
+                                Self::heard_failed(st, track.id);
                                 self.emit(EventKind::SeekFailed {
                                     item: track.id,
                                     frame,
@@ -872,10 +962,7 @@ impl Decoder {
                     };
                     if let Some(mut stage) = stage {
                         if let Err(error) = stage.begin(st.rate, preroll as usize) {
-                            self.emit(EventKind::TrackFailed {
-                                item: track.id,
-                                error,
-                            });
+                            self.track_failed(st, track.id, error);
                             st.cur += 1;
                             frame = 0;
                             continue;
@@ -886,10 +973,7 @@ impl Decoder {
                         if let Some(stage) = st.stretch.as_mut() {
                             stage.stop();
                         }
-                        self.emit(EventKind::TrackFailed {
-                            item: track.id,
-                            error,
-                        });
+                        self.track_failed(st, track.id, error);
                         st.cur += 1;
                         frame = 0;
                         continue;
@@ -914,16 +998,33 @@ impl Decoder {
                     return Opened::Started;
                 }
                 Err(error) => {
-                    self.emit(EventKind::TrackFailed {
-                        item: track.id,
-                        error,
-                    });
+                    self.track_failed(st, track.id, error);
                     st.cur += 1;
                     frame = 0;
                 }
             }
         }
         Opened::Exhausted
+    }
+
+    /// An item could not be started (or read to its end). Reported once per item until a command
+    /// restarts the stream (`State::reported`). If it is the item a rate restart is reopening,
+    /// it leaves as failed.
+    fn track_failed(&mut self, st: &mut State, item: QueueItemId, error: PlaybackError) {
+        Self::heard_failed(st, item);
+        if st.reported.insert(item) {
+            self.emit(EventKind::TrackFailed { item, error });
+        }
+    }
+
+    /// `item` could not be reopened by a rate restart: the listener was hearing it, so it leaves
+    /// as `Failed`. (The flag is read by the mark of whichever item starts next, or by the end of
+    /// the stream.)
+    fn heard_failed(st: &mut State, item: QueueItemId) {
+        if st.heard == Some(item) {
+            st.item_failed = true;
+            st.heard = None;
+        }
     }
 
     /// The stretch stage for a track of `file_rate` that starts now, taken out of `st` (the caller
@@ -1010,11 +1111,8 @@ impl Decoder {
     /// it is reported as failed (and its `TrackLeft` will say so). The last track read is the last
     /// one opened, which is not `cur - 1` when the items after it failed to open.
     fn flush_failed(&mut self, st: &mut State, error: PlaybackError) {
-        if let Some(track) = st.last_opened.and_then(|i| st.queue.get(i)) {
-            self.emit(EventKind::TrackFailed {
-                item: track.id,
-                error,
-            });
+        if let Some(item) = st.last_opened.and_then(|i| st.queue.get(i)).map(|t| t.id) {
+            self.track_failed(st, item, error);
         }
         st.item_failed = true;
     }
@@ -1112,11 +1210,8 @@ impl Decoder {
                 Ok(true) => return true,
                 Ok(false) => self.finish_item(st),
                 Err(error) => {
-                    if let Some(track) = st.queue.get(st.cur) {
-                        self.emit(EventKind::TrackFailed {
-                            item: track.id,
-                            error,
-                        });
+                    if let Some(item) = st.queue.get(st.cur).map(|t| t.id) {
+                        self.track_failed(st, item, error);
                     }
                     st.item_failed = true;
                     self.finish_item(st);
@@ -1218,6 +1313,8 @@ mod tests {
             stretch: None,
             stretched: Vec::new(),
             last_rate_flush: None,
+            reported: HashSet::new(),
+            heard: None,
             chunk: Vec::new(),
             pending: Vec::new(),
             pending_off: 0,
@@ -1277,6 +1374,163 @@ mod tests {
         assert_eq!(decoder.reopen_target(&st, 96_000), None);
         // A rate nobody refused is still followed.
         assert_eq!(decoder.reopen_target(&st, 44_100), Some(44_100));
+    }
+
+    /// A moment `ms` after the `Instant` and the injected-clock time the throttle test starts at.
+    fn at(base: (Instant, UtcMillis), monotonic_ms: u64, injected_ms: i64) -> (Instant, UtcMillis) {
+        (
+            base.0 + Duration::from_millis(monotonic_ms),
+            UtcMillis::new(base.1.as_i64() + injected_ms),
+        )
+    }
+
+    #[test]
+    fn a_rate_flush_waits_out_the_interval_on_the_monotonic_clock() {
+        let last = (Instant::now(), UtcMillis::new(1_000_000));
+        // The injected clock stands still (a test's manual clock): the monotonic one decides.
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 0, 0)),
+            RATE_FLUSH_INTERVAL
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 100, 0)),
+            Duration::from_millis(25)
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 125, 0)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 9_000, 0)),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn a_rate_flush_waits_out_the_interval_on_the_injected_clock_too() {
+        let last = (Instant::now(), UtcMillis::new(1_000_000));
+        // Real time has hardly passed, the injected clock was moved by hand.
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 1, 100)),
+            Duration::from_millis(25)
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 1, 125)),
+            Duration::ZERO
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 1, 130)),
+            Duration::ZERO
+        );
+    }
+
+    #[test]
+    fn a_clock_set_back_never_holds_a_rate_change_up() {
+        let last = (Instant::now(), UtcMillis::new(1_000_000));
+        // The wall clock went back an hour: it says nothing, the monotonic clock decides.
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 100, -3_600_000)),
+            Duration::from_millis(25)
+        );
+        assert_eq!(
+            Decoder::throttle_wait(last, at(last, 125, -3_600_000)),
+            Duration::ZERO
+        );
+        // Extremes do not overflow.
+        let far = (last.0, UtcMillis::new(i64::MAX));
+        let back = (
+            last.0 + Duration::from_millis(200),
+            UtcMillis::new(i64::MIN),
+        );
+        assert_eq!(Decoder::throttle_wait(far, back), Duration::ZERO);
+    }
+
+    #[test]
+    fn an_item_is_reported_failed_once_and_the_heard_one_leaves_failed() {
+        let events = Arc::new(Events::default());
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let (producer, _consumer) = rtrb::RingBuffer::new(8);
+        let mut decoder = Decoder {
+            sh: Shared::new(1.0),
+            rx,
+            producer,
+            opener: Arc::new(crate::FsOpener),
+            sink: events.clone(),
+            clock: Arc::new(ManualClock::new(UtcMillis::new(0))),
+            sample_rate: 48_000,
+        };
+        let mut st = state(vec![track(1), track(2)], 0, None);
+        let error = || PlaybackError::Decode("again".into());
+        decoder.track_failed(&mut st, QueueItemId(1), error());
+        decoder.track_failed(&mut st, QueueItemId(1), error());
+        decoder.track_failed(&mut st, QueueItemId(2), error());
+        let seen = || {
+            events
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .len()
+        };
+        assert_eq!(seen(), 2, "item 1 once, item 2 once");
+        assert!(!st.item_failed, "nothing was being reopened");
+
+        // The item a rate restart reopens: still one report, and it leaves as failed.
+        st.heard = Some(QueueItemId(2));
+        decoder.track_failed(&mut st, QueueItemId(1), error());
+        assert!(!st.item_failed, "another item failing does not fail it");
+        decoder.track_failed(&mut st, QueueItemId(2), error());
+        assert!(st.item_failed);
+        assert_eq!(st.heard, None);
+        assert_eq!(seen(), 2, "no second report");
+        st.reported.clear();
+        decoder.track_failed(&mut st, QueueItemId(2), error());
+        assert_eq!(seen(), 3, "a command's restart reports afresh");
+    }
+
+    #[test]
+    fn a_rate_flush_is_polled_at_the_minimum_for_a_while_and_then_backs_off() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let command = Restart::At { frame: 0, gen: 1 };
+        let timeout = |restart: &Restart, poll: &mut AckPoll| {
+            assert!(Decoder::wait_for_ack(&rx, restart, poll)
+                .expect("connected")
+                .is_none());
+        };
+        // An acknowledgement that does not come. A rate flush: the minimum for its first polls ...
+        let mut rate = AckPoll::new();
+        for _ in 0..RATE_ACK_FAST_POLLS {
+            assert_eq!(rate.interval, FLUSH_WAIT_MIN, "a rate flush starts fast");
+            timeout(&Restart::Audible, &mut rate);
+        }
+        // ... then it backs off like a command's, up to the maximum: a stream nobody plays (a
+        // failed device switch) is not polled 1000 times a second.
+        assert_eq!(rate.interval, FLUSH_WAIT_MIN);
+        let mut seen = Vec::new();
+        for _ in 0..6 {
+            timeout(&Restart::Audible, &mut rate);
+            seen.push(rate.interval);
+        }
+        assert_eq!(
+            seen[..4],
+            [
+                Duration::from_millis(2),
+                Duration::from_millis(4),
+                Duration::from_millis(8),
+                Duration::from_millis(16)
+            ]
+        );
+        assert_eq!(rate.interval, FLUSH_WAIT_MAX);
+        // A command's flush backs off from the first timeout.
+        let mut cmd = AckPoll::new();
+        timeout(&command, &mut cmd);
+        assert_eq!(cmd.interval, Duration::from_millis(2));
+        // A command arriving starts over; the control side leaving ends the thread.
+        tx.send(Cmd::RateTarget).expect("send");
+        let got = Decoder::wait_for_ack(&rx, &Restart::Audible, &mut rate);
+        assert!(matches!(got, Ok(Some(Cmd::RateTarget))));
+        assert_eq!(rate, AckPoll::new());
+        drop(tx);
+        assert!(Decoder::wait_for_ack(&rx, &Restart::Audible, &mut rate).is_err());
     }
 
     /// A resampler that fails while flushing cannot be built (it only fails on a buffer-size bug),
