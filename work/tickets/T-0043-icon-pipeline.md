@@ -3,7 +3,7 @@ id: T-0043
 title: Icon pipeline — Lucide SVGs in the Qt resource file, TwIcon component, sidebar and menu glyphs
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0040]
@@ -53,3 +53,6 @@ Add a small screenshot capture helper (apps/tinwave-desktop/tools/) that crops t
 Drive keyboard steps with the window active (the focus ring is not drawn in an inactive window under PrintWindow).
 Starting point: the T-0035 builder's scratch scripts cap.ps1 / cap2.ps1 in the lead session scratchpad
 (C:\Users\FSYY\AppData\Local\Temp\claude\D--dev-Tinwave\53bf9027-c019-4dd4-82f1-5a72c6705b0c\scratchpad\).
+
+## Outcome
+2026-11-03: merged 59a03f8 after review-2 APPROVE (round 1 changes: canvas glyphs, build freshness). Follow-ups: T-0050 (focus ring, capture foreground), T-0046 (canvas 18 → 20 px), T-0045 (TwIcon probe test), P-0170 parked.
