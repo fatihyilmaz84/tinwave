@@ -3,13 +3,14 @@ id: T-0068
 title: A queue edit during an exclusive boundary park re-evaluates the park
 type: fix
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0057]
 scope:
   - crates/tinwave-playback/src/decoder.rs
   - crates/tinwave-playback/src/engine.rs
+  - crates/tinwave-playback/src/shared.rs   # take_reopen only; added by the lead in round 1
   - crates/tinwave-playback/tests/exclusive_reopen.rs
 owner: tw-builder
 branch: t/T-0068-queue-edit-cancels-boundary-park

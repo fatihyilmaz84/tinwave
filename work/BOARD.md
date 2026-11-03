@@ -31,7 +31,6 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | tw-builder r1 | `t/T-0068-queue-edit-cancels-boundary-park` · `D:\dev\Tinwave-worktrees\T-0068-queue-edit-cancels-boundary-park` |
 | [T-0070](tickets/T-0070-derived-values-and-rate-session-storage.md) Derived values path; store RateSession with the play (P1) | tw-builder r1 | `t/T-0070-derived-values-and-rate-session-storage` · `D:\dev\Tinwave-worktrees\T-0070-derived-values-and-rate-session-storage` |
 | [T-0075](tickets/T-0075-busy-timeout-wall-clock.md) Contention tests vs busy-timeout wall time (P3) | tw-builder r1 | `t/T-0075-busy-timeout-wall-clock` · `D:\dev\Tinwave-worktrees\T-0075-busy-timeout-wall-clock` |
 
@@ -39,7 +38,9 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0068](tickets/T-0068-queue-edit-cancels-boundary-park.md) Queue edit during an exclusive boundary park (P2) | tw-reviewer r1 | `t/T-0068-queue-edit-cancels-boundary-park` · `D:\dev\Tinwave-worktrees\T-0068-queue-edit-cancels-boundary-park` |
 
 ## Recently done
 - [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate flush fast-polls then backs off, relative click test, TrackFailed once across a rate restart — merged 57dba25 (review r2 APPROVE).
@@ -86,6 +87,7 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0077](tickets/T-0077-dedupe-corrupt-packets-rate-restart.md) Corrupt packets reported once across a rate restart (P3) | playback slot |
 | [T-0078](tickets/T-0078-playback-harness-load-timeouts.md) Playback harness waits that survive load (P3) | playback slot |
 | [T-0080](tickets/T-0080-rate-test-pins.md) Pin flush-poll ack reset; restart index before new audio (P3) | playback slot |
+| [T-0081](tickets/T-0081-reopen-claim-waits-for-edit.md) Exclusive reopen claim waits for an unanswered edit (P3) | after T-0068 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
