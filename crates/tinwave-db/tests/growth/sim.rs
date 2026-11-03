@@ -132,6 +132,12 @@ pub struct Run {
 const TZ_MINUTES: i16 = 60;
 const DAY_MS: i64 = 86_400_000;
 
+/// The barrier polls the writer's counters, sleeping 50 us first and doubling up to 500 us: a
+/// commit takes about half a millisecond, so a wait costs at most a few polls and ends at most
+/// `BARRIER_POLL_MAX` after the commit; the 60 s hang assert in `barrier` still bounds the wait.
+const BARRIER_POLL_FIRST: Duration = Duration::from_micros(50);
+const BARRIER_POLL_MAX: Duration = Duration::from_micros(500);
+
 /// Deterministic dice on a `SeededRng`.
 struct Dice(std::cell::RefCell<SeededRng>);
 
@@ -1044,11 +1050,16 @@ impl Sim {
 
     /// Waits until the writer has committed every event the bus accepted. The last event of a
     /// tick ends a play, which the writer flushes at once, so this returns within a commit.
+    ///
+    /// The wait sleeps (see [`BARRIER_POLL_FIRST`]) instead of spinning: the writer publishes its
+    /// progress in plain atomics and has nothing to signal, and a spinning producer would take a
+    /// whole core, and more wall clock under load, from the writer it is waiting for.
     fn barrier(&mut self) {
         let waiting = Instant::now();
         let target = self.bus.queued_total();
         let writer = self.writer.as_ref().unwrap();
         let start = Instant::now();
+        let mut pause = BARRIER_POLL_FIRST;
         loop {
             let s = writer.stats();
             if s.events_inserted + s.events_duplicate + s.events_rejected >= target {
@@ -1060,7 +1071,8 @@ impl Sim {
                 "writer did not commit {target} events: {s:?}, last error {:?}",
                 writer.take_last_error().map(|e| e.chain())
             );
-            std::thread::yield_now();
+            std::thread::sleep(pause);
+            pause = (pause * 2).min(BARRIER_POLL_MAX);
         }
     }
 
