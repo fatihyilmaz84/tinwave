@@ -3,7 +3,7 @@ id: T-0053
 title: Platform bridge follow-ups — portable winId, same-process window guard, menu re-flush, tighter probe test
 type: chore
 epic: E-01
-status: in_review
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0036]
@@ -15,7 +15,7 @@ scope:
   - apps/tinwave-desktop/tests/platform_qml.rs
 owner: tw-builder
 branch: t/T-0053-platform-bridge-followups
-review_round: 1
+review_round: 2
 created_by: from T-0036 review-1 (P-0194..P-0196)
 ---
 
@@ -39,3 +39,7 @@ work/reports/T-0036/review-1.md, non-blocking findings and proposals.
 
 ## Signals & storage
 None.
+
+## Scope note (lead, 2026-11-03)
+- cpp/ also carries `tw_qpa_name()` (QGuiApplication::platformName) next to the winId shim: needed for the QPA gate;
+  accepted (ADR 0008 decision 4).
