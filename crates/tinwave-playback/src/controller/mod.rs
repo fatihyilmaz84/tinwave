@@ -37,7 +37,7 @@
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
 //! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
 //! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
-//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one |
+//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one. So a reopen at another sample rate in exclusive mode (T-0057) is none, and a device that refuses the rate and cannot give exclusive mode at the engine's rate either is one `on: false` (its reason is logged at `warn`); the engine does not ask again, so it is not repeated |
 //! | `QueueEnded` | none (silence starts) |
 //! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
 //! | `QueueEditRejected` | **nothing**; logged at `warn` and counted in [`ControllerDiagnostics::edits_refused`] |
@@ -467,6 +467,13 @@ impl Controller {
     #[must_use]
     pub fn command_pending(&self) -> bool {
         self.engine.command_pending()
+    }
+
+    /// Whether the engine has yet to reopen the output at the sample rate of the next track
+    /// (exclusive mode; see [`Engine::reopen_pending`](crate::Engine::reopen_pending)).
+    #[must_use]
+    pub fn reopen_pending(&self) -> bool {
+        self.engine.reopen_pending()
     }
 
     /// Position, pending command, refused queue edits and sink losses in one snapshot.

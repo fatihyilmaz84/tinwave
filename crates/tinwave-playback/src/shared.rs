@@ -25,10 +25,13 @@ pub(crate) enum MarkKind {
 /// `rate` frames per output frame."
 ///
 /// `start_frame` counts frames the renderer has consumed since the engine started; it never
-/// resets, so positions stay comparable across seeks and device changes. `offset` and every
-/// position derived from it are in **source stream frames**: the track's own timeline at the
-/// stream rate, whatever the playback rate (a stream frame of the source is `1 / sample_rate`
-/// seconds of the track).
+/// resets, so positions stay comparable across seeks and device changes. Those frames are
+/// counted at the rate of the stream that played them (`out_rate`), which changes when an
+/// exclusive-mode stream is reopened at a file's own rate (T-0057). `offset` and every position
+/// derived from it are in **source timeline frames**: the track's own timeline at the engine's
+/// timeline rate (`timeline_rate`, the one rate every position, seek target and start frame
+/// the control side sees is counted in), whatever the playback rate and the stream rate (a
+/// timeline frame of the source is `1 / timeline_rate` seconds of the track).
 #[derive(Debug, Clone)]
 pub(crate) struct Mark {
     pub seq: u64,
@@ -40,6 +43,10 @@ pub(crate) struct Mark {
     pub prev_failed: bool,
     /// Source frames per output frame from `start_frame` on: 1.0 is bypass (the exact path).
     pub rate: f64,
+    /// Sample rate of the output stream the frames from `start_frame` on are played at.
+    pub out_rate: u32,
+    /// The rate `offset` and the positions derived from it are counted at.
+    pub timeline_rate: u32,
 }
 
 impl Mark {
@@ -47,11 +54,27 @@ impl Mark {
     pub fn source_frame_at(&self, frame: u64) -> u64 {
         let elapsed = frame.saturating_sub(self.start_frame);
         if self.rate == 1.0 {
-            // Bypass stays integer arithmetic: nothing in the float path can touch it.
-            return self.offset + elapsed;
+            // Bypass stays integer arithmetic: nothing in the float path can touch it. When the
+            // stream runs at the timeline rate (every shared-mode stream) it is the sum below.
+            return self.offset + self.timeline_frames(elapsed);
         }
         // `as` saturates; an elapsed count that large cannot be a real position.
-        self.offset + (elapsed as f64 * self.rate).round() as u64
+        let source = elapsed as f64 * self.rate;
+        let source = if self.out_rate == self.timeline_rate {
+            source
+        } else {
+            source * f64::from(self.timeline_rate) / f64::from(self.out_rate.max(1))
+        };
+        self.offset + source.round() as u64
+    }
+
+    /// `frames` output frames at the stream rate, as timeline frames (rounded to nearest).
+    fn timeline_frames(&self, frames: u64) -> u64 {
+        if self.out_rate == self.timeline_rate {
+            frames
+        } else {
+            crate::resample::scale_frames(frames, self.out_rate, self.timeline_rate)
+        }
     }
 }
 
@@ -106,7 +129,28 @@ pub(crate) struct Shared {
     /// Highest control-command generation whose effect (first mark or end of stream) is published.
     pub applied_gen: AtomicU64,
     pub shutdown: AtomicBool,
+    /// Frames of silence the renderer has produced since it last played audio (the audio ran out
+    /// and the device buffer is emptying). A single writer: the renderer.
+    pub idle_frames: AtomicU64,
+    /// The output stream is exclusive, so the decoder asks for a stream at each file's own rate
+    /// (T-0057). Written by the engine whenever it opens a stream.
+    pub follow: AtomicBool,
+    /// The decoder is parked, waiting for the engine to reopen the output stream at a new rate:
+    /// `(id << 32) | rate`, rate 0 while it is not. See [`Shared::park`] for the other `reopen_*`
+    /// fields, which are stored before this one.
+    pub reopen: AtomicU64,
+    /// Stream frames the old stream must have played before it is replaced.
+    pub reopen_total: AtomicU64,
+    /// The old stream must also empty its device buffer first: its tail is audio the listener has
+    /// not heard yet (a track boundary), not audio a seek or load already threw away.
+    pub reopen_drain: AtomicBool,
+    /// Generation of the last restarting command (load, seek, stop, device switch) the decoder has
+    /// taken from its queue, stored after that command cancelled any park. The engine reopens only
+    /// when this is the generation of its latest command, and reads it before the request, so a
+    /// command that is still queued can never meet a reopen of a stale park.
+    pub reopen_gen: AtomicU64,
     marks: Mutex<VecDeque<Mark>>,
+    refused: Mutex<Vec<u32>>,
 }
 
 impl Shared {
@@ -133,8 +177,40 @@ impl Shared {
             underruns: AtomicU64::new(0),
             applied_gen: AtomicU64::new(0),
             shutdown: AtomicBool::new(false),
+            idle_frames: AtomicU64::new(0),
+            follow: AtomicBool::new(false),
+            reopen: AtomicU64::new(0),
+            reopen_total: AtomicU64::new(0),
+            reopen_drain: AtomicBool::new(false),
+            reopen_gen: AtomicU64::new(0),
             marks: Mutex::new(VecDeque::new()),
+            refused: Mutex::new(Vec::new()),
         })
+    }
+
+    /// The decoder asks for a stream at `rate`: everything the engine needs to decide when to
+    /// replace the stream is stored first, then the request itself, so an engine that sees the
+    /// request sees the rest (it reads them in the opposite order).
+    pub fn park(&self, id: u32, rate: u32, total: u64, drain: bool) {
+        self.reopen_total.store(total, Ordering::Release);
+        self.reopen_drain.store(drain, Ordering::Release);
+        self.reopen
+            .store(pack_reopen(id, rate), Ordering::Release);
+    }
+
+    /// The decoder is no longer waiting for a new stream.
+    pub fn unpark(&self, id: u32) {
+        self.reopen.store(pack_reopen(id, 0), Ordering::Release);
+    }
+
+    /// The pending reopen request as `(id, rate)`; rate 0 means none.
+    pub fn reopen_request(&self) -> (u32, u32) {
+        unpack_reopen(self.reopen.load(Ordering::Acquire))
+    }
+
+    /// Rates the output stream refused in exclusive mode: tracks of those rates are resampled.
+    pub fn refused(&self) -> MutexGuard<'_, Vec<u32>> {
+        self.refused.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     pub fn volume(&self) -> f32 {
@@ -157,12 +233,53 @@ impl Shared {
     }
 }
 
+fn pack_reopen(id: u32, rate: u32) -> u64 {
+    (u64::from(id) << 32) | u64::from(rate)
+}
+
+fn unpack_reopen(packed: u64) -> (u32, u32) {
+    ((packed >> 32) as u32, packed as u32)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
     use crate::QueueItemId;
+
+    #[test]
+    fn a_reopen_request_round_trips_and_clears_to_no_rate() {
+        let sh = Shared::new(1.0);
+        assert_eq!(sh.reopen_request(), (0, 0));
+        sh.park(7, 96_000, 1234, true);
+        assert_eq!(sh.reopen_request(), (7, 96_000));
+        assert_eq!(sh.reopen_total.load(Ordering::Acquire), 1234);
+        sh.unpark(7);
+        assert_eq!(sh.reopen_request(), (7, 0));
+        sh.park(u32::MAX, u32::MAX, 0, false);
+        assert_eq!(sh.reopen_request(), (u32::MAX, u32::MAX));
+    }
+
+    #[test]
+    fn frames_of_a_stream_at_another_rate_count_in_timeline_frames() {
+        // A 96 kHz stream on a 48 kHz timeline: two output frames are one timeline frame.
+        let mut m = mark(1_000, 500, 1.0);
+        m.out_rate = 96_000;
+        m.timeline_rate = 48_000;
+        assert_eq!(m.source_frame_at(1_000), 500);
+        assert_eq!(m.source_frame_at(1_000 + 96_000), 500 + 48_000);
+        // 44.1 kHz stream: 441 output frames are exactly 480 timeline frames.
+        let mut slow = mark(0, 0, 1.0);
+        slow.out_rate = 44_100;
+        slow.timeline_rate = 48_000;
+        assert_eq!(slow.source_frame_at(441), 480);
+        // With a playback rate the same conversion applies after the rate.
+        let mut fast = mark(0, 0, 1.5);
+        fast.out_rate = 96_000;
+        fast.timeline_rate = 48_000;
+        assert_eq!(fast.source_frame_at(96_000), 72_000);
+    }
 
     fn mark(start_frame: u64, offset: u64, rate: f64) -> Mark {
         Mark {
@@ -177,6 +294,8 @@ mod tests {
             kind: MarkKind::Rate,
             prev_failed: false,
             rate,
+            out_rate: 48_000,
+            timeline_rate: 48_000,
         }
     }
 

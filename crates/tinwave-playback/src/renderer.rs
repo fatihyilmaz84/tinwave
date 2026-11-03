@@ -105,10 +105,14 @@ impl Renderer {
 
         let frames = popped_len / CHANNELS;
         if frames == 0 {
+            // The device buffer is emptying: the engine waits for it before it replaces a stream.
+            sh.idle_frames
+                .fetch_add((len / CHANNELS) as u64, Relaxed);
             self.gain = sh.volume();
             self.pause_level = pause_target;
             return 0;
         }
+        sh.idle_frames.store(0, Relaxed);
 
         self.fade_in(&mut out[..popped_len]);
         self.shape(&mut out[..popped_len], pause_target);
@@ -308,6 +312,25 @@ mod tests {
         sh.buffering.store(false, Release);
         r.render(&mut out, 0);
         assert_eq!(sh.underruns.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn silence_after_the_last_audio_is_counted_until_audio_comes_back() {
+        let (sh, mut prod, mut r) = rig();
+        let mut out = [0.0f32; 960]; // 480 frames
+        let _ = prod.push_partial_slice(&[0.25; 240]);
+        // A block that still carries audio is not idle, even if it ends in silence.
+        assert_eq!(r.render(&mut out, 0), 120);
+        assert_eq!(sh.idle_frames.load(Relaxed), 0);
+        // From here the device buffer is emptying: every silent block adds its frames.
+        r.render(&mut out, 0);
+        assert_eq!(sh.idle_frames.load(Relaxed), 480);
+        r.render(&mut out, 0);
+        assert_eq!(sh.idle_frames.load(Relaxed), 960);
+        // Audio resets the count.
+        let _ = prod.push_partial_slice(&[0.25; 960]);
+        assert_eq!(r.render(&mut out, 0), 480);
+        assert_eq!(sh.idle_frames.load(Relaxed), 0);
     }
 
     #[test]

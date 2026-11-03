@@ -192,6 +192,67 @@ fn the_thread_polls_on_its_own_and_reports_status() {
 }
 
 #[test]
+fn a_command_that_needs_another_stream_is_not_left_waiting_for_a_slow_poll() {
+    // Exclusive mode: the 96 kHz file needs the output reopened at 96 kHz, which the engine does
+    // in a poll. With a poll interval of 30 s the track would start half a minute late unless the
+    // thread polls faster while a command or a reopen is waiting.
+    let (output, out) = ManualOutput::new();
+    out.set_exclusive(true);
+    let clock = ManualClock::new(UtcMillis::new(T0));
+    let device = tinwave_core::DeviceId::from_parts(UtcMillis::new(T0), [5; 10]).expect("id");
+    let (bus, _drain) = SignalBus::channel(
+        BusConfig::new(device),
+        clock.clone(),
+        Arc::new(SignalSettings::new()),
+    )
+    .expect("bus");
+    let handle = ControllerHandle::spawn(
+        ControllerConfig {
+            sample_rate: RATE,
+            device: None,
+            opener: Arc::new(FsOpener),
+            clock: Arc::new(clock.clone()),
+            bus,
+            ids: IdGenerator::new(clock.clone(), SeededRng::new(9)),
+            timezone: Arc::new(FixedTimezone(TzOffsetMin::UTC)),
+            initial_repeat: tinwave_signals::RepeatMode::Off,
+            poll_interval: Duration::from_secs(30),
+        },
+        Box::new(output),
+    )
+    .expect("spawn");
+
+    let dir = TempDir::new("thr-fast-poll");
+    let file = dir.path("hi.wav");
+    let (l, r) = sweep(96_000, 48_000);
+    write_wav(&file, 96_000, 24, &l, &r);
+    handle
+        .load(LoadRequest {
+            entries: vec![entry(1, &file, SECOND / 2, QueueOrigin::Album)],
+            index: 0,
+            start_frame: 0,
+            intent: LoadIntent::Select(PlayOrigin::Album),
+            input: InputSource::Mouse,
+            leaving: None,
+        })
+        .expect("load");
+    // The test thread is the audio callback: it acknowledges the flush, then the engine (on the
+    // controller thread) opens the stream at 96 kHz.
+    let mut block = vec![0.0f32; 960];
+    let mut reopened = false;
+    for _ in 0..20_000 {
+        let _ = out.render(&mut block, 0);
+        if out.opens().iter().any(|o| o.1 == 96_000) {
+            reopened = true;
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    assert!(reopened, "opens: {:?}", out.opens());
+    handle.shutdown();
+}
+
+#[test]
 fn commands_answer_with_the_engines_result() {
     let t = Threaded::new("thr-errors");
     assert_eq!(

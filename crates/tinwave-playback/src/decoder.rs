@@ -39,6 +39,25 @@
 //! value current when the interval is over is the one applied, so the final value of a drag is
 //! never lost. With nothing audible (nothing loaded, or everything has been played) there is
 //! nothing to flush and the rate is simply adopted.
+//!
+//! # Exclusive mode: the stream follows the file (T-0057)
+//! In exclusive mode (`Shared::follow`) the output is not resampled to one rate: it is reopened
+//! at the rate of each file, so the samples reach the device bit for bit. The decoder cannot
+//! open streams, so when the next track's rate is not the stream's (`reopen_target`) it **parks**:
+//! it publishes the rate it needs (`Shared::park`) and waits for the engine, which replaces the
+//! stream when the old one has nothing left to play and answers with `Cmd::Resume` and a ring
+//! for the new stream. Then the track is opened as usual.
+//! - At a track boundary the tails of the track before (stretcher, resampler) are pushed first;
+//!   the timeline continues in the new stream (`Parked::boundary`), the older marks stay, and the
+//!   first mark of the new track is a `Continuation` like at any other boundary.
+//! - A load, seek or device switch parks after its flush: there is nothing to wait for, and the
+//!   command is answered (`applied_gen`) when the track has started in the new stream.
+//! - Any command that restarts the stream cancels a park (`command_taken`). Appends and queue
+//!   edits do not: the track is chosen when the stream is there.
+//! - A rate the device refused (`Shared::refused`) is resampled to the engine's rate like in
+//!   shared mode; marks carry the stream's rate (`Mark::out_rate`) because the frames the
+//!   renderer counts are frames of whatever stream played them.
+//! - Same-rate tracks never park, so gapless playback is untouched.
 
 use std::collections::HashSet;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
@@ -84,10 +103,19 @@ pub(crate) enum Cmd {
     /// The output stream was re-created: use this ring and resume at `item`/`frame`.
     Reconfigure {
         producer: Producer<f32>,
+        /// Sample rate of the new stream.
+        rate: u32,
         /// `None` when nothing is loaded.
         item: Option<QueueItemId>,
         frame: u64,
         gen: u64,
+    },
+    /// The output stream was reopened at the rate the decoder asked for (`Shared::reopen`): use
+    /// this ring and carry on with the track that was waiting. `id` names the request.
+    Resume {
+        producer: Producer<f32>,
+        rate: u32,
+        id: u32,
     },
     /// The rate target changed (it is in `Shared::rate_target`): wake the thread so it applies it.
     /// A full command queue loses nothing, the thread checks the target on every pass.
@@ -104,6 +132,7 @@ impl std::fmt::Debug for Cmd {
             Self::Append(_) => "Append",
             Self::EditQueue { .. } => "EditQueue",
             Self::Reconfigure { .. } => "Reconfigure",
+            Self::Resume { .. } => "Resume",
             Self::RateTarget => "RateTarget",
             Self::Shutdown => "Shutdown",
         })
@@ -172,6 +201,60 @@ struct State {
     item_failed: bool,
     /// A flush was requested; once the renderer acks `req`, restart as `restart` says.
     awaiting: Option<Awaiting>,
+    /// Sample rate of the output stream the ring feeds: `Decoder::sample_rate` until the engine
+    /// opens a stream at a file's own rate (exclusive mode, T-0057).
+    stream_rate: u32,
+    /// Waiting for the engine to reopen the output stream at the rate of the track at `cur`.
+    parked: Option<Parked>,
+    /// A track needs another stream, but the tail of the one before it must reach the ring
+    /// first; it parks once it has.
+    park_req: Option<ParkRequest>,
+    /// Identifies a park to the engine; never 0 for a park that has been made.
+    park_id: u32,
+}
+
+/// The decoder is stopped before the track at `cur` until the output stream runs at `target`.
+struct Parked {
+    id: u32,
+    /// Timeline frame to open the track at once the stream is there.
+    frame: u64,
+    /// The command (load, seek, device switch) to answer with `applied_gen` once the track has
+    /// started.
+    gen: Option<u64>,
+    /// A track boundary or a revived queue: the old stream is still playing out, the timeline
+    /// continues and the marks stay. Otherwise the stream was already restarted when it parked.
+    boundary: bool,
+    /// The kind of mark the track gets.
+    kind: MarkKind,
+    /// A rate flush to count once the track has started.
+    rate_flush: bool,
+}
+
+/// What `open_current` found: the track needs a stream of another rate.
+struct ParkRequest {
+    target: u32,
+    frame: u64,
+}
+
+/// The outcome of `Decoder::open_current`.
+enum Opened {
+    /// A reader is open and its mark is published.
+    Started,
+    /// The queue ran out.
+    Exhausted,
+    /// The track needs the output stream at `target`; nothing was published.
+    Park { target: u32, frame: u64 },
+}
+
+impl State {
+    /// `cur` is the item that started last (a reader is open on it, or a command is about to
+    /// open it), rather than the next one to open. A decoder parked after a boundary has not
+    /// started `cur` yet; one parked for a load or seek has.
+    fn head_is_cur(&self) -> bool {
+        self.reader.is_some()
+            || self.awaiting.is_some()
+            || self.parked.as_ref().is_some_and(|p| !p.boundary)
+    }
 }
 
 struct Awaiting {
@@ -207,6 +290,10 @@ impl Decoder {
             mark_kind: MarkKind::Initial,
             item_failed: false,
             awaiting: None,
+            stream_rate: self.sample_rate,
+            parked: None,
+            park_req: None,
+            park_id: 0,
         };
         let mut flush_wait = FLUSH_WAIT_MIN;
         loop {
@@ -251,6 +338,21 @@ impl Decoder {
                         Restart::Audible => self.restart_audible(&mut st),
                     }
                 }
+            }
+
+            if st.parked.is_some() {
+                // Nothing to decode until the engine has reopened the stream (`Cmd::Resume`) or a
+                // command makes the wait pointless.
+                match Self::wait_for_command(&self.rx, None, None) {
+                    Ok(Some(cmd)) => {
+                        if !self.accept(&mut st, cmd) {
+                            return;
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(_) => return,
+                }
+                continue;
             }
 
             if st.pending_off >= st.pending.len() {
@@ -314,15 +416,18 @@ impl Decoder {
                 self.drop_reader(st);
                 st.queue = queue;
                 st.cur = index;
+                self.command_taken(st, gen, true);
                 self.begin_flush(st, Restart::At { frame, gen }, false);
             }
             Cmd::Seek { item, frame, gen } => match st.queue.iter().position(|t| t.id == item) {
                 Some(index) => {
                     self.drop_reader(st);
                     st.cur = index;
+                    self.command_taken(st, gen, true);
                     self.begin_flush(st, Restart::At { frame, gen }, false);
                 }
                 None => {
+                    self.command_taken(st, gen, false);
                     self.emit(EventKind::SeekFailed {
                         item,
                         frame,
@@ -341,12 +446,15 @@ impl Decoder {
             Cmd::EditQueue { edit, head, items } => self.edit_queue(st, edit, head, items),
             Cmd::Reconfigure {
                 producer,
+                rate,
                 item,
                 frame,
                 gen,
             } => {
                 self.producer = producer;
+                st.stream_rate = rate;
                 self.drop_reader(st);
+                self.command_taken(st, gen, true);
                 // No item means no track is current (stopped, or the queue ended): keep `cur`, which
                 // is the end of the queue or the first appended track that has not been heard yet.
                 // A named item that is no longer queued ends the queue.
@@ -363,8 +471,122 @@ impl Decoder {
                 st.awaiting = None;
                 self.restart(st, frame, gen);
             }
+            Cmd::Resume { producer, rate, id } => self.resume(st, producer, rate, id),
         }
         true
+    }
+
+    /// A restarting command (load, seek, device switch, stop) was taken from the queue: it
+    /// replaces whatever the decoder was waiting for (`restarts`), and the engine is told which
+    /// command the decoder has got to. The park is withdrawn first, so an engine that sees the
+    /// new generation never sees the old request after it.
+    fn command_taken(&mut self, st: &mut State, gen: u64, restarts: bool) {
+        if restarts {
+            st.park_req = None;
+            if let Some(parked) = st.parked.take() {
+                self.sh.unpark(parked.id);
+            }
+        }
+        self.sh.reopen_gen.store(gen, Release);
+    }
+
+    /// The engine reopened the output stream for the request `id`: carry on with the track that
+    /// was waiting for it, in the new ring.
+    fn resume(&mut self, st: &mut State, producer: Producer<f32>, rate: u32, id: u32) {
+        let parked = match st.parked.take() {
+            Some(parked) if parked.id == id => parked,
+            other => {
+                // The engine only answers the request of its latest command, and only commands
+                // cancel a request: this cannot happen. The stream it opened has nobody to feed it.
+                st.parked = other;
+                tracing::error!(id, "the output was reopened for a request that is not pending");
+                return;
+            }
+        };
+        self.producer = producer;
+        st.stream_rate = rate;
+        self.sh.unpark(id);
+        if parked.boundary {
+            // The old stream has played out; the timeline goes on in the new one, and the marks
+            // that describe the old one stay.
+            let failed = st.item_failed;
+            self.reset_stream(st, true);
+            st.item_failed = failed;
+        }
+        st.mark_kind = parked.kind;
+        if self.begin(st, parked.frame, parked.gen, parked.rate_flush) {
+            return;
+        }
+        if let Some(gen) = parked.gen {
+            self.sh.applied_gen.fetch_max(gen, Release);
+        }
+        if parked.rate_flush {
+            self.sh.rate_flushes.fetch_add(1, Release);
+        }
+    }
+
+    /// Open `st.cur` at `frame` (timeline frames) and publish its mark; the queue running out
+    /// ends the stream. `true` when the track needs another output stream first: the decoder
+    /// is then parked (`gen` and `rate_flush` are what to answer once it has started).
+    fn begin(&mut self, st: &mut State, frame: u64, gen: Option<u64>, rate_flush: bool) -> bool {
+        let outcome = if st.cur >= st.queue.len() {
+            Opened::Exhausted
+        } else {
+            self.open_current(st, frame)
+        };
+        match outcome {
+            Opened::Started => false,
+            Opened::Exhausted => {
+                self.finish_queue(st);
+                false
+            }
+            Opened::Park { target, frame } => {
+                self.park(st, target, frame, gen, false, rate_flush);
+                true
+            }
+        }
+    }
+
+    /// Stop decoding until the engine has reopened the output stream at `target`. `boundary`:
+    /// the tail of the old stream is still playing (everything pushed so far is in `written`),
+    /// otherwise the stream was restarted just now and there is nothing left to wait for.
+    fn park(
+        &mut self,
+        st: &mut State,
+        target: u32,
+        frame: u64,
+        gen: Option<u64>,
+        boundary: bool,
+        rate_flush: bool,
+    ) {
+        st.park_id = st.park_id.wrapping_add(1).max(1);
+        st.parked = Some(Parked {
+            id: st.park_id,
+            frame,
+            gen,
+            boundary,
+            kind: st.mark_kind,
+            rate_flush,
+        });
+        // Waiting for a stream is buffering, not an underrun.
+        self.sh.buffering.store(true, Release);
+        self.sh.park(st.park_id, target, st.written, boundary);
+    }
+
+    /// The rate the output stream has to run at for a track of `file_rate` to start, if it is
+    /// not the one it runs at. Only in exclusive mode (the engine publishes `follow`): the
+    /// stream follows the file, unless the device refused that rate before, when the track is
+    /// resampled to the engine's own rate instead.
+    fn reopen_target(&self, st: &State, file_rate: u32) -> Option<u32> {
+        if !self.sh.follow.load(Acquire) {
+            return None;
+        }
+        let target = if self.sh.refused().contains(&file_rate) {
+            self.sample_rate
+        } else {
+            file_rate
+        };
+        (target != st.stream_rate).then_some(target)
     }
 
     /// The queue had ended and now has entries the decoder has not opened: continue decoding into
@@ -398,7 +620,7 @@ impl Decoder {
             Ok(base) => {
                 st.queue.truncate(base + 1);
                 st.queue.extend(items);
-                if st.reader.is_none() && st.awaiting.is_none() {
+                if !st.head_is_cur() {
                     // Past the end of the list (the items after `head` failed to open): the next
                     // item to open is the first of the new tail.
                     st.cur = base + 1;
@@ -420,7 +642,7 @@ impl Decoder {
         // While a reader is open (or a command is about to open one) `cur` is the item being
         // read; once the queue is exhausted the last item started is the last one opened (not the
         // one before `cur`, which may be an item that failed to open).
-        let started = if st.reader.is_some() || st.awaiting.is_some() {
+        let started = if st.head_is_cur() {
             Some(st.cur)
         } else {
             st.last_opened
@@ -464,8 +686,9 @@ impl Decoder {
     fn restart(&mut self, st: &mut State, frame: u64, gen: u64) {
         self.reset_stream(st, false);
         st.mark_kind = MarkKind::Initial;
-        if st.cur >= st.queue.len() || !self.open_current(st, frame) {
-            self.finish_queue(st);
+        if self.begin(st, frame, Some(gen), false) {
+            // The command is answered once the stream has been reopened and the track started.
+            return;
         }
         // Published last: the control thread then sees the first mark (or the end of stream).
         self.sh.applied_gen.fetch_max(gen, Release);
@@ -475,7 +698,8 @@ impl Decoder {
     /// thread's loop. Returns how long until a change that has to wait for the throttle may be
     /// applied (the loop's waits must not sleep past it).
     fn service_rate(&mut self, st: &mut State) -> Option<Duration> {
-        if st.awaiting.is_some() {
+        if st.awaiting.is_some() || st.parked.is_some() || st.park_req.is_some() {
+            // A flush or a stream swap is under way; the target is looked at again after it.
             return None;
         }
         let target = self.sh.rate_target();
@@ -548,8 +772,8 @@ impl Decoder {
             .unwrap_or(st.queue.len());
         self.reset_stream(st, true);
         st.mark_kind = MarkKind::Rate;
-        if st.cur >= st.queue.len() || !self.open_current(st, frame) {
-            self.finish_queue(st);
+        if self.begin(st, frame, None, true) {
+            return;
         }
         // Last: whoever sees the count has the new rate and the first mark of the new stream.
         self.sh.rate_flushes.fetch_add(1, Release);
@@ -591,9 +815,9 @@ impl Decoder {
         self.sh.eos.store(true, Release);
     }
 
-    /// Open `st.cur` at `frame`, moving on to later queue entries when one fails.
-    /// Returns false when the queue is exhausted.
-    fn open_current(&mut self, st: &mut State, mut frame: u64) -> bool {
+    /// Open `st.cur` at `frame`, moving on to later queue entries when one fails. A track that
+    /// needs the output stream at another rate is not started: see [`Opened::Park`].
+    fn open_current(&mut self, st: &mut State, mut frame: u64) -> Opened {
         while let Some(track) = st.queue.get(st.cur).cloned() {
             match TrackReader::open(self.opener.as_ref(), &track) {
                 Ok(mut reader) => {
@@ -601,6 +825,10 @@ impl Decoder {
                     // changes the stream (the resampler), which must be the last thing that can
                     // fail.
                     let file_rate = reader.sample_rate();
+                    if let Some(target) = self.reopen_target(st, file_rate) {
+                        // Nothing has been read: the track is opened again once the stream is.
+                        return Opened::Park { target, frame };
+                    }
                     let stage = match Self::stage_for(st, file_rate) {
                         Ok(stage) => stage,
                         Err(error) => {
@@ -673,12 +901,14 @@ impl Decoder {
                         kind: st.mark_kind,
                         prev_failed: st.item_failed,
                         rate: st.rate,
+                        out_rate: st.stream_rate,
+                        timeline_rate: self.sample_rate,
                     });
                     st.item_failed = false;
                     st.mark_kind = MarkKind::Continuation;
                     st.last_opened = Some(st.cur);
                     st.reader = Some(reader);
-                    return true;
+                    return Opened::Started;
                 }
                 Err(error) => {
                     self.emit(EventKind::TrackFailed {
@@ -690,7 +920,7 @@ impl Decoder {
                 }
             }
         }
-        false
+        Opened::Exhausted
     }
 
     /// The stretch stage for a track of `file_rate` that starts now, taken out of `st` (the caller
@@ -735,16 +965,16 @@ impl Decoder {
     fn use_rate(&mut self, st: &mut State, rate: u32) -> Result<(), PlaybackError> {
         let wanted = match &st.resampler {
             Some(current) => current.in_rate(),
-            None => self.sample_rate,
+            None => st.stream_rate,
         };
         if rate == wanted {
             return Ok(());
         }
         // Built before the old one is flushed, so a refused rate leaves the stream untouched.
-        let next = if rate == self.sample_rate {
+        let next = if rate == st.stream_rate {
             None
         } else {
-            Some(StreamResampler::new(rate, self.sample_rate)?)
+            Some(StreamResampler::new(rate, st.stream_rate)?)
         };
         if let Err(error) = self.flush_resampler(st) {
             // The old track's tail is lost: that track failed, not the one that starts now.
@@ -829,18 +1059,41 @@ impl Decoder {
     /// Decode more audio into `st.pending`, advancing through the queue. `false` at the end.
     fn fill_pending(&mut self, st: &mut State) -> bool {
         loop {
-            if st.reader.is_none() && !self.open_current(st, 0) {
-                // The last track's tail is still inside the resampler, and the stretcher's tail
-                // (flushed with the track) may be waiting in `pending`: it is audio, so it goes out
-                // before the end of the stream is published.
-                if let Err(error) = self.flush_resampler(st) {
-                    self.flush_failed(st, error);
-                }
-                if st.pending_off < st.pending.len() {
-                    return true;
-                }
-                self.finish_queue(st);
+            if let Some(request) = st.park_req.take() {
+                // The tail of the track before has reached the ring: wait for the stream.
+                self.park(st, request.target, request.frame, None, true, false);
                 return false;
+            }
+            if st.reader.is_none() {
+                match self.open_current(st, 0) {
+                    Opened::Started => {}
+                    Opened::Park { target, frame } => {
+                        // The audio of the track before is the end of the old stream: the
+                        // resampler's tail joins the stretcher's in `pending`, and all of it is
+                        // pushed before the decoder parks.
+                        if let Err(error) = self.flush_resampler(st) {
+                            self.flush_failed(st, error);
+                        }
+                        st.park_req = Some(ParkRequest { target, frame });
+                        if st.pending_off < st.pending.len() {
+                            return true;
+                        }
+                        continue;
+                    }
+                    Opened::Exhausted => {
+                        // The last track's tail is still inside the resampler, and the stretcher's
+                        // tail (flushed with the track) may be waiting in `pending`: it is audio, so
+                        // it goes out before the end of the stream is published.
+                        if let Err(error) = self.flush_resampler(st) {
+                            self.flush_failed(st, error);
+                        }
+                        if st.pending_off < st.pending.len() {
+                            return true;
+                        }
+                        self.finish_queue(st);
+                        return false;
+                    }
+                }
             }
             let Some(reader) = st.reader.as_mut() else {
                 continue;
@@ -970,7 +1223,53 @@ mod tests {
             mark_kind: MarkKind::Initial,
             item_failed: false,
             awaiting: None,
+            stream_rate: 48_000,
+            parked: None,
+            park_req: None,
+            park_id: 0,
         }
+    }
+
+    fn decoder_on(sample_rate: u32) -> Decoder {
+        let (_tx, rx) = std::sync::mpsc::channel();
+        let (producer, _consumer) = rtrb::RingBuffer::new(8);
+        Decoder {
+            sh: Shared::new(1.0),
+            rx,
+            producer,
+            opener: Arc::new(crate::FsOpener),
+            sink: Arc::new(Events::default()),
+            clock: Arc::new(ManualClock::new(UtcMillis::new(0))),
+            sample_rate,
+        }
+    }
+
+    #[test]
+    fn the_stream_follows_a_file_only_in_exclusive_mode() {
+        let decoder = decoder_on(48_000);
+        let mut st = state(Vec::new(), 0, None);
+        st.stream_rate = 44_100;
+        // Shared mode: every rate is converted, none asks for another stream.
+        assert_eq!(decoder.reopen_target(&st, 96_000), None);
+        decoder.sh.follow.store(true, Release);
+        assert_eq!(decoder.reopen_target(&st, 96_000), Some(96_000));
+        assert_eq!(decoder.reopen_target(&st, 44_100), None, "the stream already has it");
+    }
+
+    #[test]
+    fn a_refused_rate_is_converted_to_the_engines_rate_instead() {
+        let decoder = decoder_on(48_000);
+        decoder.sh.follow.store(true, Release);
+        decoder.sh.refused().push(96_000);
+        let mut st = state(Vec::new(), 0, None);
+        // On a 44.1 kHz stream, a 96 kHz track needs the engine's 48 kHz stream.
+        st.stream_rate = 44_100;
+        assert_eq!(decoder.reopen_target(&st, 96_000), Some(48_000));
+        // On the 48 kHz stream it is resampled in place: no new stream.
+        st.stream_rate = 48_000;
+        assert_eq!(decoder.reopen_target(&st, 96_000), None);
+        // A rate nobody refused is still followed.
+        assert_eq!(decoder.reopen_target(&st, 44_100), Some(44_100));
     }
 
     /// A resampler that fails while flushing cannot be built (it only fails on a buffer-size bug),

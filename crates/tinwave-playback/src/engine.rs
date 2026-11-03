@@ -11,7 +11,7 @@ use tinwave_core::Clock;
 
 use crate::decoder::{Cmd, Decoder};
 use crate::event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
-use crate::output::{AudioOutput, OpenRequest, OutputStream};
+use crate::output::{AudioOutput, OpenRequest, OutputStream, StreamInfo, StreamMode};
 use crate::reader::SourceOpener;
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::stretch::{MAX_RATE, MIN_RATE};
@@ -36,7 +36,10 @@ const RATE_FADE_MS: u32 = 5;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RateStats {
     /// Frames of audio the renderer has played (wall-clock frames at the stream rate), fades
-    /// included. Silence the callback produced for want of audio is not counted.
+    /// included. Silence the callback produced for want of audio is not counted. In exclusive
+    /// mode the stream rate changes with the files (the output is reopened at each file's rate),
+    /// so this counts frames of whatever rate played them; the time-weighted rate, a ratio of
+    /// frames played to frames advanced, is not affected.
     pub wall_frames: u64,
     /// Source frames those frames advanced through the tracks, in millionths: a frame played at
     /// rate 1.25 adds 1,250,000.
@@ -71,9 +74,15 @@ impl RateStats {
 
 /// Everything an [`Engine`] is wired to.
 pub struct EngineConfig {
-    /// Stream sample rate (stereo `f32`). Tracks of another rate are resampled to it on the
-    /// decoder thread. Everything the engine reports or accepts in frames (seek targets, start
-    /// frames, positions) is counted at this rate.
+    /// The engine's own sample rate (stereo `f32`): the rate of the output stream in shared mode,
+    /// where tracks of another rate are resampled to it on the decoder thread, and the rate the
+    /// stream falls back to in exclusive mode (below). Everything the engine reports or accepts
+    /// in frames (seek targets, start frames, positions) is counted at this rate, whatever rate
+    /// the output stream runs at.
+    ///
+    /// In exclusive mode (`AudioOutput::wants_exclusive`) the output is reopened at the rate of
+    /// each file instead of resampling it, and at this rate when the device refuses that: see
+    /// [`Engine::poll`].
     pub sample_rate: u32,
     /// Output device id, `None` for the system default.
     pub device: Option<String>,
@@ -124,9 +133,18 @@ pub struct Engine {
     stream: Option<Box<dyn OutputStream>>,
     sink: Arc<dyn EventSink>,
     clock: Arc<dyn Clock>,
+    /// The timeline rate (`EngineConfig::sample_rate`).
     sample_rate: u32,
+    /// The rate the output stream runs at now: `sample_rate`, or a file's rate in exclusive mode.
+    stream_rate: u32,
+    /// Rates the device refused in exclusive mode since the device was last chosen.
+    refused: Vec<u32>,
+    /// The last reopen request answered (or given up on); a request is answered once.
+    reopen_done: u32,
     device: Option<String>,
     gen: u64,
+    /// The generation of the last command that reached the decoder's queue.
+    sent_gen: u64,
     /// Queue edits sent so far (the last [`EditId`]).
     edits: u64,
     pending: Option<Pending>,
@@ -176,8 +194,7 @@ impl Engine {
             return Err(PlaybackError::InvalidArgument("sample_rate must be > 0"));
         }
         let sh = Shared::new(1.0);
-        sh.fade_frames
-            .store((sample_rate / (1000 / RATE_FADE_MS)).max(1), Relaxed);
+        sh.fade_frames.store(fade_frames(sample_rate), Relaxed);
         let (producer, consumer) = ring(sample_rate);
         let (tx, rx) = sync_channel(COMMAND_QUEUE);
         let decoder = Decoder {
@@ -207,6 +224,8 @@ impl Engine {
             }
         };
         let info = stream.info();
+        sh.follow
+            .store(output.wants_exclusive() && info.mode == StreamMode::Exclusive, Release);
         let engine = Self {
             sh,
             tx,
@@ -216,8 +235,12 @@ impl Engine {
             sink,
             clock,
             sample_rate,
+            stream_rate: sample_rate,
+            refused: Vec::new(),
+            reopen_done: 0,
             device,
             gen: 0,
+            sent_gen: 0,
             edits: 0,
             pending: None,
             cursor: None,
@@ -555,7 +578,8 @@ impl Engine {
 
     /// True from a `load`, `seek`, `stop` or `switch_device` call until the decoder thread has
     /// carried it out and the new stream is the one being rendered. `position` reports the
-    /// command's target meanwhile.
+    /// command's target meanwhile. In exclusive mode a command that starts a track of another
+    /// sample rate is carried out once [`poll`](Self::poll) has reopened the output at that rate.
     #[must_use]
     pub fn command_pending(&self) -> bool {
         self.unapplied().is_some()
@@ -592,17 +616,27 @@ impl Engine {
         };
         // The old callback must be gone before the decoder re-bases on `consumed`.
         self.stream = None;
-        let (producer, consumer) = ring(self.sample_rate);
+        // A new device: what the old one refused says nothing about it.
+        self.refused.clear();
+        // Exclusive mode keeps the rate of what is playing; the track then follows by itself.
+        let opened = self.open_stream(device.as_deref(), self.stream_rate);
         let gen = self.next_gen();
         let resume_item = resume.map(|r| r.0);
         let resume_frame = resume.map_or(0, |r| r.1);
+        let (producer, rate, result) = match opened {
+            Ok(o) => (o.producer, o.rate, Ok((o.stream, o.info))),
+            // The decoder restarts regardless (below), into a ring nobody plays.
+            Err(error) => (ring(self.stream_rate).0, self.stream_rate, Err(error)),
+        };
         if let Err(error) = self.send(Cmd::Reconfigure {
             producer,
+            rate,
             item: resume_item,
             frame: resume_frame,
             gen,
         }) {
-            // Nothing was sent, but the old stream is already closed.
+            // Nothing was sent, but the old stream is already closed (a new one that opened is
+            // dropped with `result`).
             self.output_lost_reported = true;
             self.emit(EventKind::OutputLost);
             return Err(error);
@@ -618,16 +652,8 @@ impl Engine {
             });
         }
         self.command_sent(gen, resume_item, resume_frame, true);
-        let request = OpenRequest {
-            device: device.as_deref(),
-            sample_rate: self.sample_rate,
-        };
-        match self
-            .output
-            .open(&request, Renderer::new(consumer, Arc::clone(&self.sh)))
-        {
-            Ok(stream) => {
-                let info = stream.info();
+        match result {
+            Ok((stream, info)) => {
                 self.stream = Some(stream);
                 self.device = device.clone();
                 self.output_lost_reported = false;
@@ -647,6 +673,7 @@ impl Engine {
     /// marks follow heard audio, not the call rate, so a late call produces one mark, not a burst.
     pub fn poll(&mut self) {
         self.report_underruns_and_output();
+        self.service_reopen();
         if self.unapplied().is_some() {
             return;
         }
@@ -654,7 +681,6 @@ impl Engine {
             self.pending_applied(done);
         }
         let view = self.view();
-        let rate_interval = u64::from(self.sample_rate / POSITION_MARKS_PER_SECOND).max(1);
 
         let ended = view.ended;
         let heard = if ended { view.consumed } else { view.played };
@@ -689,6 +715,12 @@ impl Engine {
                         frame: mark.offset,
                         cause: StartCause::Advance,
                     });
+                    if prev.out_rate != mark.out_rate {
+                        // The output was reopened at another rate: heard frames are counted in
+                        // it from here, so the 10 Hz grid starts again.
+                        self.grid_base = mark.start_frame;
+                        self.last_grid = 0;
+                    }
                 }
                 _ => {
                     // Adopt the stream a command started; an item the command did not name means
@@ -733,6 +765,8 @@ impl Engine {
                 self.emit(EventKind::QueueEnded);
             }
         } else if self.cursor.is_some() && !self.sh.paused.load(Relaxed) {
+            let out_rate = self.cursor.as_ref().map_or(self.sample_rate, |c| c.out_rate);
+            let rate_interval = u64::from(out_rate / POSITION_MARKS_PER_SECOND).max(1);
             let grid = heard.saturating_sub(self.grid_base) / rate_interval;
             if grid > self.last_grid {
                 self.last_grid = grid;
@@ -748,6 +782,15 @@ impl Engine {
         }
     }
 
+    /// Whether the decoder is waiting for [`poll`](Self::poll) to reopen the output stream at the
+    /// sample rate of its next track (exclusive mode). A host that polls slowly can poll faster
+    /// while this is true: playback of that track starts when the poll has reopened the stream.
+    #[must_use]
+    pub fn reopen_pending(&self) -> bool {
+        let (id, rate) = self.sh.reopen_request();
+        rate != 0 && id != self.reopen_done && self.stream.is_some()
+    }
+
     /// Stop the decoder thread and wait for it. (Dropping the engine stops it too but does not
     /// wait, so a stuck read can never hang the application.)
     pub fn shutdown(mut self) {
@@ -760,6 +803,130 @@ impl Engine {
     }
 
     // --- internals -------------------------------------------------------------------------
+
+    /// Answer the decoder's request for an output stream at another sample rate (exclusive mode,
+    /// ADR 0005 decision 5), when the old stream has nothing left to play.
+    ///
+    /// The decoder asks when the next track's rate is not the stream's. At a track boundary the
+    /// request waits until the old stream has played its last frame and its device buffer has
+    /// emptied, so no audio is cut; after a load or seek there is nothing left to wait for. The
+    /// old stream is then closed, a new one opened at the track's rate (or at the engine's own
+    /// rate when the device refuses that, see [`open_stream`](Self::open_stream)), and the decoder
+    /// carries on in it: the marks, the positions and the track events continue as at any other
+    /// boundary. The listener hears a gap of the old device's buffer, the time the device takes to
+    /// open, and up to one poll interval.
+    ///
+    /// Events: one [`EventKind::OutputReopened`] with the new stream's [`StreamInfo`] (a refused
+    /// rate is in its `fallback`); [`EventKind::OutputLost`] when no stream could be opened.
+    fn service_reopen(&mut self) {
+        // The generation first: the decoder stores it after withdrawing a request, so a request
+        // read after a matching generation is the decoder's answer to the latest command.
+        if self.sh.reopen_gen.load(Acquire) != self.sent_gen {
+            return;
+        }
+        let (id, rate) = self.sh.reopen_request();
+        if rate == 0 || id == self.reopen_done || self.stream.is_none() {
+            return;
+        }
+        if self.sh.consumed.load(Acquire) < self.sh.reopen_total.load(Acquire) {
+            return;
+        }
+        let emptied = self.sh.idle_frames.load(Relaxed) >= self.sh.latency_frames.load(Relaxed);
+        if self.sh.reopen_drain.load(Acquire) && !emptied {
+            return;
+        }
+        // Answered once, whatever the outcome: a device that cannot open is not retried every poll.
+        self.reopen_done = id;
+        self.stream = None;
+        let device = self.device.clone();
+        let reopened = self.open_stream(device.as_deref(), rate).and_then(|o| {
+            let cmd = Cmd::Resume {
+                producer: o.producer,
+                rate: o.rate,
+                id,
+            };
+            self.send(cmd).map(|()| (o.stream, o.info))
+        });
+        match reopened {
+            Ok((stream, info)) => {
+                self.stream = Some(stream);
+                self.output_lost_reported = false;
+                self.emit(EventKind::OutputReopened { device, info });
+            }
+            Err(error) => {
+                tracing::warn!(%error, rate, "the output could not be reopened for the next track");
+                self.output_lost_reported = true;
+                self.emit(EventKind::OutputLost);
+            }
+        }
+    }
+
+    /// Open an output stream, and publish what the decoder needs to know about it. `rate` is
+    /// what the next track needs.
+    ///
+    /// In shared mode the stream always runs at the engine's rate. In exclusive mode
+    /// (`AudioOutput::wants_exclusive`) it runs at `rate`, so the file plays bit for bit; a device
+    /// that does not open `rate` exclusively is a refusal: the rate is remembered (the decoder
+    /// resamples tracks of that rate from then on, once), and the stream is opened again at the
+    /// engine's rate, exclusive if the device allows that and shared otherwise. The reason is in
+    /// the returned info's `fallback`.
+    fn open_stream(
+        &mut self,
+        device: Option<&str>,
+        rate: u32,
+    ) -> Result<OpenedStream, PlaybackError> {
+        let exclusive = self.output.wants_exclusive();
+        let mut rate = if exclusive { rate } else { self.sample_rate };
+        let mut refusal: Option<String> = None;
+        loop {
+            // Before the renderer exists: it reads this when a rate change flushes its ring.
+            self.sh.fade_frames.store(fade_frames(rate), Relaxed);
+            let (producer, consumer) = ring(rate);
+            let request = OpenRequest {
+                device,
+                sample_rate: rate,
+            };
+            let stream = self
+                .output
+                .open(&request, Renderer::new(consumer, Arc::clone(&self.sh)))?;
+            let mut info = stream.info();
+            if exclusive && rate != self.sample_rate && info.mode != StreamMode::Exclusive {
+                let why = info
+                    .fallback
+                    .take()
+                    .unwrap_or_else(|| "the device did not open it exclusively".into());
+                // Closed before the next open: an exclusive endpoint has one client.
+                drop(stream);
+                if !self.refused.contains(&rate) {
+                    self.refused.push(rate);
+                }
+                refusal = Some(format!(
+                    "{rate} Hz refused ({why}); using {} Hz and resampling",
+                    self.sample_rate
+                ));
+                rate = self.sample_rate;
+                continue;
+            }
+            if let Some(note) = refusal {
+                info.fallback = Some(match info.fallback.take() {
+                    Some(other) => format!("{note}; {other}"),
+                    None => note,
+                });
+            }
+            self.stream_rate = rate;
+            self.sh.refused().clone_from(&self.refused);
+            self.sh.follow.store(
+                exclusive && info.mode == StreamMode::Exclusive,
+                Release,
+            );
+            return Ok(OpenedStream {
+                stream,
+                producer,
+                rate,
+                info,
+            });
+        }
+    }
 
     fn request_shutdown(&self) {
         self.sh.shutdown.store(true, Release);
@@ -797,6 +964,7 @@ impl Engine {
         expect_audio: bool,
     ) {
         self.cursor = None;
+        self.sent_gen = gen;
         self.announced = item.filter(|_| expect_audio).map(|i| (i, frame));
         self.pending = Some(Pending {
             gen,
@@ -886,6 +1054,14 @@ impl Drop for Engine {
     }
 }
 
+/// An output stream the engine opened, and the ring that feeds it.
+struct OpenedStream {
+    stream: Box<dyn OutputStream>,
+    producer: rtrb::Producer<f32>,
+    rate: u32,
+    info: StreamInfo,
+}
+
 #[derive(Debug)]
 struct View {
     consumed: u64,
@@ -906,6 +1082,11 @@ fn resolve(marks: &[Mark], played: u64) -> Option<(usize, u64)> {
     }
 }
 
+/// Frames of the fade a rate change plays: 5 ms at the stream rate.
+fn fade_frames(sample_rate: u32) -> u32 {
+    (sample_rate / (1000 / RATE_FADE_MS)).max(1)
+}
+
 fn ring(sample_rate: u32) -> (rtrb::Producer<f32>, rtrb::Consumer<f32>) {
     RingBuffer::new(sample_rate as usize * CHANNELS * RING_SECONDS)
 }
@@ -918,5 +1099,176 @@ fn check_unique(items: &[Track]) -> Result<(), PlaybackError> {
         Err(PlaybackError::InvalidArgument(
             "queue item ids must be unique",
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use tinwave_core::{ManualClock, UtcMillis};
+
+    use super::*;
+    use crate::output::{ManualHandle, ManualOutput};
+    use crate::FsOpener;
+
+    #[derive(Debug, Default)]
+    struct Events(Mutex<Vec<EventKind>>);
+
+    impl EventSink for Events {
+        fn emit(&self, event: PlaybackEvent) {
+            self.0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(event.kind);
+        }
+    }
+
+    impl Events {
+        fn take(&self) -> Vec<EventKind> {
+            std::mem::take(
+                &mut *self
+                    .0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner),
+            )
+        }
+    }
+
+    /// An engine in exclusive mode on a fake device, with nothing loaded: the decoder thread is
+    /// idle, so the test can state a reopen request itself and watch what the engine does.
+    fn exclusive_engine() -> (Engine, ManualHandle, Arc<Events>) {
+        let (output, handle) = ManualOutput::new();
+        handle.set_exclusive(true);
+        let events = Arc::new(Events::default());
+        let engine = Engine::start(
+            EngineConfig {
+                sample_rate: 48_000,
+                device: None,
+                opener: Arc::new(FsOpener),
+                sink: events.clone(),
+                clock: Arc::new(ManualClock::new(UtcMillis::new(0))),
+            },
+            Box::new(output),
+        )
+        .expect("starts");
+        assert_eq!(events.take().len(), 1, "OutputOpened");
+        (engine, handle, events)
+    }
+
+    fn reopened(events: &[EventKind]) -> usize {
+        events
+            .iter()
+            .filter(|e| matches!(e, EventKind::OutputReopened { .. }))
+            .count()
+    }
+
+    #[test]
+    fn a_reopen_request_is_served_only_for_the_latest_command_the_decoder_has_taken() {
+        let (mut engine, handle, events) = exclusive_engine();
+        // The decoder parked for generation 0; meanwhile the engine sent command 1 (still queued).
+        engine.sh.park(1, 96_000, 0, false);
+        engine.sent_gen = 1;
+        assert!(engine.reopen_pending());
+        engine.poll();
+        assert_eq!(handle.opens().len(), 1, "a stale request is left alone");
+        assert_eq!(reopened(&events.take()), 0);
+
+        // The decoder has taken command 1 and parked again: now the engine answers.
+        engine.sh.reopen_gen.store(1, Release);
+        engine.poll();
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(96_000));
+        assert_eq!(reopened(&events.take()), 1);
+        assert_eq!(engine.sh.fade_frames.load(Relaxed), 480, "5 ms at 96 kHz");
+        // ...once: the request is still published, but it has been answered.
+        assert!(!engine.reopen_pending());
+        engine.poll();
+        assert_eq!(handle.opens().len(), 2);
+        assert_eq!(reopened(&events.take()), 0);
+    }
+
+    #[test]
+    fn a_track_boundary_waits_for_the_last_frame_and_for_the_device_buffer_to_empty() {
+        let (mut engine, handle, events) = exclusive_engine();
+        engine.sh.latency_frames.store(480, Relaxed);
+        engine.sh.park(1, 96_000, 1_000, true);
+
+        // 999 of 1,000 frames played: not yet.
+        engine.sh.consumed.store(999, Release);
+        engine.poll();
+        assert_eq!(handle.opens().len(), 1);
+        // All played, the device still holds them (no silence has followed): not yet.
+        engine.sh.consumed.store(1_000, Release);
+        engine.sh.idle_frames.store(479, Relaxed);
+        engine.poll();
+        assert_eq!(handle.opens().len(), 1, "the tail is still in the device buffer");
+        // The buffer has emptied.
+        engine.sh.idle_frames.store(480, Relaxed);
+        engine.poll();
+        assert_eq!(handle.opens().len(), 2);
+        assert_eq!(reopened(&events.take()), 1);
+    }
+
+    #[test]
+    fn a_request_after_a_load_or_seek_does_not_wait_for_the_device_buffer() {
+        let (mut engine, handle, _) = exclusive_engine();
+        engine.sh.latency_frames.store(480, Relaxed);
+        // Nothing to drain: the audio of the old stream was thrown away by the flush.
+        engine.sh.consumed.store(5_000, Release);
+        engine.sh.park(1, 44_100, 5_000, false);
+        engine.poll();
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(44_100));
+    }
+
+    #[test]
+    fn a_device_that_cannot_open_is_reported_lost_and_not_asked_again() {
+        let (mut engine, handle, events) = exclusive_engine();
+        engine.sh.park(1, 96_000, 0, false);
+        handle.fail_next_open();
+        engine.poll();
+        assert_eq!(events.take(), vec![EventKind::OutputLost]);
+        assert!(!handle.is_open());
+        assert!(!engine.reopen_pending(), "answered, whatever the outcome");
+        engine.poll();
+        assert_eq!(handle.opens().len(), 1, "no retry on the next poll");
+        assert!(events.take().is_empty());
+    }
+
+    #[test]
+    fn shared_mode_never_follows_a_file_rate() {
+        let (output, handle) = ManualOutput::new();
+        let events = Arc::new(Events::default());
+        let mut engine = Engine::start(
+            EngineConfig {
+                sample_rate: 48_000,
+                device: None,
+                opener: Arc::new(FsOpener),
+                sink: events.clone(),
+                clock: Arc::new(ManualClock::new(UtcMillis::new(0))),
+            },
+            Box::new(output),
+        )
+        .expect("starts");
+        assert!(!engine.sh.follow.load(Relaxed));
+        engine.switch_device(Some("other".into())).expect("switch");
+        assert_eq!(handle.opens().last().map(|o| o.1), Some(48_000));
+        assert!(!engine.sh.follow.load(Relaxed));
+    }
+
+    #[test]
+    fn refused_rates_are_remembered_per_device_and_published_to_the_decoder() {
+        let (mut engine, handle, _) = exclusive_engine();
+        handle.set_device_rates(&[48_000]);
+        engine.sh.park(1, 96_000, 0, false);
+        engine.poll();
+        // 96 kHz refused, then the engine's rate taken (still exclusive).
+        let opened: Vec<u32> = handle.opens().iter().map(|o| o.1).collect();
+        assert_eq!(opened, [48_000, 96_000, 48_000]);
+        assert_eq!(*engine.sh.refused(), vec![96_000]);
+        assert!(engine.sh.follow.load(Relaxed));
+        // A new device starts from a clean slate.
+        handle.set_device_rates(&[48_000, 96_000]);
+        engine.switch_device(Some("dac".into())).expect("switch");
+        assert!(engine.sh.refused().is_empty());
     }
 }

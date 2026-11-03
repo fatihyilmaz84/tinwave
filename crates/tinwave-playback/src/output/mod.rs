@@ -42,9 +42,12 @@ use crate::{PlaybackError, Renderer};
 pub struct OpenRequest<'a> {
     /// Output device id; `None` is the system default.
     pub device: Option<&'a str>,
-    /// Stream sample rate, stereo `f32`. The engine resamples files of other rates to it (decoder
-    /// thread, T-0019), so the callback only ever sees this rate; a backend that has to convert to
-    /// the device mix rate does so itself.
+    /// Stream sample rate, stereo `f32`. In shared mode this is the engine's configured rate and
+    /// the engine resamples files of other rates to it (decoder thread, T-0019), so the callback
+    /// only ever sees this rate; a backend that has to convert to the device mix rate does so
+    /// itself. When [`AudioOutput::wants_exclusive`] is true the engine asks for the rate of the
+    /// file that is about to play (T-0057): an exclusive stream that does not come back as
+    /// [`StreamMode::Exclusive`] is a refusal, and the engine opens again at its configured rate.
     pub sample_rate: u32,
 }
 
@@ -59,6 +62,14 @@ pub trait AudioOutput: Send {
         request: &OpenRequest<'_>,
         renderer: Renderer,
     ) -> Result<Box<dyn OutputStream>, PlaybackError>;
+
+    /// Whether the next stream is to be opened in exclusive mode. The engine then follows the
+    /// rate of each file (reopening the stream at a track whose rate differs, ADR 0005 decision
+    /// 5) instead of resampling to one rate. Streams report what they really got in
+    /// [`OutputStream::info`]. Outputs without an exclusive mode keep the default, `false`.
+    fn wants_exclusive(&self) -> bool {
+        false
+    }
 }
 
 /// A running output stream. **Dropping it stops the stream, and when `drop` returns the audio
@@ -95,6 +106,9 @@ struct ManualShared {
     lost: AtomicBool,
     opens: Mutex<Vec<(Option<String>, u32)>>,
     fail_next_open: AtomicBool,
+    exclusive: AtomicBool,
+    /// Rates the fake device accepts in exclusive mode; `None` accepts every rate.
+    device_rates: Mutex<Option<Vec<u32>>>,
 }
 
 impl ManualOutput {
@@ -125,16 +139,49 @@ impl AudioOutput for ManualOutput {
             return Err(PlaybackError::Output("manual output: open refused".into()));
         }
         lock(&self.shared.opens).push((request.device.map(str::to_owned), request.sample_rate));
+        let info = self.stream_info(request);
         self.shared.lost.store(false, Ordering::Release);
         *lock(&self.shared.renderer) = Some(renderer);
         Ok(Box::new(ManualStream {
             shared: Arc::clone(&self.shared),
+            info,
         }))
+    }
+
+    fn wants_exclusive(&self) -> bool {
+        self.shared.exclusive.load(Ordering::Acquire)
+    }
+}
+
+impl ManualOutput {
+    /// What a stream opened for `request` looks like: unknown (shared) unless exclusive mode was
+    /// asked for, then exclusive at a rate the fake device accepts and, for any other, shared
+    /// with the reason, as a real endpoint that refuses a rate does.
+    fn stream_info(&self, request: &OpenRequest<'_>) -> StreamInfo {
+        if !self.wants_exclusive() {
+            return StreamInfo::unknown();
+        }
+        let accepted = lock(&self.shared.device_rates)
+            .as_ref()
+            .is_none_or(|rates| rates.contains(&request.sample_rate));
+        let mut info = StreamInfo::unknown();
+        info.backend = "manual";
+        if accepted {
+            info.mode = StreamMode::Exclusive;
+            info.format = SampleFormat::I24In32;
+        } else {
+            info.fallback = Some(format!(
+                "exclusive mode refused: the device does not accept {} Hz",
+                request.sample_rate
+            ));
+        }
+        info
     }
 }
 
 struct ManualStream {
     shared: Arc<ManualShared>,
+    info: StreamInfo,
 }
 
 impl std::fmt::Debug for ManualStream {
@@ -146,6 +193,10 @@ impl std::fmt::Debug for ManualStream {
 impl OutputStream for ManualStream {
     fn is_lost(&self) -> bool {
         self.shared.lost.load(Ordering::Acquire)
+    }
+
+    fn info(&self) -> StreamInfo {
+        self.info.clone()
     }
 }
 
@@ -188,7 +239,23 @@ impl ManualHandle {
         self.shared.fail_next_open.store(true, Ordering::Release);
     }
 
-    /// Every `(device, sample_rate)` the output was opened with, in order.
+    /// Ask for exclusive mode (`true`) or shared mode (`false`) from the next `open` on, as
+    /// `WasapiControl::set_exclusive` does. While it is on, streams report
+    /// [`StreamMode::Exclusive`] at the rates [`set_device_rates`](Self::set_device_rates) allows
+    /// and shared mode with a [`StreamInfo::fallback`] reason at any other. The open stream is
+    /// not touched.
+    pub fn set_exclusive(&self, exclusive: bool) {
+        self.shared.exclusive.store(exclusive, Ordering::Release);
+    }
+
+    /// The sample rates the fake device accepts in exclusive mode (an empty list accepts none).
+    /// Every rate is accepted until this is called.
+    pub fn set_device_rates(&self, rates: &[u32]) {
+        *lock(&self.shared.device_rates) = Some(rates.to_vec());
+    }
+
+    /// Every `(device, sample_rate)` the output was opened with, in order, including opens the
+    /// device then refused.
     #[must_use]
     pub fn opens(&self) -> Vec<(Option<String>, u32)> {
         lock(&self.shared.opens).clone()

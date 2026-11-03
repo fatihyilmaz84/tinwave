@@ -183,7 +183,9 @@ pub enum EventKind {
         /// How the stream was opened.
         info: StreamInfo,
     },
-    /// A new output stream was opened (device switch).
+    /// A new output stream was opened: a device switch, or, in exclusive mode, the stream
+    /// following a track of another sample rate (and, when the device refuses that rate, the
+    /// stream falling back to the engine's rate; `info.fallback` says so, once).
     OutputReopened {
         /// Device id as given to `switch_device`; `None` is the system default.
         device: Option<String>,
