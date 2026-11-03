@@ -11,7 +11,9 @@ use tinwave_core::Clock;
 
 use crate::decoder::{Cmd, Decoder};
 use crate::event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
-use crate::output::{AudioOutput, OpenRequest, OutputStream, StreamInfo, StreamMode};
+use crate::output::{
+    exclusive_refusal_message, AudioOutput, OpenRequest, OutputStream, StreamInfo, StreamMode,
+};
 use crate::reader::SourceOpener;
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::stretch::{MAX_RATE, MIN_RATE};
@@ -217,6 +219,7 @@ impl Engine {
         let request = OpenRequest {
             device: device.as_deref(),
             sample_rate,
+            exclusive_only: false,
         };
         let stream = match output.open(&request, Renderer::new(consumer, Arc::clone(&sh))) {
             Ok(stream) => stream,
@@ -925,7 +928,9 @@ impl Engine {
     /// that does not open `rate` exclusively is a refusal: the rate is remembered (the decoder
     /// resamples tracks of that rate from then on, once), and the stream is opened again at the
     /// engine's rate, exclusive if the device allows that and shared otherwise. The reason is in
-    /// the returned info's `fallback`.
+    /// the returned info's `fallback`. The attempt at `rate` is exclusive-only
+    /// ([`OpenRequest::exclusive_only`]), so a refusing output answers with an error and no
+    /// shared stream is built just to be dropped: a refusal costs one failed open.
     fn open_stream(
         &mut self,
         device: Option<&str>,
@@ -941,28 +946,46 @@ impl Engine {
             let request = OpenRequest {
                 device,
                 sample_rate: rate,
+                exclusive_only: exclusive && rate != self.sample_rate,
             };
-            let stream = self
-                .output
-                .open(&request, Renderer::new(consumer, Arc::clone(&self.sh)))?;
-            let mut info = stream.info();
-            if exclusive && rate != self.sample_rate && info.mode != StreamMode::Exclusive {
-                let why = info
-                    .fallback
-                    .take()
-                    .unwrap_or_else(|| "the device did not open it exclusively".into());
-                // Closed before the next open: an exclusive endpoint has one client.
-                drop(stream);
-                if !self.refused.contains(&rate) {
-                    self.refused.push(rate);
+            let renderer = Renderer::new(consumer, Arc::clone(&self.sh));
+            let opened = match self.output.open(&request, renderer) {
+                Ok(stream) => {
+                    let mut info = stream.info();
+                    if request.exclusive_only && info.mode != StreamMode::Exclusive {
+                        // An output that ignores `exclusive_only` hands back a shared stream.
+                        let why = info
+                            .fallback
+                            .take()
+                            .unwrap_or_else(|| "the device did not open it exclusively".into());
+                        // Closed before the next open: an exclusive endpoint has one client.
+                        drop(stream);
+                        Err(why)
+                    } else {
+                        Ok((stream, info))
+                    }
                 }
-                refusal = Some(format!(
-                    "{rate} Hz refused ({why}); using {} Hz and resampling",
-                    self.sample_rate
-                ));
-                rate = self.sample_rate;
-                continue;
-            }
+                // Only the device saying no to the rate is a refusal; any other failure ends the
+                // open, as it does for a rate that is not exclusive-only.
+                Err(error) => match exclusive_refusal_message(&error) {
+                    Some(why) if request.exclusive_only => Err(why.to_owned()),
+                    _ => return Err(error),
+                },
+            };
+            let (stream, mut info) = match opened {
+                Ok(opened) => opened,
+                Err(why) => {
+                    if !self.refused.contains(&rate) {
+                        self.refused.push(rate);
+                    }
+                    refusal = Some(format!(
+                        "{rate} Hz refused ({why}); using {} Hz and resampling",
+                        self.sample_rate
+                    ));
+                    rate = self.sample_rate;
+                    continue;
+                }
+            };
             if let Some(note) = refusal {
                 info.fallback = Some(match info.fallback.take() {
                     Some(other) => format!("{note}; {other}"),

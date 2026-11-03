@@ -19,7 +19,9 @@
 //! While exclusive mode is requested the engine opens the stream at each file's own sample rate
 //! (`AudioOutput::wants_exclusive`, T-0057). A refused rate comes back as a shared stream at
 //! that rate (the OS converts); the engine recognises it by its mode, closes it and opens again
-//! at its configured rate, where its own resampler converts.
+//! at its configured rate, where its own resampler converts. For a rate other than its own the
+//! engine asks `OpenRequest::exclusive_only` (T-0066): the open then fails with the reason
+//! instead of building a shared stream that would be closed at once.
 //!
 //! # What this module does not do
 //! It never writes endpoint volume or mute (in-app volume is the renderer's software gain,
@@ -43,10 +45,10 @@ use ::wasapi::{
 use super::convert::SampleFormat;
 use super::follow::{DeviceEvent, DeviceFollower, DeviceStateChange, FollowTarget};
 use super::info::{StreamInfo, StreamMode};
-use super::plan::{plan_exclusive, resolve_mode};
+use super::plan::{plan_exclusive, resolve_mode, ModeOutcome};
 use super::pump::{DeviceLost, RenderDevice};
 use super::stream_thread::{run_render_thread, DeviceSetup, OpenState};
-use super::{AudioOutput, OpenRequest, OutputStream};
+use super::{exclusive_refusal, AudioOutput, OpenRequest, OutputStream, EXCLUSIVE_REFUSED};
 use crate::types::CHANNELS;
 use crate::{PlaybackError, Renderer};
 
@@ -129,6 +131,8 @@ struct ThreadSpec {
     device: Option<String>,
     rate: u32,
     exclusive: bool,
+    /// Fail instead of falling back to shared mode (only meaningful when `exclusive`).
+    exclusive_only: bool,
     stop: Arc<AtomicBool>,
     lost: Arc<AtomicBool>,
     state: Arc<OpenState>,
@@ -185,10 +189,13 @@ impl AudioOutput for WasapiOutput {
         let stop = Arc::new(AtomicBool::new(false));
         let lost = Arc::new(AtomicBool::new(false));
         let state = Arc::new(OpenState::new());
+        let exclusive = self.control.exclusive();
+        let exclusive_only = exclusive && request.exclusive_only;
         let spec = ThreadSpec {
             device: request.device.map(str::to_owned),
             rate: request.sample_rate,
-            exclusive: self.control.exclusive(),
+            exclusive,
+            exclusive_only,
             stop: Arc::clone(&stop),
             lost: Arc::clone(&lost),
             state: Arc::clone(&state),
@@ -232,7 +239,7 @@ impl AudioOutput for WasapiOutput {
             Ok(Err(message)) => {
                 // The thread ended and returned the renderer; it is dropped here.
                 let _ = thread.join();
-                Err(PlaybackError::Output(format!("WASAPI: {message}")))
+                Err(open_error(message, exclusive_only))
             }
             Err(_) => {
                 let _ = thread.join();
@@ -314,6 +321,7 @@ fn open_device(
         || open_exclusive(&mut client, rate, min_period),
         default_period,
     );
+    let outcome = require_exclusive(outcome, spec.exclusive_only)?;
     if spec.exclusive && outcome.mode == StreamMode::Shared {
         // A client that failed to initialise cannot be reused.
         client = device
@@ -379,6 +387,27 @@ fn open_device(
             _registration: registration,
         },
     })
+}
+
+/// The error of an `open` that the render thread reported as failed: the refusal of an
+/// exclusive-only request is the engine's cue to try its own rate, anything else is a failure of
+/// the device.
+fn open_error(message: String, exclusive_only: bool) -> PlaybackError {
+    match message.strip_prefix(&format!("{EXCLUSIVE_REFUSED}: ")) {
+        Some(reason) if exclusive_only => exclusive_refusal(reason),
+        _ => PlaybackError::Output(format!("WASAPI: {message}")),
+    }
+}
+
+/// An exclusive-only request does not take a shared stream in place of the exclusive one: the
+/// reason the endpoint gave is the error, and the engine opens at its own rate instead.
+fn require_exclusive(outcome: ModeOutcome, exclusive_only: bool) -> Result<ModeOutcome, String> {
+    if exclusive_only && outcome.mode == StreamMode::Shared {
+        return Err(outcome
+            .fallback
+            .unwrap_or_else(|| "exclusive mode was not used".into()));
+    }
+    Ok(outcome)
 }
 
 /// Probe the endpoint for an integer format and initialise the client exclusive and event driven.
@@ -504,5 +533,56 @@ impl RenderDevice for WasapiDevice {
 
     fn stop(&mut self) {
         let _ = self.client.stop_stream();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn shared(reason: Option<&str>) -> ModeOutcome {
+        resolve_mode(
+            reason.is_some(),
+            || Err(reason.unwrap_or_default().to_string()),
+            100_000,
+        )
+    }
+
+    #[test]
+    fn an_exclusive_only_request_fails_with_the_reason_instead_of_taking_shared_mode() {
+        let why = require_exclusive(shared(Some("no 96000 Hz")), true).expect_err("refused");
+        assert!(why.starts_with("exclusive mode refused"), "{why}");
+        assert!(why.contains("no 96000 Hz"), "{why}");
+        // Shared with no reason (not asked for exclusive) is still not exclusive.
+        assert!(require_exclusive(shared(None), true).is_err());
+    }
+
+    #[test]
+    fn without_the_flag_a_refusal_still_falls_back_to_shared_with_its_reason() {
+        let outcome = require_exclusive(shared(Some("busy")), false).expect("shared");
+        assert_eq!(outcome.mode, StreamMode::Shared);
+        assert!(outcome.fallback.is_some_and(|w| w.contains("busy")));
+    }
+
+    #[test]
+    fn a_refusal_reaches_the_engine_as_the_refusal_error_and_a_failure_does_not() {
+        use crate::output::exclusive_refusal_message;
+        // The message `resolve_mode` writes is what `open_error` looks for.
+        let message = require_exclusive(shared(Some("busy")), true).expect_err("refused");
+        let error = open_error(message.clone(), true);
+        assert!(exclusive_refusal_message(&error).is_some_and(|m| m.contains("busy")));
+        // The same text without the flag, and any other failure, stay device errors.
+        assert_eq!(exclusive_refusal_message(&open_error(message, false)), None);
+        let failure = open_error("no default output device".into(), true);
+        assert_eq!(exclusive_refusal_message(&failure), None);
+        assert!(failure
+            .to_string()
+            .contains("WASAPI: no default output device"));
+    }
+
+    #[test]
+    fn an_exclusive_only_request_that_the_device_grants_goes_through_untouched() {
+        let granted = resolve_mode(true, || Ok((SampleFormat::I24In32, 40_000)), 100_000);
+        assert_eq!(require_exclusive(granted.clone(), true), Ok(granted));
     }
 }
