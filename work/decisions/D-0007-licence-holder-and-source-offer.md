@@ -25,4 +25,9 @@ work/reports/T-0042/build-1.md; apps/tinwave-desktop/packaging/templates/SOURCE-
    this is set, so it doesn't block current work.
 
 ## PO decision
-_pending_
+1. Holder: **the PO's company** (PO, 2026-11-03). Still needed: the company's exact legal name as it should appear in
+   "Copyright (C) 2026 <name>".
+2. Contact: _pending_.
+
+Once both are known the lead fills `apps/tinwave-desktop/packaging/release-identity.json` (after T-0058 merges, which
+owns that folder now).
