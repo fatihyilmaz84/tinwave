@@ -3,7 +3,7 @@ id: T-0061
 title: Wipe signal history per signal category and "wipe everything"
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0060]
@@ -38,6 +38,18 @@ privacy-and-signals.md promises the listener can wipe collected data per categor
 - tests/context_wipe.rs `a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved`: assert (or record) that the
   probe observed the wipe's lock at least once, so a fast machine cannot silently skip the contention. Reuse the same
   contention pattern for the new wipes.
+
+## Lead decisions on build-1 (2026-11-03)
+- Q1: wiping Queue & library deletes all play rows and rollups — **confirmed** (an outcome with no recording or time
+  carries nothing). The Signal Center must say so before the listener confirms (P-0244).
+- Q2: every category wipe resets `rollup_monthly.score_sum` — **confirmed**: it blends all categories, so it is derived
+  from each (the T-0060 rule). Nothing writes rollups yet.
+- Q3: the seek/skip/replay wipe keeps the row with `end_reason = Unknown` (6) — **confirmed**; readers treat 6 as "no
+  information", never a skip (documented in storage-budget.md on merge, P-0255).
+- Q4: unknown kind codes are removed only by wipe everything — **confirmed**.
+- Accepted outside the ticket text: `secure_delete=ON` on the wiper connection; the `data_version` cache check in
+  `SignalStore::write_batch`.
+- P-0256 (seq high-water across wipe everything) is a requirement for E-05 sync.
 
 ## Signals & storage
 No new signal.

@@ -29,14 +29,15 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (privacy) | tw-builder r1 | `t/T-0061-signal-wipe-per-category-and-all` · `D:\dev\Tinwave-worktrees\T-0061-signal-wipe-per-category-and-all` |
 | [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r1 | `t/T-0057-exclusive-reopen-at-file-rate` · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and everything (privacy) | tw-reviewer r1 (Q1-Q4 decided) | `t/T-0061-signal-wipe-per-category-and-all` @ be7311d · `D:\dev\Tinwave-worktrees\T-0061-signal-wipe-per-category-and-all` |
 
 ## Recently done
 - [T-0027](tickets/T-0027-rate-control-engine.md) Playback rate 0.75-1.5x (Signalsmith in the decoder thread), RateChanged — merged 9a3d07b (review r1 APPROVE; ADR 0006 implementation notes applied).
@@ -67,6 +68,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
+| [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier (P2) | T-0061 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
