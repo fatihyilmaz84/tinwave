@@ -37,6 +37,7 @@ None.
 ## Added from ADR 0009 (GPL-3.0, 2026-11-03)
 - The package states where the exact corresponding source is: the public repository at the release tag (written in
   the package next to the GPL text; check-bundle -Release fails without it).
+  Carry it in `release-identity.json` next to holder and contact (P-0238).
 - "Appropriate Legal Notices" (GPL-3.0 §0/§5d) need an About view in the desktop UI: copyright holder, no warranty,
   licence, link to the notices. That is a UI ticket of its own (needs an artboard, D-0008/design gaps); T-0054 only
   checks the package side.

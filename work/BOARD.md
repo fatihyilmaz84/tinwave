@@ -30,7 +30,6 @@ _Maintained by the lead. Last updated: 2026-11-03._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0027](tickets/T-0027-rate-control-engine.md) Rate control in the engine (E-01) | tw-builder r1 | `t/T-0027-rate-control-engine` · `D:\dev\Tinwave-worktrees\T-0027-rate-control-engine` |
-| [T-0058](tickets/T-0058-switch-to-gpl.md) Switch Tinwave's licence to GPL-3.0-only (ADR 0009) | tw-builder r1 | `t/T-0058-switch-to-gpl` · `D:\dev\Tinwave-worktrees\T-0058-switch-to-gpl` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
@@ -39,6 +38,7 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 | Ticket | Reviewer | Branch / worktree |
 |---|---|---|
 | [T-0029](tickets/T-0029-live-play-records.md) Live play records, warm tier (E-01) | tw-reviewer r1 (build-1 partial: Stopped/Quit split to T-0059) | `t/T-0029-live-play-records` @ 420dd6e · `D:\dev\Tinwave-worktrees\T-0029-live-play-records` |
+| [T-0058](tickets/T-0058-switch-to-gpl.md) Switch Tinwave's licence to GPL-3.0-only (ADR 0009) | tw-reviewer r1 | `t/T-0058-switch-to-gpl` @ 13e46ef · `D:\dev\Tinwave-worktrees\T-0058-switch-to-gpl` |
 
 ## Recently done
 - [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither — merged 2e83776 (review r2 APPROVE; P-0223 docs applied).

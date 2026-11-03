@@ -3,7 +3,7 @@ id: T-0058
 title: Switch Tinwave's own licence to GPL-3.0-only in Cargo, cargo-deny and packaging
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [D-0009]
