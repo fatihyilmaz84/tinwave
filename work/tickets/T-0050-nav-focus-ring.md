@@ -3,7 +3,7 @@ id: T-0050
 title: Sidebar nav list — the keyboard focus ring follows the current item after Up/Down
 type: bug
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0043]
@@ -40,3 +40,6 @@ None (navigation between sections is not a preference signal yet; browse signals
 ## Added from P-0163 (T-0043 build-2)
 - `tools/capture.ps1` checks the window is the foreground window before each keyboard capture; retry a few times
   with a short pause, then fail loudly (non-zero exit) instead of saving a capture of an inactive window.
+
+## Outcome
+2026-11-03: merged fc1bfc8. Round 2 failed on the KeypadModifier one-liner; the lead took it over (3b60319), verified with the reviewer's probe. Gates on main green: 499 passed / 6 skipped.

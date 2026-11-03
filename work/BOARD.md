@@ -31,10 +31,7 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0050](tickets/T-0050-nav-focus-ring.md) Nav list focus ring follows the current item; capture foreground check | tw-reviewer r2 (build-2: keys handled in onPressed, no flag; Home/End/Page; cursor parked) | `t/T-0050-nav-focus-ring` @ 196123a · `D:\dev\Tinwave-worktrees\T-0050-nav-focus-ring` |
-| [T-0049](tickets/T-0049-artwork-provider-followups.md) Artwork follow-ups + cancel-storm gate flake (P1) | tw-reviewer r1 (build-1: flake root-caused, Rust-owned edge limit, Image.Error; 400 stress runs) | `t/T-0049-artwork-provider-followups` @ 15f7786 · `D:\dev\Tinwave-worktrees\T-0049-artwork-provider-followups` |
+_none_
 
 ## Ready (dispatch order)
 | Ticket | Type | Size | Scope | Note |
@@ -98,6 +95,8 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0015](tickets/T-0015-workspace-deps-tidy.md) Tidy: deps, sealed CryptoRng, .bat/.cmd, InputSource, seek rule | 85c7012 | build-1, review-1 (approve) |
 | [T-0016](tickets/T-0016-playback-engine-core.md) Playback engine core | b150fe6 | build-1/2, review-1/2 (changes); merged per D-0005, fixes in T-0028 |
 | [T-0014](tickets/T-0014-windows-volume-device-provider.md) Windows output-device + system-volume providers | f831e27 | build-1/2, review-1 (changes), review-2 (approve) |
+| [T-0050](tickets/T-0050-nav-focus-ring.md) Sidebar keyboard ring follows the current row; Home/End/Page | fc1bfc8 | build-1/2, review-1/2 (changes); round-3 fix by lead 3b60319 |
+| [T-0049](tickets/T-0049-artwork-provider-followups.md) Artwork follow-ups + cancel-storm flake fix | 964adad | build-1, review-1 (approve) |
 | [T-0042](tickets/T-0042-windows-packaging-notices.md) Windows packaging + THIRD-PARTY-NOTICES | 7ae748f | build-1, review-1 (approve), notices regenerated; 57.7 MiB bundle |
 | [T-0043](tickets/T-0043-icon-pipeline.md) Icon pipeline: Lucide SVGs, TwIcon, capture helper | 59a03f8 | build-1/2, review-1 (changes), review-2 (approve) |
 | [T-0048](tickets/T-0048-growth-barrier-no-spin.md) Growth harness: no spin, per-profile CPU budget, hang backstop | 3a87d77 | build-1, review-1 (approve); 495 tests |
@@ -121,5 +120,5 @@ Qt floor 6.10, memory = private working set → [ADR 0007](../docs/adr/0007-nati
 | [T-0028](tickets/T-0028-engine-pairing-fixes.md) Engine pairing fixes + property test | c0bfd2a | build-1, review-1 (approve); follow-ups T-0030 |
 | [T-0009](tickets/T-0009-spike-time-stretch.md) Spike: time-stretch | 176c82e | spike-1 → ADR 0006, T-0026, T-0027 |
 
-Proposals P-0001..P-0183 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
-needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query).
+Proposals P-0001..P-0186 all have outcomes (see work/proposals/). Parked: P-0003/P-0033/P-0037/P-0044/P-0047/P-0065/P-0066/P-0076 (CI —
+needs a remote), P-0016 (worktree EOL refresh), P-0027 (IAudioClock interpolation), P-0054 (rate crossfade), P-0057 (silence for corrupt packets), P-0058 (comment), P-0063 (provider watchdog), P-0078 (T-0014 nits), P-0083 (loopback gapless test), P-0094 (PlayStarted volume, E-04), P-0130 (textFaint/textMuted step — PO look pass), P-0135 (StreamInfo to the shell), P-0136 (pre-hear skips, Phase 7), P-0139 (stress in CI), P-0142 (library ArtworkSource contract), P-0149 (bind QCoreApplication::exit), P-0152 (writer commit notify), P-0162 (queue mirror), P-0165 (cargo-about), P-0167 (packaging in CI), P-0170 (icon scan quotes), P-0175 (capture key delivery), P-0176 (focus helper), P-0178 (no-artwork warnings), P-0179 (aspect query), P-0184 (image-stress relink), P-0185 (visible-rows paging), P-0186 (capture cursor restore).

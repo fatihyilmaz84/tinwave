@@ -3,7 +3,7 @@ id: T-0049
 title: Artwork provider follow-ups — one max-edge source, Image.Error for refused/missing, one-edge sourceSize
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0044]
@@ -48,3 +48,6 @@ None.
   "quit with requests in flight" assertion deterministic (e.g. quit on a signal once N requests are pending, or retry
   that mode until one run qualifies, bounded) without weakening what it proves. Show 50 consecutive passes under a
   parallel full-workspace run.
+
+## Outcome
+2026-11-03: merged 964adad after review-1 APPROVE (flake root-caused; 60/60 under parallel load; 650 more stress runs). ADR 0008 rules 2-3 and qml-ui.md updated (P-0177).

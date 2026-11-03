@@ -294,10 +294,14 @@ Report: work/reports/T-0041/spike-1.md; harness and results: spikes/T-0002-cxx-q
 **Required pattern (also in docs/rules/qml-ui.md):**
 1. A response is created, signalled, cancelled and deleted only on Qt's reader thread; workers never hold a pointer to
    it (not even a `QPointer`).
-2. The task is a QObject + QRunnable (autoDelete); its only channel to the response is a queued `done(QImage)` signal
-   connected with the response as context; `emit done()` is the last statement of `run()`.
+2. The task is a QObject + QRunnable (autoDelete); its only channel to the response is a queued
+   `done(QImage, QString error)` signal (values only) connected with the response as context; `emit done()` is the last
+   statement of `run()`.
 3. Exactly one `finished()` per response; `cancel()` only sets an atomic flag; a cancelled task still emits `done()`
-   with an empty image.
+   with an empty image. *(T-0049)* Outcomes: a refused request (size over the limit, checked before any task exists)
+   and a key with no artwork set `errorString()` on the reader thread, so QML sees `Image.Error`; cancelled and closing
+   responses finish with an empty image and no error (silent). Size limits are owned by Rust and passed to the shim at
+   install — no second literal in C++.
 4. A bounded `QThreadPool` in shared state held by provider, responses and tasks, newest-request-first, with a closing
    flag checked before work. *(T-0044)* The check and `pool.start()` are atomic with respect to setting the flag: one
    mutex, held by `quiesce()` while it sets `closing` (not across `waitForDone()`) and by the response constructor

@@ -16,6 +16,9 @@
   (CXX-Qt rejects other attributes there; ADR 0008).
 - All `#[cxx_qt::bridge]` files of one QML module live in one directory (`src/app/` today); cxx-qt-build refuses more.
 - Never `process::exit` from the app: every exit path goes through the UI owner's teardown (ADR 0008, rule 5).
+- Image providers: limits live in Rust and are passed to the C++ shim; refused or missing images are `Image.Error` (show
+  a placeholder by status), cancelled ones are silent. Provider keys are opaque IDs, never file paths (they appear in
+  Qt's log on errors).
 - Controls with a text mnemonic (`ItemDelegate`, `Button`, `MenuItem`…) treat `&` as a shortcut marker: write a literal
   ampersand as `&&` ("Sources && devices").
 - Developer-only switches (e.g. `TINWAVE_MAIN_QML`) are read under `#[cfg(debug_assertions)]` only; a release build never
