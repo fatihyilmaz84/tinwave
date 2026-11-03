@@ -3,7 +3,7 @@ id: T-0073
 title: Wipe tests pin the statement count and catch a lock left open; SECTIONED check set-equal
 type: chore
 epic: E-01
-status: backlog
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0064]
@@ -13,9 +13,9 @@ scope:
   - crates/tinwave-db/tests/common/mod.rs
   - crates/tinwave-db/src/signal_wipe.rs   # SECTIONED check only
   - docs/rules/privacy-and-signals.md      # the "idle interval" sentence only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0073-wipe-cost-and-lock-guards
+review_round: 1
 created_by: from P-0295, P-0297 (T-0064 review-1)
 ---
 

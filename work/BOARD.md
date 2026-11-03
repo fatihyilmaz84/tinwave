@@ -29,6 +29,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0073](tickets/T-0073-wipe-cost-and-lock-guards.md) Wipe tests pin statement count, catch a lock left open (P2) | tw-builder r1 | `t/T-0073-wipe-cost-and-lock-guards` · `D:\dev\Tinwave-worktrees\T-0073-wipe-cost-and-lock-guards` |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-builder r1 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-builder r2 (review-1: gap metric can't see the gap; ExclusiveRefused; runbook) | `t/T-0066-exclusive-reopen-device-check` @ fde6b88 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
 
@@ -76,7 +77,6 @@ overlap (work/README.md); the branch merging second merges main first.
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake again (P2) | — |
 | [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | T-0066, T-0067 |
-| [T-0073](tickets/T-0073-wipe-cost-and-lock-guards.md) Wipe tests pin statement count, catch a lock left open (P2) | T-0064 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
