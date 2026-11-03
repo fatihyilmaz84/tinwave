@@ -10,6 +10,12 @@ pub mod app_info;
 // doc section of `tw_provider_handle_new` that clippy would look for.
 #[allow(unsafe_code, missing_debug_implementations, clippy::missing_safety_doc)]
 pub mod artwork_bridge;
+// The platform layer's QML object: the raw `QQuickWindow` pointer QML hands to `attachWindow` and the cxx declarations
+// of two Qt calls. The OS calls themselves are in `crate::platform::windows`. `QQuickWindow` is an opaque C++ type that
+// cannot implement `Debug`, and the bridge macro drops the `# Safety` doc section of the `unsafe fn` invokable that
+// clippy would look for.
+#[allow(unsafe_code, missing_debug_implementations, clippy::missing_safety_doc)]
+pub mod platform_bridge;
 pub mod style;
 pub mod ui_owner;
 pub mod wiring;

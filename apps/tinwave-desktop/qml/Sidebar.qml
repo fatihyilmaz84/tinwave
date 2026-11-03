@@ -37,8 +37,10 @@ Rectangle {
 
                 Menu {
                     id: appMenu
-                    // popupType is pending ADR 0007 decision 1 (Popup.Native plus the dark-mode opt-in, falling back
-                    // to Popup.Window); it is wired together with the platform bridge in T-0036.
+                    // ADR 0007 decision 1: an OS-drawn menu, made to follow the dark scheme by the platform bridge's
+                    // opt-in; if the opt-in is unavailable or failed, a Qt-drawn window menu (never a light menu in a
+                    // dark app).
+                    popupType: PlatformSettings.nativeMenus ? Popup.Native : Popup.Window
 
                     MenuItem {
                         text: "Tinwave " + AppInfo.version

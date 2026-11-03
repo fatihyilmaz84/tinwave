@@ -6,7 +6,9 @@
 //   - Application.styleHints.colorScheme   (light/dark, writable: user override == setColorScheme)
 //   - SystemPalette.accent / .highlight ... (QPalette::Accent, follows the OS accent on Windows/macOS)
 //   - Qt.application.font                   (system font)
-// Inputs the bridge must supply (platform bridge, T-0036; Qt 6.10 adds Application.styleHints.accessibility, 6.12 motionPreference):
+// Inputs the platform bridge supplies (T-0036; Qt 6.10 adds Application.styleHints.accessibility, 6.12 motionPreference, so
+// the OS is asked directly until the floor makes them enough). Theme itself never imports the bridge, so this file runs
+// standalone for the contrast self-check; Main.qml binds them from the `PlatformSettings` singleton:
 //   - reducedMotion, highContrast, backdropActive
 pragma Singleton
 import QtQuick
@@ -16,10 +18,12 @@ QtObject {
     id: theme
 
     // ------------------------------------------------------------------ inputs
-    // Bridge-supplied (see PlatformInfo in the host; in the app: Rust PlatformSettings view model).
+    // Bridge-supplied (Rust `PlatformSettings`, bound in Main.qml). Never set these from anywhere else.
     property bool reducedMotion: false      // OS "animation effects" off
     property bool highContrast: false       // OS high-contrast theme active
-    property bool backdropActive: false     // Mica / vibrancy currently applied to the sidebar
+    // Mica / vibrancy is applied to the window: the bridge sets it only when the OS supports it, "Transparency effects"
+    // are on, no high-contrast theme is active and no developer switch forced solid (the solid `sidebar` token shows).
+    property bool backdropActive: false
     // Whether the OS exposes an accent colour at all. Windows and macOS always do; on Linux only some
     // desktops do (the bridge sets this from the XDG portal); until then assume not and use Tin Teal.
     property bool osAccentAvailable: Qt.platform.os !== "linux"
@@ -27,6 +31,14 @@ QtObject {
     // User overrides (Settings). "" / "system" == follow the OS.
     property string accentOverride: ""      // "#rrggbb" or "" (follow OS)
     property string schemeOverride: "system" // "system" | "light" | "dark"
+
+    // Developer switch `--accent=#rrggbb` (and later the Settings accent): "" follows the OS. Anything that is not
+    // "#rrggbb" is refused, not guessed at. Returns whether the value was accepted. Never touches the OS accent.
+    function setAccentOverride(value) {
+        if (value !== "" && !/^#[0-9a-fA-F]{6}$/.test(value)) return false
+        accentOverride = value
+        return true
+    }
 
     function setSchemeOverride(mode) {
         schemeOverride = mode
