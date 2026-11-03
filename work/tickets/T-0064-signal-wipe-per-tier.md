@@ -3,7 +3,7 @@ id: T-0064
 title: Wipe signal events per privacy tier
 type: feature
 epic: E-01
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0061]

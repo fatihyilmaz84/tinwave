@@ -1,4 +1,4 @@
-//! Wiping a signal catego.map(|r| [0, 1, 2, 3, 4, 5, 11].map(|i| r[i].clone()))y and wiping everything (T-0061). Every test drives the real
+//! Wiping a signal category and wiping everything (T-0061). Every test drives the real
 //! `SignalWiper` on a SQLite file; failures are injected from a second connection with a trigger
 //! (as in `context_wipe.rs`), and the contention tests run the real writer path while the wipe
 //! holds the write lock.

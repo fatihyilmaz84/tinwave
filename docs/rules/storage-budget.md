@@ -77,7 +77,8 @@ play(id, session, recording, source, started_ts, listened_ds (deciseconds), end_
 `end_reason` (T-0029, `EndReason` in crates/tinwave-db/src/play.rs): `Completed`; a skip is `SkippedEarly` under 30 s
 listened, else `SkippedLate` past 80 % of the track (`end_frac` > 204/255; this wins for a short track that is both),
 else `SkippedMid` (so Mid holds both the catalog's 30 s–50 % bucket and the unscored 50–80 % band). `Stopped` and
-`Quit` need the play-end signal of T-0059. A failed track writes no row. `listened_ds` is wall time from start to end
+`Quit` need the play-end signal of T-0059. A failed track writes no row. `Unknown` (6) is written only by a
+Seek/skip/replay wipe (T-0061): it means "no information", never a skip, and its `listened_ds`/`end_frac` are 0. `listened_ds` is wall time from start to end
 minus paused time. **Score from `listened_ds` and `end_frac`, not from `end_reason` alone:** the catalog's skip
 buckets (signal-catalog §2) are finer than the end reasons, and both columns are stored so they can be recomputed.
 

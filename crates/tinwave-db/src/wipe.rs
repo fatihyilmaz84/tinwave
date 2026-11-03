@@ -1,4 +1,4 @@
-﻿//! User wipes of `signals.db`: [`SignalWiper`].
+//! User wipes of `signals.db`: [`SignalWiper`].
 //!
 //! Two kinds of wipe live here. **Signal wipes** (a signal category, or everything) are
 //! `SignalWiper::wipe_signal_categories` and `SignalWiper::wipe_everything`; their rule for what is

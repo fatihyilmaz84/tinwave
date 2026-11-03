@@ -1,4 +1,4 @@
-﻿//! `SignalStore`: the signals.db write path, one transaction per batch.
+//! `SignalStore`: the signals.db write path, one transaction per batch.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI16, Ordering};

@@ -62,7 +62,8 @@ Never collect, even with consent:
   rollups, context snapshots, sessions and the dictionaries; the schema and the Signal Center toggles
   (`signal_settings`, a preference) stay. It covers `signals.db` only: `taste.db` does not exist yet, and the change
   that creates it must add its own wipe (the promise above that wiping signals clears the derived taste data applies
-  from then on). Each wipe is one transaction, deleted content is zeroed in the file (`secure_delete`), and the signal
+  from then on). Each wipe is one transaction, deleted content is zeroed in the file (`secure_delete`; in the main database file once the WAL is next checkpointed,
+  at most the writer's idle interval later — T-0065 makes the wipe checkpoint itself), and the signal
   writer keeps running: its batches wait for the wipe and are stored after it, and it drops its id caches when a
   wipe committed. A play that is in progress when its `PlayStarted` is wiped ends without a play record. A wipe of
   the *events* of a tier (as opposed to the context of a tier, above) is not implemented yet.

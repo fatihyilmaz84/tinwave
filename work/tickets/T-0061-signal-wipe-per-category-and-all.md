@@ -3,7 +3,7 @@ id: T-0061
 title: Wipe signal history per signal category and "wipe everything"
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0060]
@@ -13,6 +13,7 @@ scope:
 owner: tw-builder
 branch: t/T-0061-signal-wipe-per-category-and-all
 review_round: 1
+merge: fb5b252
 created_by: from P-0246 (T-0060 build-1)
 ---
 
