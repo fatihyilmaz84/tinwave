@@ -3,7 +3,7 @@ id: T-0060
 title: Wiping a context category also masks its fields in play.context_key
 type: feature
 epic: E-01
-status: ready
+status: in_progress
 priority: P1
 size: S
 depends_on: [T-0029]
@@ -11,9 +11,9 @@ scope:
   - crates/tinwave-db/
   - crates/tinwave-signals/src/context_key.rs   # a field-mask helper only
   - docs/rules/privacy-and-signals.md           # the wipe paragraph only
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0060-wipe-masks-context-key
+review_round: 1
 created_by: from P-0240 (T-0029 review-1)
 ---
 
