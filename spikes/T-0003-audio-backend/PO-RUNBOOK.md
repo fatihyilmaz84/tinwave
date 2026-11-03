@@ -78,8 +78,7 @@ Also try a VBR MP3 (no CBR) and seek in it by hand if you extend the spike: VBR 
 ## 6. Optional: system-volume hook with the real keyboard keys
 
 ```powershell
-.	arget
-elease	0003-audio-spike.exe sysvol 15
+.\target\release\t0003-audio-spike.exe sysvol 15
 ```
 
 It nudges the master volume by 1 % and restores it (the agent already ran this: notification after 1.6 ms), then

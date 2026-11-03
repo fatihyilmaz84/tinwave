@@ -3,7 +3,7 @@ id: T-0066
 title: Exclusive reopen on a real device — ignored measurement test, exclusive-only open, harness settle
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P2
 size: S
 depends_on: [T-0057]
@@ -17,6 +17,7 @@ scope:
 owner: tw-builder
 branch: t/T-0066-exclusive-reopen-device-check
 review_round: 2
+merge: 9f60086
 created_by: from P-0263, P-0264, P-0266 (T-0057 build-1)
 ---
 
@@ -40,6 +41,11 @@ open + first block + poll) and a real endpoint's refusal are unmeasured, and a r
 
 ## Lead decisions on build-1 (2026-11-03)
 - The typed `exclusive_refusal` helper in output/mod.rs and the conditional poll in `Harness::settle` are accepted.
+
+## Lead takeover after review-2 (2026-11-03)
+Review-2 blocker (a failed reopen made the known-gap test run for hours) fixed by the lead on the branch (61307a7):
+`play_pair` panics at once on OutputLost/TrackFailed, the step closure stops waiting without a stream (mutation: a
+96 kHz open failure now fails in 0.02 s), nextest backstop 300 s for tinwave-playback, runbook latency note.
 
 ## Signals & storage
 None.

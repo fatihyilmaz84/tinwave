@@ -146,7 +146,9 @@ sample exact.
   gap, no callback allocation), not yet listened to on a real endpoint.
 - Exclusive reopen at the file rate (T-0057): implemented and tested on ManualOutput and the fake pump device only. The
   real gap (old device buffer + exclusive open, ~42 ms in the spike, + first block + up to 10 ms of poll) and a real
-  endpoint refusing 96 kHz are unmeasured; T-0066 adds the device check and PO-RUNBOOK steps.
+  endpoint refusing 96 kHz are unmeasured. T-0066 added the ignored, silent-only measurement test
+  (`device::wasapi::exclusive_reopen_from_44_1_to_96_khz_is_timed_and_reported`) and PO-RUNBOOK section 7; the
+  measurement waits for the PO to run it.
 
 ## Licenses
 
