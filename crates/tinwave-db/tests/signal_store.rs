@@ -80,7 +80,10 @@ fn migrations_apply_on_an_empty_database_and_are_idempotent() {
     }
     // Every migration is recorded once; the counts follow the migration list, not a literal.
     let migrations = SIGNALS_MIGRATIONS.len();
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), migrations as i64);
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM schema_migration"),
+        migrations as i64
+    );
 
     // Running the runner again, and reopening the file, changes nothing.
     let report = store.migrate().unwrap();
@@ -88,7 +91,10 @@ fn migrations_apply_on_an_empty_database_and_are_idempotent() {
     drop(store);
     let _again = SignalStore::open(&db.path).unwrap();
     assert_eq!(tables(&r), first);
-    assert_eq!(count(&r, "SELECT count(*) FROM schema_migration"), migrations as i64);
+    assert_eq!(
+        count(&r, "SELECT count(*) FROM schema_migration"),
+        migrations as i64
+    );
 }
 
 #[test]
