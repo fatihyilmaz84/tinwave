@@ -3,7 +3,7 @@ id: T-0068
 title: A queue edit during an exclusive boundary park re-evaluates the park
 type: fix
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0057]
