@@ -3,7 +3,7 @@ id: T-0065
 title: Wipe follow-ups — cache invalidation only on wipe, rollup plays kept, stale-start guard, WAL checkpoint
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: S
 depends_on: [T-0061]

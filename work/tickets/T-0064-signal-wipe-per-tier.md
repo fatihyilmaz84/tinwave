@@ -31,5 +31,9 @@ events (kind.rs `tier()`) is still missing, though privacy-and-signals.md promis
 - [ ] Atomic, writer keeps working (reuse the contention helpers) — tests.
 - [ ] fmt, clippy, nextest, deny pass.
 
+## Added from T-0065 build-1 (P-0272)
+- The reference-size contention tests assert a bound on the writer's wait (not only success within the 5 s busy
+  timeout), chosen from measured quiet and parallel-load numbers.
+
 ## Signals & storage
 None.

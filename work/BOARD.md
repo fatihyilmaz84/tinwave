@@ -30,13 +30,14 @@ _Maintained by the lead. Last updated: 2026-11-03._
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
 | [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r2 (review-1: flaky rate test, fast poll bound, Resume retry) | `t/T-0057-exclusive-reopen-at-file-rate` @ e3530de · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
-| [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-builder r1 | `t/T-0065-wipe-follow-ups` · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-reviewer r1 | `t/T-0065-wipe-follow-ups` @ fcb3196 · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 ## Recently done
 - [T-0061](tickets/T-0061-signal-wipe-per-category-and-all.md) Wipe per signal category and wipe everything (secure_delete, writer keeps working) — merged fb5b252 (review r1 APPROVE; follow-ups → T-0065).
