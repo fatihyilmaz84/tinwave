@@ -3,7 +3,7 @@ id: T-0063
 title: Rate restart hardening — no flush backoff, relative click test, injectable throttle clock, restart failure reports
 type: chore
 epic: E-01
-status: in_progress
+status: in_review
 priority: P2
 size: S
 depends_on: [T-0027]
