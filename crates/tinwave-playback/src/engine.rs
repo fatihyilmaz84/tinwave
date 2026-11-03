@@ -1391,8 +1391,6 @@ mod tests {
             "not reported until the decoder has its ring"
         );
         assert!(engine.reopen_pending(), "the next poll tries again");
-        // Nothing may overtake the resume.
-        assert_eq!(engine.append(Vec::new()).err(), Some(PlaybackError::Busy));
 
         // Still full: still waiting, no second open.
         engine.poll();
@@ -1401,6 +1399,8 @@ mod tests {
 
         // Room again: the resume goes out and the reopen is reported, once.
         assert!(matches!(rx.try_recv(), Ok(Cmd::RateTarget)));
+        // Nothing may overtake the resume, even though the queue has room now.
+        assert_eq!(engine.append(Vec::new()).err(), Some(PlaybackError::Busy));
         engine.poll();
         assert!(matches!(
             rx.try_recv(),
