@@ -16,8 +16,10 @@ use super::source::ArtworkSource;
 /// 900 of them. QML's own pixmap cache is bypassed (`cache: false` on the `Image`s of the future artwork component) so this is the only cache.
 pub const THUMBNAIL_CACHE_BYTES: usize = 8 * 1024 * 1024;
 
-/// Largest accepted thumbnail edge in pixels (a 1024 px square is 4 MiB, half the cache). Larger requests are
-/// refused instead of allocating on a QML property's say-so.
+/// Default for the largest accepted thumbnail edge in pixels (a 1024 px square is 4 MiB, half the cache). Larger
+/// requests are refused instead of allocating on a QML property's say-so: the C++ shim refuses them as `Image.Error`
+/// before allocating anything, using the value it is given from [`ProviderCore::max_edge`] (this is the only place
+/// the number is written down), and [`ProviderCore::thumbnail`] refuses them again.
 pub const MAX_THUMBNAIL_EDGE: u32 = 1024;
 
 /// Cache key: artwork key plus the exact pixel size asked for (size-specific thumbnails).
@@ -44,6 +46,7 @@ pub struct CoreStats {
 /// state; all methods take `&self` and are called from worker threads.
 pub struct ProviderCore {
     source: Arc<dyn ArtworkSource>,
+    max_edge: u32,
     cache: Mutex<ThumbnailCache<Key>>,
     requests: AtomicU64,
     cache_hits: AtomicU64,
@@ -60,15 +63,22 @@ impl fmt::Debug for ProviderCore {
 }
 
 impl ProviderCore {
-    /// A core with the production cache budget.
+    /// A core with the production cache budget and edge limit.
     pub fn new(source: Arc<dyn ArtworkSource>) -> Self {
-        Self::with_cache_bytes(source, THUMBNAIL_CACHE_BYTES)
+        Self::with_limits(source, THUMBNAIL_CACHE_BYTES, MAX_THUMBNAIL_EDGE)
     }
 
-    /// A core with an explicit cache budget (tests).
+    /// A core with an explicit cache budget (tests) and the default edge limit.
     pub fn with_cache_bytes(source: Arc<dyn ArtworkSource>, cache_bytes: usize) -> Self {
+        Self::with_limits(source, cache_bytes, MAX_THUMBNAIL_EDGE)
+    }
+
+    /// A core with an explicit cache budget and largest accepted thumbnail edge, kept within 1 and `i32::MAX` (the
+    /// C++ shim takes the limit as an `i32`).
+    pub fn with_limits(source: Arc<dyn ArtworkSource>, cache_bytes: usize, max_edge: u32) -> Self {
         Self {
             source,
+            max_edge: max_edge.clamp(1, i32::MAX.unsigned_abs()),
             cache: Mutex::new(ThumbnailCache::new(cache_bytes)),
             requests: AtomicU64::new(0),
             cache_hits: AtomicU64::new(0),
@@ -77,11 +87,17 @@ impl ProviderCore {
         }
     }
 
+    /// The largest accepted thumbnail edge in pixels. The C++ shim enforces the same number (it is passed at
+    /// install time), so nothing larger reaches [`thumbnail`](Self::thumbnail) from QML.
+    pub fn max_edge(&self) -> u32 {
+        self.max_edge
+    }
+
     /// The `width` x `height` thumbnail for `key`: from the cache, else from the source (then cached). `None` when
     /// the size is out of range or the source has no (valid) artwork. The source runs outside the cache lock, so a
     /// slow decode never blocks other workers' cache hits.
     pub fn thumbnail(&self, key: &str, width: u32, height: u32) -> Option<Arc<[u8]>> {
-        if width == 0 || height == 0 || width > MAX_THUMBNAIL_EDGE || height > MAX_THUMBNAIL_EDGE {
+        if width == 0 || height == 0 || width > self.max_edge || height > self.max_edge {
             return None;
         }
         self.requests.fetch_add(1, Relaxed);
@@ -91,8 +107,9 @@ impl ProviderCore {
             return Some(hit);
         }
         self.source_calls.fetch_add(1, Relaxed);
-        // At most 1024 * 1024 * 4, so the product cannot overflow usize.
-        let expected = width as usize * height as usize * 4;
+        // Both edges are below 2^31 (the shim takes the limit as an i32), so the product fits in u64, and in usize on
+        // the 64-bit targets we build for; a size that does not fit is a miss, never a wrapped length.
+        let expected = usize::try_from(u64::from(width) * u64::from(height) * 4).ok()?;
         let pixels: Option<Arc<[u8]>> = self
             .source
             .thumbnail(key, width, height)
@@ -208,6 +225,26 @@ mod tests {
         assert!(c.thumbnail("a", MAX_THUMBNAIL_EDGE + 1, 8).is_none());
         assert_eq!(src.calls.load(Relaxed), 0);
         assert_eq!(c.stats().requests, 0);
+    }
+
+    #[test]
+    fn the_edge_limit_is_configurable_and_clamped() {
+        let src = Arc::new(CountingSource::default());
+        let low = ProviderCore::with_limits(Arc::<CountingSource>::clone(&src), 1 << 20, 16);
+        assert_eq!(low.max_edge(), 16);
+        assert!(low.thumbnail("a", 16, 16).is_some());
+        assert!(
+            low.thumbnail("a", 17, 8).is_none(),
+            "above the configured limit"
+        );
+        assert_eq!(
+            ProviderCore::new(Arc::<CountingSource>::clone(&src)).max_edge(),
+            MAX_THUMBNAIL_EDGE
+        );
+        let zero = ProviderCore::with_limits(Arc::<CountingSource>::clone(&src), 1 << 20, 0);
+        assert_eq!(zero.max_edge(), 1);
+        let huge = ProviderCore::with_limits(src, 1 << 20, u32::MAX);
+        assert_eq!(huge.max_edge(), i32::MAX.unsigned_abs());
     }
 
     #[test]

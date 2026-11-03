@@ -18,7 +18,7 @@
 // a task or response that outlives the provider (they are deleted by Qt's reader thread) never sees freed memory.
 struct ProviderShared
 {
-    ProviderShared(const void* rustCtx, int poolThreads);
+    ProviderShared(const void* rustCtx, int poolThreads, int maxEdge);
     // Releases the Rust context (see tw_provider_ctx_release); runs when the last task/response/handle is gone.
     ~ProviderShared();
     ProviderShared(const ProviderShared&) = delete;
@@ -30,6 +30,7 @@ struct ProviderShared
     void quiesce();
 
     const void* rustCtx;                  // opaque Rust context; valid until ~ProviderShared
+    const int maxEdge;                    // largest accepted thumbnail edge in pixels; the value is owned by Rust
     QThreadPool pool;                     // bounded (rule 4)
     std::mutex gate;                      // makes "closing is false, so start the task" atomic against quiesce()
     std::atomic_bool closing{false};      // set by quiesce() under `gate`; tasks then skip the work
@@ -51,10 +52,11 @@ public:
     ThumbTask(const QString& id, const QSize& size, std::shared_ptr<std::atomic_bool> cancelled,
               std::shared_ptr<ProviderShared> shared);
     // Pool thread. Asks Rust for pixels, then emits done() as its LAST action. Never touches the response.
+    // done(): image + empty error = served; empty image + error = Image.Error; both empty = cancelled or closing.
     void run() override;
 
 signals:
-    void done(const QImage& image);
+    void done(const QImage& image, const QString& error);
 
 private:
     QString m_id;
