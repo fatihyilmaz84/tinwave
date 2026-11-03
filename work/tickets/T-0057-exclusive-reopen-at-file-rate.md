@@ -3,7 +3,7 @@ id: T-0057
 title: Exclusive mode reopens the output at the file rate on a rate change (ADR 0005 decision 5)
 type: feature
 epic: E-01
-status: in_progress
+status: in_review
 priority: P1
 size: M
 depends_on: [T-0019]
