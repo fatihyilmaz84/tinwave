@@ -37,7 +37,7 @@
 //! | `VolumeChanged` | `VolumeChanged`, through the 600 ms coalescer |
 //! | `RateChanged` | `RateChanged`, through the 600 ms coalescer (one per [`Controller::set_rate`] call; the stream restart that applies it is not an event) |
 //! | `OutputOpened` | none: the stream the engine started with is the starting state, so it seeds the mode `OutputReopened` is compared with |
-//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one. So a reopen at another sample rate in exclusive mode (T-0057) is none, and a device that refuses the rate and cannot give exclusive mode at the engine's rate either is one `on: false` (its reason is logged at `warn`); the engine does not ask again, so it is not repeated |
+//! | `OutputReopened` | `ExclusiveModeToggled` when the new stream's mode differs from the previous one **and the stream is what was asked for** (`fallback` is `None`): a listener or setting change. A reopen at another sample rate in exclusive mode (T-0057) is none, and so is an automatic fallback (a device that refuses exclusive mode or a rate): the device decided, not the listener, so it is no preference. The reason is logged at `warn`; the fallback mode becomes the starting state for the next change |
 //! | `QueueEnded` | none (silence starts) |
 //! | `QueueEdited` | the signals of the edit it answers (see "Queue edits"): `QueuedNext`, `QueueReordered` or `RemovedFromQueue`, once per item |
 //! | `QueueEditRejected` | **nothing**; logged at `warn` and counted in [`ControllerDiagnostics::edits_refused`] |

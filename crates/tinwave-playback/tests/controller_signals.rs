@@ -727,16 +727,15 @@ fn exclusive_mode_toggled_follows_the_stream_info_of_a_reopened_output() {
     };
     assert!(p.on);
 
-    // Still exclusive: no toggle. Then the device falls back to shared: off.
+    // Still exclusive: no toggle. Then the device refuses exclusive mode and the stream falls
+    // back to shared (`fallback` is set): the device decided, so it is no preference signal.
     rig.ctl.switch_device(Some("dac".into())).expect("switch");
     assert!(rig.new_signals().is_empty());
     rig.ctl.switch_device(None).expect("switch");
-    let SignalPayload::ExclusiveModeToggled(p) =
-        only(&rig.new_signals(), SignalKind::ExclusiveModeToggled).payload
-    else {
-        panic!("kind");
-    };
-    assert!(!p.on);
+    assert!(
+        rig.new_signals().is_empty(),
+        "an automatic fallback emits no ExclusiveModeToggled"
+    );
 }
 
 #[test]
