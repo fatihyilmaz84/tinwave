@@ -3,15 +3,16 @@ id: T-0071
 title: cancel_storm image-provider test flaked again ("nothing was cancelled")
 type: fix
 epic: E-01
-status: backlog
+status: in_progress
 priority: P2
 size: S
 depends_on: []
 scope:
-  - apps/tinwave-desktop/src/app/   # image provider and its tests only
-owner:
-branch:
-review_round: 0
+  - apps/tinwave-desktop/src/app/   # image provider only
+  - apps/tinwave-desktop/tests/image_provider.rs
+owner: tw-builder
+branch: t/T-0071-cancel-storm-flake-again
+review_round: 1
 created_by: from P-0283 (T-0065 review-1)
 ---
 

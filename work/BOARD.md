@@ -31,6 +31,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
+| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake (P2) | tw-builder r1 | `t/T-0071-cancel-storm-flake-again` · `D:\dev\Tinwave-worktrees\T-0071-cancel-storm-flake-again` |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-builder r1 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -78,7 +79,6 @@ overlap (work/README.md); the branch merging second merges main first.
 | Ticket | Depends on |
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
-| [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake again (P2) | — |
 | [T-0072](tickets/T-0072-engine-exclusive-setting-passthrough.md) Engine passthrough for the exclusive setting (P2) | playback slot |
 | [T-0074](tickets/T-0074-test-only-connection-access.md) Test-only connection access behind a feature; pin write_batch count (P2) | T-0073 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
