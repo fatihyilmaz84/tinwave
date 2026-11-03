@@ -62,17 +62,23 @@ pub enum EndReason {
     Stopped,
     /// The application quit during the play. Not written yet (module docs).
     Quit,
+    /// How the play ended was wiped (`SignalWiper`: the seek/skip/replay category holds the
+    /// outcome signals this column comes from). `listened_ds` and `end_frac` are 0 and mean
+    /// nothing. Never written by the play writer; readers must treat it as no information, not as a
+    /// skip.
+    Unknown,
 }
 
 impl EndReason {
     /// Every reason, in code order.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Completed,
         Self::SkippedEarly,
         Self::SkippedMid,
         Self::SkippedLate,
         Self::Stopped,
         Self::Quit,
+        Self::Unknown,
     ];
 
     /// A skip with less than this much listened (deciseconds) is early: the catalog's two
@@ -93,6 +99,7 @@ impl EndReason {
             Self::SkippedLate => 3,
             Self::Stopped => 4,
             Self::Quit => 5,
+            Self::Unknown => 6,
         }
     }
 
@@ -106,6 +113,7 @@ impl EndReason {
             3 => Some(Self::SkippedLate),
             4 => Some(Self::Stopped),
             5 => Some(Self::Quit),
+            6 => Some(Self::Unknown),
             _ => None,
         }
     }
@@ -389,11 +397,11 @@ mod tests {
     #[test]
     fn end_reason_codes_are_frozen_and_round_trip() {
         let codes: Vec<u8> = EndReason::ALL.iter().map(|r| r.code()).collect();
-        assert_eq!(codes, [0, 1, 2, 3, 4, 5]);
+        assert_eq!(codes, [0, 1, 2, 3, 4, 5, 6]);
         for r in EndReason::ALL {
             assert_eq!(EndReason::from_code(r.code()), Some(r));
         }
-        assert_eq!(EndReason::from_code(6), None);
+        assert_eq!(EndReason::from_code(7), None);
     }
 
     #[test]

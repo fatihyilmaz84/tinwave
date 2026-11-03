@@ -1,4 +1,9 @@
-//! User wipe of context data: [`SignalWiper`].
+﻿//! User wipes of `signals.db`: [`SignalWiper`].
+//!
+//! Two kinds of wipe live here. **Signal wipes** (a signal category, or everything) are
+//! `SignalWiper::wipe_signal_categories` and `SignalWiper::wipe_everything`; their rule for what is
+//! derived from what is in `src/signal_wipe.rs` and in the Wipe paragraph of
+//! `docs/rules/privacy-and-signals.md`. The rest of this module is the **context wipe**.
 //!
 //! The Signal Center wipes per category, per tier, or everything (`docs/rules/privacy-and-signals.md`).
 //! This module is the part that removes **context** from `signals.db`: the context a play
@@ -63,10 +68,11 @@ use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use tinwave_core::Tier;
-use tinwave_signals::{ContextField, ContextFieldSet};
+use tinwave_signals::{ContextField, ContextFieldSet, SignalCategory};
 
 use crate::connection;
 use crate::migrate::migrate;
+use crate::signal_wipe::{self, SignalWipeReport};
 use crate::store::SIGNALS_MIGRATIONS;
 use crate::DbError;
 
@@ -187,6 +193,9 @@ impl SignalWiper {
     /// [`DbError`] if the database cannot be opened or migrated.
     pub fn open(path: &Path) -> Result<Self, DbError> {
         let mut conn = connection::open(path, PAGE_CACHE_KIB)?;
+        // A wipe must not leave the deleted content in the free pages of the file.
+        conn.pragma_update(None, "secure_delete", true)
+            .map_err(DbError::sqlite("setting secure_delete"))?;
         migrate(&mut conn, SIGNALS_MIGRATIONS)?;
         Ok(Self { conn })
     }
@@ -210,6 +219,47 @@ impl SignalWiper {
     /// As [`wipe_context`](Self::wipe_context).
     pub fn wipe_context_tier(&mut self, tier: Tier) -> Result<WipeReport, DbError> {
         self.wipe_fields(ContextCategory::tier_fields(tier))
+    }
+
+    /// Wipes one or more signal categories: their `signal_event` rows and counters, and the
+    /// columns derived from them in `play` and `rollup_monthly`, by the rule in
+    /// `docs/rules/privacy-and-signals.md` and `src/signal_wipe.rs` (a column is cleared by every
+    /// category it is derived from; a play row is deleted by the queue and library category, whose
+    /// `PlayStarted` it comes from). One transaction: on error nothing changed. No categories: nothing changes.
+    ///
+    /// # Errors
+    /// [`DbError::Sqlite`].
+    pub fn wipe_signal_categories(
+        &mut self,
+        categories: &[SignalCategory],
+    ) -> Result<SignalWipeReport, DbError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DbError::sqlite("starting the signal wipe"))?;
+        let report = signal_wipe::wipe_categories(&tx, categories)?;
+        tx.commit()
+            .map_err(DbError::sqlite("committing the signal wipe"))?;
+        Ok(report)
+    }
+
+    /// Wipes everything in `signals.db`: events, counters, play records, monthly rollups, context
+    /// snapshots, sessions and the dictionaries. The schema and the Signal Center toggles stay, and
+    /// the signal writer keeps working. One transaction: on error nothing changed.
+    ///
+    /// `taste.db` does not exist yet and is not covered.
+    ///
+    /// # Errors
+    /// [`DbError::Sqlite`].
+    pub fn wipe_everything(&mut self) -> Result<SignalWipeReport, DbError> {
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DbError::sqlite("starting the wipe of everything"))?;
+        let report = signal_wipe::wipe_everything(&tx)?;
+        tx.commit()
+            .map_err(DbError::sqlite("committing the wipe of everything"))?;
+        Ok(report)
     }
 
     fn wipe_fields(&mut self, fields: ContextFieldSet) -> Result<WipeReport, DbError> {

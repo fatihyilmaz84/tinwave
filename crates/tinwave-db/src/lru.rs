@@ -41,6 +41,14 @@ impl<K: Copy + Eq + Hash, V: Copy> Lru<K, V> {
         self.map.len()
     }
 
+    /// Forgets every entry (the capacity stays).
+    pub(crate) fn clear(&mut self) {
+        self.map.clear();
+        self.nodes.clear();
+        self.head = NIL;
+        self.tail = NIL;
+    }
+
     /// The value for `key`, marking it most recently used.
     pub(crate) fn get(&mut self, key: &K) -> Option<V> {
         let index = *self.map.get(key)?;
@@ -134,6 +142,22 @@ mod tests {
             (Some(10), Some(30), Some(40))
         );
         assert_eq!(lru.len(), 3);
+    }
+
+    #[test]
+    fn clear_forgets_everything_and_the_map_is_usable_again() {
+        let mut lru = Lru::new(2);
+        lru.insert(1, 10);
+        lru.insert(2, 20);
+        lru.clear();
+        assert_eq!((lru.len(), lru.get(&1), lru.get(&2)), (0, None, None));
+        for i in 0..5u32 {
+            lru.insert(i, i);
+        }
+        assert_eq!(
+            (lru.len(), lru.get(&4), lru.get(&3), lru.get(&0)),
+            (2, Some(4), Some(3), None)
+        );
     }
 
     #[test]
