@@ -26,7 +26,9 @@ const COMMAND_QUEUE: usize = 64;
 
 /// Everything an [`Engine`] is wired to.
 pub struct EngineConfig {
-    /// Stream sample rate (stereo `f32`). Tracks must match it; resampling is T-0019.
+    /// Stream sample rate (stereo `f32`). Tracks of another rate are resampled to it on the
+    /// decoder thread. Everything the engine reports or accepts in frames (seek targets, start
+    /// frames, positions) is counted at this rate.
     pub sample_rate: u32,
     /// Output device id, `None` for the system default.
     pub device: Option<String>,

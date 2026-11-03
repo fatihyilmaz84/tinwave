@@ -16,9 +16,10 @@
 //!   not depend on the signal bus; the [`Controller`] above it owns the poll cadence and maps
 //!   those events to T0 signals (and listening sessions) on the `tinwave-signals` bus.
 //!
-//! Out of scope here: OS outputs (T-0017), resampling and dither (T-0019), gapless metadata
-//! extraction (T-0018), time-stretch (T-0009). Tracks must have the stream sample rate; anything
-//! else is reported as a failed track, never played wrong.
+//! The decoder thread resamples tracks whose rate differs from the stream rate (rubato, T-0019);
+//! a rate that cannot be converted is reported as a failed track, never played wrong. Integer
+//! outputs are dithered where it matters ([`convert_dithered`]). Out of scope here: gapless
+//! metadata extraction (T-0018), time-stretch (ADR 0006).
 
 // `deny`, not `forbid`: the Windows COM calls live in `output/windows/os.rs`, the only module that
 // allows `unsafe` (each block carries a SAFETY comment; see Cargo.toml).
@@ -32,6 +33,7 @@ mod event;
 mod output;
 mod reader;
 mod renderer;
+mod resample;
 mod shared;
 mod types;
 
@@ -44,10 +46,11 @@ pub use engine::{Engine, EngineConfig};
 pub use error::PlaybackError;
 pub use event::{EventKind, EventSink, LeaveCause, PlaybackEvent, StartCause};
 pub use output::{
-    convert_into, plan_exclusive, resolve_mode, run_render_thread, AudioOutput, CpalControl,
-    CpalOutput, DeviceEvent, DeviceFollower, DeviceLost, DeviceSetup, DeviceStateChange,
-    FollowTarget, ManualHandle, ManualOutput, ModeOutcome, OpenRequest, OpenState, OutputStream,
-    Pump, PumpStep, RenderDevice, SampleFormat, StreamInfo, StreamMode, EXCLUSIVE_CANDIDATES,
+    convert_dithered, convert_into, plan_exclusive, resolve_mode, run_render_thread, AudioOutput,
+    CpalControl, CpalOutput, DeviceEvent, DeviceFollower, DeviceLost, DeviceSetup,
+    DeviceStateChange, Dither, FollowTarget, ManualHandle, ManualOutput, ModeOutcome, OpenRequest,
+    OpenState, OutputStream, Pump, PumpStep, RenderDevice, SampleFormat, StreamInfo, StreamMode,
+    EXCLUSIVE_CANDIDATES,
 };
 #[cfg(windows)]
 pub use output::{WasapiControl, WasapiOutput};

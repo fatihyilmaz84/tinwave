@@ -160,3 +160,70 @@ fn counter_detects_allocation_in_a_callback_shaped_region() {
     });
     assert_eq!(allocs, 2, "one allocation and one free");
 }
+
+/// The same guarantee when the decoder is resampling: rate changes at track boundaries (48 kHz ->
+/// 44.1 kHz -> 96 kHz -> 48 kHz), a seek and a device change inside resampled tracks, a queue
+/// edit. All resampling happens on the decoder thread, so the callback still touches no heap.
+#[test]
+fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
+    let dir = TempDir::new("rt-alloc-rates");
+    let [a, b, c] = rate_change_files(&dir);
+
+    let mut rig = Rig {
+        h: Harness::new(),
+        buf: vec![0.0f32; 2 * 441],
+        allocs: 0,
+        real_frames: 0,
+        starved_callbacks: 0,
+    };
+    rig.h
+        .engine
+        .load(
+            vec![track(1, &a), track(2, &b), track(3, &c), track(4, &a)],
+            0,
+            0,
+        )
+        .expect("load");
+    rig.run(40, false);
+    rig.settle();
+    // Past the 48 -> 44.1 kHz boundary (stream frame 33,600) and into the 44.1 kHz track.
+    rig.run(100, true);
+    // Seek inside the resampled track, then across the 44.1 -> 96 kHz boundary.
+    rig.h.engine.seek(5_000).expect("seek");
+    rig.run(20, false);
+    rig.settle();
+    rig.run(60, true);
+    // Device change inside the 96 kHz track.
+    rig.h
+        .engine
+        .switch_device(Some("other".into()))
+        .expect("switch");
+    rig.run(20, false);
+    rig.settle();
+    rig.run(20, true);
+    // The tail is replaced while a resampler is running; the 96 kHz -> 44.1 kHz -> 48 kHz
+    // boundaries follow.
+    rig.h
+        .engine
+        .replace_after(QueueItemId(3), vec![track(5, &b), track(6, &a)])
+        .expect("edit");
+    rig.run(5, true);
+    rig.run(150, true);
+    // Run to the end of the queue and past it.
+    rig.run(60, false);
+
+    assert_eq!(
+        rig.allocs, 0,
+        "the render callback allocated or freed {} times",
+        rig.allocs
+    );
+    assert!(
+        rig.real_frames > 90_000,
+        "test must cross the rate changes, rendered {} frames",
+        rig.real_frames
+    );
+    assert!(
+        rig.starved_callbacks > 0,
+        "test must also cover callbacks with nothing to play"
+    );
+}

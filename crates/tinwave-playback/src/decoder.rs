@@ -2,6 +2,25 @@
 //!
 //! This is the only thread that touches files. It never waits on the render callback except at the
 //! seek handshake, and even there it keeps servicing commands.
+//!
+//! It is also the only thread that resamples (T-0019): tracks whose rate differs from the stream
+//! rate go through a [`StreamResampler`] before they reach the ring, so the callback only ever
+//! sees stream-rate frames.
+//!
+//! # Units
+//! Everything the control side sees is in **stream frames**: seek targets, start frames, marks,
+//! positions (`position_ms = frame * 1000 / stream_rate`). A track is read in its own **file
+//! frames**; the two are the same number when the rates match and are converted (with
+//! [`scale_frames`]) at the reader's seek and in the marks. [`GaplessInfo`](crate::GaplessInfo)
+//! is the exception: it describes the file, so it stays in file frames.
+//!
+//! # Resampler lifetime
+//! - Same-rate tracks that follow each other share one resampler (no restart at the boundary).
+//! - A track of another rate: the old resampler is flushed into the ring first (its tail is the
+//!   end of the previous track), then a new one starts.
+//! - A seek, a load or a device switch restarts the stream, so the resampler is dropped with it
+//!   (`reset_stream`); the first track after it starts a fresh one.
+//! - The end of the queue flushes the tail before the end of stream is published.
 
 use std::collections::HashSet;
 use std::sync::atomic::Ordering::{AcqRel, Acquire, Relaxed, Release};
@@ -14,6 +33,7 @@ use tinwave_core::Clock;
 
 use crate::event::{EventKind, EventSink, PlaybackEvent};
 use crate::reader::{SourceOpener, TrackReader};
+use crate::resample::{scale_frames, StreamResampler};
 use crate::shared::{Mark, MarkKind, Shared};
 use crate::types::CHANNELS;
 use crate::{EditId, PlaybackError, QueueItemId, Track};
@@ -97,6 +117,12 @@ struct State {
     /// as stale while nothing is audible).
     last_opened: Option<usize>,
     reader: Option<TrackReader>,
+    /// Converts the file rate of `reader` (and of the tracks after it, while they share the rate)
+    /// to the stream rate; `None` while the tracks already have the stream rate.
+    resampler: Option<StreamResampler>,
+    /// One decoded packet at the file rate, before the resampler (unused without one).
+    chunk: Vec<f32>,
+    /// Stream-rate audio waiting for room in the ring.
     pending: Vec<f32>,
     pending_off: usize,
     /// Stream timeline: renderer-consumed frames at the last flush plus frames pushed since.
@@ -123,6 +149,8 @@ impl Decoder {
             cur: 0,
             last_opened: None,
             reader: None,
+            resampler: None,
+            chunk: Vec::new(),
             pending: Vec::new(),
             pending_off: 0,
             written: 0,
@@ -388,6 +416,8 @@ impl Decoder {
         );
         st.item_failed = false;
         st.last_opened = None;
+        // A new stream timeline: whatever the resampler still held belonged to the old one.
+        st.resampler = None;
         st.pending.clear();
         st.pending_off = 0;
         st.written = self.sh.consumed.load(Acquire);
@@ -407,20 +437,10 @@ impl Decoder {
     /// Returns false when the queue is exhausted.
     fn open_current(&mut self, st: &mut State, mut frame: u64) -> bool {
         while let Some(track) = st.queue.get(st.cur).cloned() {
-            let opened = TrackReader::open(self.opener.as_ref(), &track).and_then(|reader| {
-                if reader.sample_rate() == self.sample_rate {
-                    Ok(reader)
-                } else {
-                    Err(PlaybackError::SampleRateMismatch {
-                        track_rate: reader.sample_rate(),
-                        output_rate: self.sample_rate,
-                    })
-                }
-            });
-            match opened {
+            match TrackReader::open(self.opener.as_ref(), &track) {
                 Ok(mut reader) => {
                     if frame > 0 {
-                        if let Err(error) = reader.seek(frame) {
+                        if let Err(error) = reader.seek(self.file_frame(&reader, frame)) {
                             self.emit(EventKind::SeekFailed {
                                 item: track.id,
                                 frame,
@@ -431,11 +451,21 @@ impl Decoder {
                             continue;
                         }
                     }
+                    // Last thing that can fail: from here on the stream state changes.
+                    if let Err(error) = self.use_rate(st, reader.sample_rate()) {
+                        self.emit(EventKind::TrackFailed {
+                            item: track.id,
+                            error,
+                        });
+                        st.cur += 1;
+                        frame = 0;
+                        continue;
+                    }
                     let seq = st.next_seq;
                     st.next_seq += 1;
                     self.sh.marks().push_back(Mark {
                         seq,
-                        start_frame: st.written,
+                        start_frame: Self::stream_end(st),
                         item: track,
                         offset: frame,
                         kind: st.mark_kind,
@@ -460,18 +490,115 @@ impl Decoder {
         false
     }
 
+    /// `frame` (stream frames) as a frame of the file `reader` is reading.
+    fn file_frame(&self, reader: &TrackReader, frame: u64) -> u64 {
+        let rate = reader.sample_rate();
+        if rate == self.sample_rate {
+            return frame;
+        }
+        let file_frame = scale_frames(frame, self.sample_rate, rate);
+        // Rounding must not turn the very last stream frame into a frame past the file's end
+        // (96 kHz -> 48 kHz: 2 * round(n / 2) can be n + 1).
+        match reader.length() {
+            Some(length)
+                if file_frame > length && frame <= scale_frames(length, rate, self.sample_rate) =>
+            {
+                length
+            }
+            _ => file_frame,
+        }
+    }
+
+    /// Make the conversion stage fit a track of `rate` that is about to start. Same-rate tracks
+    /// share their resampler; a different rate flushes the old one into `pending` (the end of the
+    /// previous track) and starts another. Fails, changing nothing, when the rate cannot be
+    /// converted.
+    fn use_rate(&mut self, st: &mut State, rate: u32) -> Result<(), PlaybackError> {
+        let wanted = match &st.resampler {
+            Some(current) => current.in_rate(),
+            None => self.sample_rate,
+        };
+        if rate == wanted {
+            return Ok(());
+        }
+        // Built before the old one is flushed, so a refused rate leaves the stream untouched.
+        let next = if rate == self.sample_rate {
+            None
+        } else {
+            Some(StreamResampler::new(rate, self.sample_rate)?)
+        };
+        self.flush_resampler(st)?;
+        // The flush moved the end of the timeline: the new resampler's output starts there.
+        st.resampler = next.map(|resampler| resampler.start_at(Self::stream_end(st)));
+        Ok(())
+    }
+
+    /// Stream frame the next decoded frame lands on: the end of everything queued so far.
+    fn stream_end(st: &State) -> u64 {
+        match &st.resampler {
+            Some(resampler) => resampler.position(),
+            None => st.written + ((st.pending.len() - st.pending_off) / CHANNELS) as u64,
+        }
+    }
+
+    /// Move the resampler's tail into `pending`. Returns whether it added any audio.
+    fn flush_resampler(&mut self, st: &mut State) -> Result<bool, PlaybackError> {
+        let Some(resampler) = st.resampler.take() else {
+            return Ok(false);
+        };
+        let before = st.pending.len();
+        resampler.finish(&mut st.pending)?;
+        Ok(st.pending.len() > before)
+    }
+
+    /// The conversion stage: file-rate audio in `st.chunk` to stream-rate audio in `st.pending`.
+    ///
+    /// This is the seam for time-stretch (ADR 0006, T-0027): the stretcher works at the file rate
+    /// and runs on `st.chunk` first, then the resampler converts its output.
+    fn to_stream_rate(&mut self, st: &mut State) -> Result<(), PlaybackError> {
+        match st.resampler.as_mut() {
+            Some(resampler) => resampler.push(&st.chunk, &mut st.pending),
+            None => {
+                st.pending.extend_from_slice(&st.chunk);
+                Ok(())
+            }
+        }
+    }
+
     /// Decode more audio into `st.pending`, advancing through the queue. `false` at the end.
     fn fill_pending(&mut self, st: &mut State) -> bool {
         loop {
             if st.reader.is_none() && !self.open_current(st, 0) {
+                // The last track's tail is still inside the resampler: it is audio, so it goes out
+                // before the end of the stream is published.
+                match self.flush_resampler(st) {
+                    Ok(true) => return true,
+                    Ok(false) => {}
+                    Err(error) => {
+                        // The tail of the last track could not be converted: it ends early.
+                        if let Some(track) = st.cur.checked_sub(1).and_then(|i| st.queue.get(i)) {
+                            self.emit(EventKind::TrackFailed {
+                                item: track.id,
+                                error,
+                            });
+                        }
+                        st.item_failed = true;
+                    }
+                }
                 self.finish_queue(st);
                 return false;
             }
             let Some(reader) = st.reader.as_mut() else {
                 continue;
             };
-            let result = reader.next_chunk(&mut st.pending);
+            st.chunk.clear();
+            let result = match reader.next_chunk(&mut st.chunk) {
+                Ok(true) => self.to_stream_rate(st).map(|()| true),
+                other => other,
+            };
             match result {
+                // A packet can leave nothing for the ring yet (the resampler is still filling).
+                Ok(true) if st.pending.is_empty() => {}
                 Ok(true) => return true,
                 Ok(false) => self.finish_item(st),
                 Err(error) => {
