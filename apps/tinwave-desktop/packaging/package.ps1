@@ -17,7 +17,7 @@
 #   6  smoke-test.ps1: run the bundle with Qt removed from PATH, reach the window, kill it
 # The environment is changed for this process only (QMAKE, PATH) and restored on exit.
 # -OutDir is wiped and rebuilt only when it carries this script's marker file (.tinwave-package) or is empty.
-# -Release: D-0007 (copyright holder, source-offer contact, root LICENSE files) still pending = the check fails, see README.
+# -Release: D-0007 (copyright holder, source-offer contact) still pending = the check fails, see README.
 param(
     [string]$OutDir = "",
     [string]$QtDir = "",

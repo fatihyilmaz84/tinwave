@@ -3,7 +3,7 @@ id: T-0058
 title: Switch Tinwave's own licence to GPL-3.0-only in Cargo, cargo-deny and packaging
 type: chore
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [D-0009]
@@ -15,6 +15,7 @@ scope:
 owner: tw-builder
 branch: t/T-0058-switch-to-gpl
 review_round: 1
+merge: 211d9fe
 created_by: from D-0009 (PO, 2026-11-03), ADR 0009
 ---
 

@@ -6,7 +6,7 @@ epic: E-01
 status: backlog
 priority: P2
 size: S
-depends_on: [T-0051, D-0007]
+depends_on: [T-0051, T-0058, D-0007]
 scope:
   - apps/tinwave-desktop/packaging/
 owner:
@@ -41,6 +41,13 @@ None.
 - "Appropriate Legal Notices" (GPL-3.0 §0/§5d) need an About view in the desktop UI: copyright holder, no warranty,
   licence, link to the notices. That is a UI ticket of its own (needs an artboard, D-0008/design gaps); T-0054 only
   checks the package side.
+
+## Added from T-0058 review-1 (P-0242, P-0243)
+- A check (test or check-bundle) that every path package in `cargo metadata` is a workspace member under `crates/` or
+  `apps/`, so `[licenses.private] ignore = true` (ADR 0009) cannot hide a third-party GPL path crate.
+- check-bundle: `Tinwave-LICENSE-GPL-3.0.txt` must equal the root `LICENSE` byte-for-byte, and no other file in
+  `licenses\` may present itself as Tinwave's licence (not just the fixed MIT/Apache names).
+- Scope extends to a test under `crates/` or the packaging scripts for the first item.
 
 ## Added from P-0204 (T-0026 build-1)
 - The notices generator reads `LICENSE*` under `crates/*/vendor/**` for every crate in the shipped closure

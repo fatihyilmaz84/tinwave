@@ -36,11 +36,10 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-| Ticket | Reviewer | Branch / worktree |
-|---|---|---|
-| [T-0058](tickets/T-0058-switch-to-gpl.md) Switch Tinwave's licence to GPL-3.0-only (ADR 0009) | tw-reviewer r1 | `t/T-0058-switch-to-gpl` @ 13e46ef · `D:\dev\Tinwave-worktrees\T-0058-switch-to-gpl` |
+_none_
 
 ## Recently done
+- [T-0058](tickets/T-0058-switch-to-gpl.md) Tinwave is GPL-3.0-only in Cargo, cargo-deny and packaging — merged 211d9fe (review r1 APPROVE; hardening → T-0054).
 - [T-0029](tickets/T-0029-live-play-records.md) Live play records, ContextKey v1 — merged 14105bf (review r1 APPROVE; Stopped/Quit → T-0059, wipe masking → T-0060).
 - [T-0019](tickets/T-0019-resampler-and-dither.md) Resampler (rubato) + exclusive-mode dither — merged 2e83776 (review r2 APPROVE; P-0223 docs applied).
 
