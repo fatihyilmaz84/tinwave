@@ -3,16 +3,16 @@ id: T-0063
 title: Rate restart hardening — no flush backoff, relative click test, injectable throttle clock, restart failure reports
 type: chore
 epic: E-01
-status: ready
+status: in_progress
 priority: P2
 size: S
 depends_on: [T-0027]
 scope:
   - crates/tinwave-playback/src/decoder.rs
   - crates/tinwave-playback/tests/rate.rs
-owner:
-branch:
-review_round: 0
+owner: tw-builder
+branch: t/T-0063-rate-restart-hardening
+review_round: 1
 created_by: from P-0252, P-0253 (T-0027 review-1) and the T-0027 build-1 throttle-clock question
 ---
 
