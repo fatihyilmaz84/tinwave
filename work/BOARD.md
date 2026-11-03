@@ -31,7 +31,6 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-builder r2 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
 | [T-0075](tickets/T-0075-busy-timeout-wall-clock.md) Contention tests vs busy-timeout wall time (P3) | tw-builder r1 | `t/T-0075-busy-timeout-wall-clock` · `D:\dev\Tinwave-worktrees\T-0075-busy-timeout-wall-clock` |
 | [T-0071](tickets/T-0071-cancel-storm-flake-again.md) cancel_storm image-provider flake (P2) | tw-builder r1 | `t/T-0071-cancel-storm-flake-again` · `D:\dev\Tinwave-worktrees\T-0071-cancel-storm-flake-again` |
 
@@ -39,7 +38,9 @@ Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-wor
 worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 
 ## In review
-_none_
+| Ticket | Reviewer | Branch / worktree |
+|---|---|---|
+| [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening, load-independent rate tests (P2) | tw-reviewer r2 | `t/T-0063-rate-restart-hardening` · `D:\dev\Tinwave-worktrees\T-0063-rate-restart-hardening` |
 
 ## Recently done
 - [T-0074](tickets/T-0074-test-only-connection-access.md) Raw DB connection only behind `test-support`; write_batch statement count pinned; fixtures copied — merged 1de23a8 (review r1 APPROVE).
