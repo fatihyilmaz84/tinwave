@@ -140,7 +140,9 @@ Session boundaries (T-0024):
   device and play order, never by session id (T-0029).
 - A repeat or exclusive-mode change made while no session is open is reported right after the next `SessionStarted`
   (with that event's time, and the recording that is current then, which need not be the one the change was made on);
-  a change reverted before any session is not reported.
+  a change reverted before any session is not reported. The exclusive setting is read at the controller's cadence
+  (each command and each poll, ≤ 100 ms): a change is stamped when it is read, and an on/off flip within one reading
+  is no change (T-0067).
 - A session begins with the first play that is *heard* (see `PlayStarted`): a track that fails to open does not open
   one, and `SessionEnded.tracks` counts heard plays. Exception: when the listener acts first (presses Previous, or
   pauses, resumes, seeks or changes the volume, with a listener's input rather than `Auto`) on a play that has not been

@@ -283,8 +283,8 @@ impl Controller {
             scratch: Vec::with_capacity(64),
             reported: SinkStats::default(),
         };
-        // The engine's first event is the stream it opened (`OutputOpened`): take it now, so the
-        // starting mode is known before any command.
+        // The engine's first event is the stream it opened (`OutputOpened`, logged only): take it
+        // now so the first command's drain starts clean.
         controller.drain(Cx::AUTO);
         Ok(controller)
     }

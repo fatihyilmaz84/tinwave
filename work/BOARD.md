@@ -37,9 +37,9 @@ worktree isolation fails on this machine: the `^{commit}` ref loses its braces).
 |---|---|---|
 | [T-0064](tickets/T-0064-signal-wipe-per-tier.md) Wipe signal events per privacy tier + contention hardening (P2) | tw-reviewer r1 | `t/T-0064-signal-wipe-per-tier` @ 104f688 · `D:\dev\Tinwave-worktrees\T-0064-signal-wipe-per-tier` |
 | [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check (ignored test + runbook), exclusive-only open | tw-reviewer r1 | `t/T-0066-exclusive-reopen-device-check` @ fde6b88 · `D:\dev\Tinwave-worktrees\T-0066-exclusive-reopen-device-check` |
-| [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (P1) | tw-reviewer r1 | `t/T-0067-exclusive-setting-signal` @ f97fd0f · `D:\dev\Tinwave-worktrees\T-0067-exclusive-setting-signal` |
 
 ## Recently done
+- [T-0067](tickets/T-0067-exclusive-setting-signal.md) ExclusiveModeToggled from the listener's setting (fallbacks never emit) — merged 4b54eb3 (review r1 APPROVE; wrapper → T-0072).
 - [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups: wipe epoch (writer CPU back to baseline), rollup plays kept, stale-start guard, checkpoint after wipe — merged 4950c97 (review r1 APPROVE).
 - [T-0062](tickets/T-0062-rate-session-and-status.md) RateSession per heard play (stopgap hand-over), applied rate in PlaybackStatus — merged 30cfa03 (review r1 APPROVE; storage → T-0070).
 - [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at each file's sample rate (fakes only) — merged e1893f5 (review r2 + lead fix; device check → T-0066).

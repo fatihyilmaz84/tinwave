@@ -23,6 +23,9 @@ that must forward every trait method), to avoid editing engine.rs while T-0066 d
 ## Scope
 - `Engine::wants_exclusive()` forwards to its output; the controller uses it; `setting.rs` and the wrapper go away.
 
+Until this lands: any default method added to `AudioOutput` must be forwarded by `SharedOutput` (setting.rs);
+nothing fails to compile if it isn't (T-0067 review-1).
+
 ## Acceptance criteria
 - [ ] All T-0067 controller_exclusive / controller_signals tests pass unchanged.
 - [ ] No Mutex around the output; fmt, clippy, nextest, deny pass.

@@ -3,7 +3,7 @@ id: T-0067
 title: ExclusiveModeToggled from the listener's setting, not from stream modes
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: S
 depends_on: [T-0057]
@@ -15,6 +15,7 @@ scope:
 owner: tw-builder
 branch: t/T-0067-exclusive-setting-signal
 review_round: 1
+merge: 4b54eb3
 created_by: from P-0267 (T-0057 build-1b)
 ---
 
