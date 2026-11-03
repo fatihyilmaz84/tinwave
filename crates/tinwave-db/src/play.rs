@@ -29,6 +29,18 @@
 //! ([`PlayWrite::Unpaired`], counted and logged), because a row needs the start's time and
 //! recording.
 //!
+//! **A start pairs once.** A start whose play already has a row (same device, session, recording
+//! and start time) is not paired again. Normally the nearest-boundary rule already guarantees it,
+//! because the play's own outcome sits between that start and any later one. But a wipe of the
+//! seek, skip and replay category deletes every stored outcome and keeps the `play` rows, so an
+//! old start is the nearest boundary again: if the *new* start of the same recording was never
+//! stored (the queue and library category switched off while seek stays on), its outcome would
+//! pair with the old start and write a second row with an old `started_ts` and a wrong
+//! `listened_ds`. Skipping a start that has a row cannot drop a legitimate pairing: a play's row is
+//! written in the batch that stores its first outcome, and a second outcome of the same play has
+//! the first as its nearest boundary (so it was unpaired already). It does not depend on a time
+//! window, so a play paused for hours still pairs.
+//!
 //! # Which plays have no row
 //!
 //! - A track that fails to open leaves no signal at all. A track that fails after it was heard
@@ -212,6 +224,10 @@ const FIND_WINDOW: &str = "SELECT e.kind, e.recording, e.ts_off + s.started_ts \
     WHERE e.device = ?1 AND e.seq > ?2 AND e.seq < ?3 AND e.kind IN (?4, ?5, ?6, ?7) \
     ORDER BY e.seq";
 
+/// Whether the play of a start was already written (see [`has_play_row`]).
+const FIND_PLAY_OF_START: &str = "SELECT EXISTS (SELECT 1 FROM play \
+    WHERE recording = ?1 AND started_ts = ?2 AND device = ?3 AND session = ?4)";
+
 const FIND_CONTEXT_KEY: &str = "SELECT key FROM context_snapshot WHERE id = ?1";
 
 const INSERT_PLAY: &str = "INSERT INTO play \
@@ -265,6 +281,10 @@ pub(crate) fn write_play(tx: &Transaction<'_>, outcome: &Outcome) -> Result<Play
     }) else {
         return Ok(PlayWrite::Unpaired);
     };
+    if has_play_row(tx, outcome.device, &start, recording)? {
+        // The start's play already has its row: this outcome is not its outcome (module docs).
+        return Ok(PlayWrite::Unpaired);
+    }
 
     let (paused_ms, flags) = scan_window(tx, outcome, &start, recording)?;
     let (listened_ds, end_reason, end_frac) = match outcome.ending {
@@ -297,6 +317,22 @@ pub(crate) fn write_play(tx: &Transaction<'_>, outcome: &Outcome) -> Result<Play
         ])
         .map_err(DbError::sqlite("inserting a play record"))?;
     Ok(PlayWrite::Written)
+}
+
+/// Whether `start` already has its `play` row. The row's identity is what it copies from the
+/// start: device, session, recording and start time; `play_rec_ts` makes the lookup an index seek.
+fn has_play_row(
+    tx: &Transaction<'_>,
+    device: i64,
+    start: &Start,
+    recording: i64,
+) -> Result<bool, DbError> {
+    tx.prepare_cached(FIND_PLAY_OF_START)
+        .map_err(DbError::sqlite("preparing the lookup of a play record"))?
+        .query_row(params![recording, start.ts, device, start.session], |row| {
+            row.get(0)
+        })
+        .map_err(DbError::sqlite("looking up the play record of a start"))
 }
 
 /// Reads the events between the start and the outcome: how long the play was paused, and which

@@ -24,7 +24,7 @@
 //! | `play.flags` | one flag per source signal, see [`FLAG_SOURCES`] | the flag's category | the bit is 0 |
 //! | `play.peak_section` | section-carrying signals | volume, speed, seek/skip/replay | NULL |
 //! | `rollup_monthly` row | `PlayStarted` | queue and library | the row is **deleted** |
-//! | `rollup_monthly.plays` | `PlayStarted` and the outcome | queue and library, seek/skip/replay | 0 |
+//! | `rollup_monthly.plays` | `PlayStarted` | queue and library | 0 |
 //! | `completes`, `skips_early`, `skips_late`, `listened_s` | `Completed`, `Skipped` | seek, skip, replay | 0 |
 //! | `fav_delta` | `Favorited`, `Unfavorited` | queue and library | 0 |
 //! | `score_sum` | every category (the weights of the catalog) | **every** category | 0 |
@@ -40,6 +40,12 @@
 //! outcome leaves what the listener did not ask to wipe (what was played, when); clearing the
 //! start leaves an outcome with no recording and no time, which is nothing. A rollup row left with
 //! only zero counters is deleted for the same reason.
+//!
+//! The monthly play count is the same fact as the play row: *that* a recording was played, which
+//! the start names. So the seek, skip and replay wipe keeps `rollup_monthly.plays` (the cold tier
+//! keeps "what was played and when", like the warm tier) and only the queue and library wipe
+//! clears it. A rollup row is then deleted by the seek wipe only when `plays` and `fav_delta` are
+//! both 0 (nothing but the cleared outcome counters was in it).
 //!
 //! A kind that no build knows (a code from a newer build) belongs to no category and is removed
 //! only by [wipe everything](wipe_everything).
@@ -58,11 +64,17 @@
 //!
 //! # The writer keeps running
 //!
-//! The writer's connection is not told about a wipe. [`SignalStore`](crate::SignalStore) reads
-//! `PRAGMA data_version` at the start of every batch and forgets its dictionary and session caches
-//! when another connection committed since: without that, after a wipe of the dictionaries its
-//! cached integers would point at rows that no longer exist, or (SQLite reuses the integers of an
-//! emptied table) at another recording.
+//! The writer's connection is not told about a wipe. Wipe everything bumps the **wipe epoch**
+//! (`PRAGMA user_version` of `signals.db`, unused by anything else; [`wipe_epoch`]) in its
+//! transaction, and [`SignalStore`](crate::SignalStore) reads it at the start of every batch, under
+//! the write lock, and forgets its dictionary and session caches when it changed: without that,
+//! after a wipe of the dictionaries its cached integers would point at rows that no longer exist,
+//! or (SQLite reuses the integers of an emptied table) at another recording. Only a wipe of the
+//! rows the caches point at (the dictionaries and `session`) changes the epoch: a category wipe, a
+//! context wipe and a settings toggle leave them in place, so they keep the caches. (SQLite's
+//! `data_version` was tried first and rejected: it changes on **every** commit of another
+//! connection, which cleared the caches before almost every batch in the 90-day growth run, +30 %
+//! writer CPU.) Anything new that deletes dictionary or session rows must bump the epoch too.
 //!
 //! A play in progress when its `PlayStarted` was wiped ends without a `play` row (the outcome has
 //! no start to pair with: `PlayWrite::Unpaired`, logged).
@@ -73,9 +85,11 @@
 //! statements, each one scan, whatever the number of rows or kinds. `signal_event` and
 //! `ui_counter` have no index on `kind`, so the delete is one scan of each (the hot tier is 90
 //! days); `play` has no index on its columns either and gets none for this. The connection runs
-//! with `secure_delete`, so deleted content is zeroed in the pages, not left in the free list.
+//! with `secure_delete`, so deleted content is zeroed in the pages, not left in the free list; the
+//! zeroed pages reach the main database file when the WAL is checkpointed, which the wiper tries
+//! right after the commit (best effort, `SignalWiper`).
 
-use rusqlite::Transaction;
+use rusqlite::{Connection, Transaction};
 use tinwave_signals::{SignalCategory, SignalKind};
 
 use crate::DbError;
@@ -168,10 +182,11 @@ const FLAG_SOURCES: [(u8, SignalCategory); 11] = [
 
 /// The derived columns of `rollup_monthly`.
 const ROLLUP_COLUMNS: &[Derived] = &[
+    // The number of `PlayStarted`: an outcome only says how the play ended (module docs).
     Derived {
         column: "plays",
         cleared: "0",
-        from: &[ROW_IDENTITY, SEEK],
+        from: &[ROW_IDENTITY],
     },
     Derived {
         column: "completes",
@@ -255,8 +270,28 @@ pub(crate) fn wipe_categories(
     Ok(report)
 }
 
-/// Empties every signal table (module docs).
+/// The wipe epoch: `PRAGMA user_version`, which only [`wipe_everything`] changes. The writer
+/// compares it between batches to know that its cached dictionary and session ids are void.
+///
+/// Prepared once per connection (`prepare_cached`): the writer reads it before every batch.
+pub(crate) fn wipe_epoch(conn: &Connection) -> Result<i32, DbError> {
+    conn.prepare_cached("PRAGMA user_version")
+        .map_err(DbError::sqlite("preparing the wipe epoch read"))?
+        .query_row([], |row| row.get(0))
+        .map_err(DbError::sqlite("reading the wipe epoch"))
+}
+
+/// Moves the epoch on, inside the wipe's transaction (it rolls back with the wipe). The value only
+/// has to differ from the one the writer saw; it wraps.
+fn bump_wipe_epoch(tx: &Transaction<'_>) -> Result<(), DbError> {
+    let next = wipe_epoch(tx)?.wrapping_add(1);
+    tx.pragma_update(None, "user_version", next)
+        .map_err(DbError::sqlite("bumping the wipe epoch"))
+}
+
+/// Empties every signal table (module docs) and bumps the wipe epoch.
 pub(crate) fn wipe_everything(tx: &Transaction<'_>) -> Result<SignalWipeReport, DbError> {
+    bump_wipe_epoch(tx)?;
     let mut deleted = [0usize; EVERYTHING.len()];
     for (count, table) in deleted.iter_mut().zip(EVERYTHING) {
         *count = delete_all(tx, table)?;
