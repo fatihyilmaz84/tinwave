@@ -185,7 +185,9 @@ struct Run {
 }
 
 /// Polls `engine` (up to `max_polls` rounds, calling `step` after each: a sleep for a real
-/// device, a fake callback for `ManualOutput`) until the queue has ended.
+/// device, a fake callback for `ManualOutput`) until the queue has ended. A lost output or a
+/// failed track ends it at once with a panic: after either the queue may never end, and waiting
+/// out every round would turn a failure into a run of hours.
 fn play_pair(
     engine: &mut Engine,
     sink: &CollectingSink,
@@ -215,6 +217,12 @@ fn play_pair(
             } else {
                 run.first_b.get_or_insert(now);
             }
+        }
+        if kinds
+            .iter()
+            .any(|k| matches!(k, EventKind::OutputLost | EventKind::TrackFailed { .. }))
+        {
+            panic!("the pair did not play through: {kinds:?}");
         }
         if kinds.iter().any(|k| matches!(k, EventKind::QueueEnded)) {
             return run;
@@ -407,7 +415,7 @@ mod wasapi {
             .position(|e| e.rate == R96)
             .expect("the engine asked the device for the 96 kHz file's rate");
         println!(
-            "  GAP between the clips: open #{at_96} start -> 96 kHz clip heard: {} (the 44.1 kHz stream had played out when open #{at_96} started)",
+            "  GAP between the clips: open #{at_96} start -> 96 kHz clip heard: {} (the previous stream had played out when open #{at_96} started)",
             boundary_gap(&log, R96, &run).map_or("not seen".to_string(), |gap| format!(
                 "{:.1} ms",
                 ms(gap)
@@ -741,7 +749,11 @@ fn the_boundary_gap_metric_sees_a_gap_of_a_known_size() {
         // A device calls back when it has room; here that is when a block is ready, or when the
         // engine has a stream to reopen (the callbacks are then empty).
         for _ in 0..3_000 {
-            if out.buffered_frames().unwrap_or(0) >= BLOCK || engine.reopen_pending() {
+            // No stream (a failed open): nothing will ever be buffered; play_pair reports it.
+            if !out.is_open()
+                || out.buffered_frames().unwrap_or(0) >= BLOCK
+                || engine.reopen_pending()
+            {
                 break;
             }
             engine.poll();

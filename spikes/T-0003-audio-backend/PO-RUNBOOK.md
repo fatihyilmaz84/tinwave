@@ -78,7 +78,8 @@ Also try a VBR MP3 (no CBR) and seek in it by hand if you extend the spike: VBR 
 ## 6. Optional: system-volume hook with the real keyboard keys
 
 ```powershell
-.	argetelease	0003-audio-spike.exe sysvol 15
+.	arget
+elease	0003-audio-spike.exe sysvol 15
 ```
 
 It nudges the master volume by 1 % and restores it (the agent already ran this: notification after 1.6 ms), then
@@ -143,7 +144,9 @@ How to read it:
   ~1 ms, so it is good to a few ms; the app itself polls every 10 ms while a reopen is pending, which can add up to
   10 ms on top. The spike measured about 42 ms for the device buffer plus the exclusive open; compare. (The same
   metric, run against a fake device that takes exactly 40 callbacks to open, reports 40 to 42; that check is the
-  `the_boundary_gap_metric_sees_a_gap_of_a_known_size` test and runs with the normal tests.)
+  `the_boundary_gap_metric_sees_a_gap_of_a_known_size` test and runs with the normal tests.) Both ends are Tinwave's
+  estimates from the buffer size and the latency Windows reports, accurate to about one device period plus the
+  poll; latency inside the DAC itself is not seen (it shifts both ends about equally).
 - Any rate can be refused, not only 96 kHz. A refused open prints `REFUSED, no stream opened: ... exclusive mode
   refused: ...` and the next open is `asked 48000 Hz` (not exclusive only): that file then plays resampled to 48 kHz.
   If 96 kHz is refused, the refused open is `open #2` and `open #3` is the 48 kHz retry; if 44.1 kHz is refused,

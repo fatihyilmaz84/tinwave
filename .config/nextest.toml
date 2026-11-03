@@ -11,3 +11,12 @@
 [[profile.default.overrides]]
 filter = 'binary(storage_growth)'
 slow-timeout = { period = "60s", terminate-after = 5 }
+
+# Backstop for the playback binaries (T-0066 review-2). Several playback tests drive the engine with
+# spin-and-sleep loops whose worst case under a regression (a lost output, a reopen that never comes)
+# is minutes to hours. The slowest measured under a saturated machine is ~30 s (exclusive_reopen,
+# controller_exclusive at 40 parallel copies), so 5 x 60 s = 300 s never trips on load but turns a
+# hang into a failure.
+[[profile.default.overrides]]
+filter = 'package(tinwave-playback)'
+slow-timeout = { period = "60s", terminate-after = 5 }
