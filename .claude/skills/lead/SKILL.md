@@ -47,12 +47,14 @@ For each untriaged proposal, set `outcome:` to one of `accepted → T-NNNN`, `me
 
 ## 6. Integrate
 - APPROVE: merge `t/T-NNNN-slug` into `main` (`git merge --no-ff`), run fmt/clippy/tests on `main`.
-  Green → `status: done`, record merge commit. Red → revert the merge and reopen the ticket with the failure.
+  Green → `status: done`, record merge commit, commit the work/ updates, then `git push origin main` (PO standing
+  permission, work/README.md; never force-push — merge `origin/main` first if it moved). Red → revert the merge and
+  reopen the ticket with the failure; don't push a red main.
 - CHANGES_REQUESTED: round + 1 and back to the builder. After round 2 fails: split, take over yourself, or escalate.
 - UI branches: the reviewer's `design check` must pass; skim the screenshots yourself before merging.
 - Spikes: review the result yourself; turn the draft ADR into `docs/adr/NNNN-*.md` if accepted; create follow-up tickets.
   Escalate to the PO if the spike changes scope, license posture, or the spec.
-- Never push. Never delete branches with unmerged work.
+- Push only `main`, only green, never force. Ticket branches stay local. Never delete branches with unmerged work.
 
 ## 7. Report
 - Rewrite `work/BOARD.md` (template in the file itself).

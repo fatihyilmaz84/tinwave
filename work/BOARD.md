@@ -3,6 +3,8 @@
 _Maintained by the lead. Last updated: 2026-11-02._
 
 ## Needs the PO
+- [D-0009](decisions/D-0009-project-licence.md): the GitHub repo says GPL-3.0 but the project and package say
+  MIT OR Apache-2.0. Which is Tinwave's licence? Blocks a public release (and D-0007).
 - [D-0008](decisions/D-0008-canvas-vs-tokens.md): should the design artboards match the token colours exactly, and
   keep 20 px sidebar icons on macOS/Linux too? (recommendation: yes and yes; not blocking)
 - [D-0007](decisions/D-0007-licence-holder-and-source-offer.md): who is the copyright holder in Tinwave's own MIT/Apache

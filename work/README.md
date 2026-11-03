@@ -97,8 +97,10 @@ ticket, design-system.md, or an ADR.
 ## Git rules
 
 - `main` is always green. One branch per ticket: `t/T-NNNN-slug`, in a worktree.
-- The PO grants the lead standing permission to **commit and merge locally**. **Never push** or create remote PRs
-  without the PO asking.
+- The PO grants the lead standing permission to **commit and merge locally** and to **push `main` to
+  `origin` (https://github.com/fatihyilmaz84/tinwave)** after every merge whose gates are green (PO, 2026-11-03).
+  Never force-push; if `origin/main` has commits we don't have, merge them first. Builders and spikes never push;
+  ticket branches stay local. Creating remote PRs still needs the PO to ask.
 - Commit messages: `T-NNNN: <summary>`.
 
 ## Proposals: how builders suggest work
