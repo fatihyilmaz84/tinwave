@@ -559,7 +559,7 @@ pub fn write_batch_when_unlocked(
     write_batch_when_unlocked_counting(store, events, wipe_end, &AtomicU32::new(0))
 }
 
-/// [write_batch_when_unlocked] that counts in usy the attempts that found the database
+/// [write_batch_when_unlocked] that counts in `busy` the attempts that found the database
 /// locked, so that a test can release a lock the moment the first one has given up, not after a
 /// guessed time (the busy timeout is 5 s of SQLite's own back-off sleeps, which stretch to more
 /// than 6 s of wall time when the machine is loaded).

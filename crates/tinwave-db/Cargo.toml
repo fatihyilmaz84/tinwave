@@ -8,7 +8,8 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-# `SignalWiper::connection_for_tests`: a raw `rusqlite::Connection`, for the integration tests that
+# `SignalWiper::connection_for_tests` and `SignalStore::connection_for_tests`: a raw
+# `rusqlite::Connection`, for the integration tests that
 # count statements. Off by default and never enabled by a dependent crate: only the self
 # dev-dependency below turns it on, for this crate's own tests and benches. The UI never touches SQLite.
 test-support = []
