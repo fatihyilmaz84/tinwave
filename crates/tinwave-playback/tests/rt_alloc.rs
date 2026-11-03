@@ -241,3 +241,97 @@ fn render_never_allocates_across_rate_changes_and_resampled_seeks() {
         "test must also cover callbacks with nothing to play"
     );
 }
+
+/// The same guarantee across playback-rate changes: the fade-out flush (several callbacks long),
+/// the fade-in, the rate bookkeeping, and a rate change meeting a seek, a pause and a device
+/// switch. The time stretcher runs on the decoder thread; the callback only fades and counts.
+#[test]
+fn render_never_allocates_across_rate_changes() {
+    let dir = TempDir::new("rt-alloc-rate");
+    let (l, r) = sweep(RATE, TOTAL);
+    let long = dir.path("long.wav");
+    let tiled = |v: &[f64]| {
+        v.iter()
+            .copied()
+            .cycle()
+            .take(10 * v.len())
+            .collect::<Vec<_>>()
+    };
+    write_wav(&long, RATE, 16, &tiled(&l), &tiled(&r));
+
+    let mut rig = Rig {
+        h: Harness::new(),
+        buf: vec![0.0f32; 2 * 441],
+        allocs: 0,
+        real_frames: 0,
+        starved_callbacks: 0,
+    };
+    rig.h
+        .engine
+        .load(vec![track(1, &long)], 0, 0)
+        .expect("load");
+    rig.settle();
+    rig.run(10, true);
+
+    // Plays callbacks until the stream is running at `rate`, then some more. It first waits out
+    // the previous change's 125 ms throttle interval, so the flush is immediate and the callbacks
+    // spin for a millisecond or two instead of for the interval.
+    let change = |rig: &mut Rig, rate: f64| {
+        std::thread::sleep(std::time::Duration::from_millis(130));
+        let before = rig.h.engine.rate_stats().flushes;
+        rig.h.engine.set_rate(rate).expect("set_rate");
+        for _ in 0..200_000 {
+            rig.run(1, false);
+            let stats = rig.h.engine.rate_stats();
+            if stats.flushes > before && stats.applied_rate == rate {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_micros(100));
+        }
+        assert_eq!(rig.h.engine.rate_stats().applied_rate, rate);
+        rig.run(10, true);
+    };
+    for rate in [1.25, 0.75, 1.5, 1.0, 1.1] {
+        change(&mut rig, rate);
+    }
+
+    // Stretched seek, a rate change while paused, and a device switch while stretched.
+    change(&mut rig, 1.25);
+    rig.h.engine.seek(100_000).expect("seek");
+    rig.run(20, false);
+    rig.settle();
+    rig.run(10, true);
+    rig.h.engine.pause();
+    rig.run(5, false);
+    change(&mut rig, 0.8);
+    rig.h.engine.resume();
+    rig.run(10, true);
+    rig.h
+        .engine
+        .switch_device(Some("other".into()))
+        .expect("switch");
+    rig.run(20, false);
+    rig.settle();
+    rig.run(10, true);
+    change(&mut rig, 1.0);
+    // The end of the track while stretched.
+    change(&mut rig, 1.5);
+    rig.h.engine.seek(10 * TOTAL as u64 - 30_000).expect("seek");
+    rig.settle();
+    rig.run(100, false);
+
+    assert_eq!(
+        rig.allocs, 0,
+        "the render callback allocated or freed {} times",
+        rig.allocs
+    );
+    assert!(
+        rig.real_frames > 20_000,
+        "test must actually render audio, got {} frames",
+        rig.real_frames
+    );
+    assert!(
+        rig.starved_callbacks > 0,
+        "test must also cover callbacks with nothing to play"
+    );
+}

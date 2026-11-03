@@ -508,7 +508,13 @@ fn the_onset_lands_at_the_source_position_over_and_under_discarding_both_fail() 
         // short (the lead-in is kept) lands outside the tolerance, on its own side.
         let over = onset_after_discarding(lag + 256) - expected;
         let under = onset_after_discarding(lag - 256) - expected;
-        assert!(over < -TOLERANCE, "rate {rate}: over-discarding gave {over:.0}");
-        assert!(under > TOLERANCE, "rate {rate}: under-discarding gave {under:.0}");
+        assert!(
+            over < -TOLERANCE,
+            "rate {rate}: over-discarding gave {over:.0}"
+        );
+        assert!(
+            under > TOLERANCE,
+            "rate {rate}: under-discarding gave {under:.0}"
+        );
     }
 }

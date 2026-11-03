@@ -16,8 +16,8 @@ pub(crate) enum MarkKind {
     /// The decoder moved on to the next queue item by itself.
     Continuation,
     /// The decoder restarted the stream at a new playback rate, at the position that was playing:
-    /// normally the same item as the mark before it (nothing to announce), see
-    /// [`Decoder::restart_for_rate`](crate::decoder).
+    /// the same item as the mark before it (nothing to announce), unless the old mark of the next
+    /// item is still ahead of what the control side has heard, in which case that mark announces it.
     Rate,
 }
 
@@ -154,5 +154,53 @@ impl Shared {
     /// Lock the mark list. Only the decoder and control threads call this, never the renderer.
     pub fn marks(&self) -> MutexGuard<'_, VecDeque<Mark>> {
         self.marks.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::QueueItemId;
+
+    fn mark(start_frame: u64, offset: u64, rate: f64) -> Mark {
+        Mark {
+            seq: 0,
+            start_frame,
+            item: Arc::new(Track {
+                id: QueueItemId(1),
+                path: PathBuf::from("unused.wav"),
+                gapless: None,
+            }),
+            offset,
+            kind: MarkKind::Rate,
+            prev_failed: false,
+            rate,
+        }
+    }
+
+    #[test]
+    fn bypass_is_exact_integer_arithmetic() {
+        // Beyond what an f64 holds exactly in a product with a fraction, but exact as integers.
+        let big = 1u64 << 60;
+        assert_eq!(mark(1_000, 7, 1.0).source_frame_at(1_000 + big), 7 + big);
+    }
+
+    #[test]
+    fn a_rate_scales_the_frames_since_the_mark_and_rounds_to_nearest() {
+        let m = mark(48_000, 10_000, 1.25);
+        assert_eq!(m.source_frame_at(48_000), 10_000);
+        assert_eq!(m.source_frame_at(48_000 + 4), 10_005);
+        assert_eq!(m.source_frame_at(48_000 + 1), 10_001); // 1.25 -> 1
+        assert_eq!(m.source_frame_at(48_000 + 2), 10_003); // 2.5 -> 3
+        let slow = mark(0, 100, 0.75);
+        assert_eq!(slow.source_frame_at(4), 103);
+    }
+
+    #[test]
+    fn before_the_mark_starts_the_position_is_its_offset() {
+        assert_eq!(mark(5_000, 321, 1.5).source_frame_at(4_000), 321);
+        assert_eq!(mark(5_000, 321, 1.0).source_frame_at(0), 321);
     }
 }

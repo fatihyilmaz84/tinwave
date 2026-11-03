@@ -511,7 +511,7 @@ impl Engine {
             source_micro_frames: self.sh.src_micro.load(Relaxed),
             effective_rate: f64::from_bits(self.sh.eff_rate.load(Relaxed)),
             applied_rate: self.sh.stream_rate(),
-            flushes: self.sh.rate_flushes.load(Relaxed),
+            flushes: self.sh.rate_flushes.load(Acquire),
         }
     }
 

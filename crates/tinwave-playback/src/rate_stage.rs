@@ -5,13 +5,22 @@
 //! prescribes ([`BlockPlan`]): a fixed [`BLOCK_FRAMES`] of output per call and
 //! `floor(out * rate + carry)` frames of input, so the source position is exact by construction.
 //!
-//! One stage serves one track at a time: [`begin`](StretchStage::begin) arms it at the frame the
-//! reader was seeked to, [`push`](StretchStage::push) takes the decoded packets,
+//! One stage serves one track at a time: [`begin`](StretchStage::begin) arms it for the frame
+//! the reader was seeked to, [`push`](StretchStage::push) takes the decoded packets,
 //! [`finish`](StretchStage::finish) runs the tail out at the end of the track. After `begin` the
 //! first [`Stretcher::discard_frames`] frames of output are the lead-in and are dropped, so the
-//! first frame that leaves the stage is the audio at the frame the reader started from; the
+//! first frame that leaves the stage is the audio at the frame the stream starts from; the
 //! restart after a rate change costs about a millisecond of CPU for that, far faster than real
 //! time.
+//!
+//! # Pre-roll
+//! A stretcher that starts cold at the position it is meant to play from has half an analysis
+//! window of silence behind it, and its first 60 ms or so overshoot (a steady sine comes out up
+//! to 5 % too loud and decays to its true level). So the reader is seeked a little before the
+//! start ([`preroll_frames`](StretchStage::preroll_frames) source frames, fewer at the very
+//! start of a track), and `begin` is told how many of the frames it will be given are such
+//! history: they are stretched like the rest, and the output they produce is dropped with the
+//! lead-in.
 //!
 //! The stage's output is **exact in length**: a track of `n` source frames yields
 //! `round(n / rate)` frames, however it was split into packets. The decoder relies on that to
@@ -31,7 +40,9 @@ pub(crate) struct StretchStage {
     block: Vec<f32>,
     /// Output frames of lead-in still to drop.
     discard: usize,
-    /// Source frames pushed since `begin`.
+    /// Source frames at the start of the input that are history before the start position.
+    preroll: u64,
+    /// Source frames pushed since `begin`, history included.
     pushed: u64,
     /// Output frames let through since `begin`.
     emitted: u64,
@@ -67,9 +78,17 @@ impl StretchStage {
             input: Vec::with_capacity(2 * BLOCK_FRAMES * CHANNELS),
             block: vec![0.0; BLOCK_FRAMES * CHANNELS],
             discard: 0,
+            preroll: 0,
             pushed: 0,
             emitted: 0,
         })
+    }
+
+    /// How many source frames before the start position the reader should be positioned at (and
+    /// pass to [`begin`](Self::begin) as `preroll`): the stretcher's analysis block, so that the
+    /// first frame that is kept is computed from a full window of real audio.
+    pub fn preroll_frames(&self) -> usize {
+        2 * self.stretcher.input_latency_frames()
     }
 
     /// The file rate this stage was built for.
@@ -83,15 +102,20 @@ impl StretchStage {
         self.active
     }
 
-    /// Start a track at `rate`: forgets everything before, so the next [`push`](Self::push) is
-    /// the audio at the position the reader was seeked to.
+    /// Start a track at `rate`: forgets everything before. The first `preroll` source frames
+    /// that will be pushed are history; the audio the stream starts with is the frame after
+    /// them.
     ///
     /// # Errors
     /// `rate` is not a positive finite number.
-    pub fn begin(&mut self, rate: f64) -> Result<(), PlaybackError> {
+    pub fn begin(&mut self, rate: f64, preroll: usize) -> Result<(), PlaybackError> {
         self.active = false;
         let plan = BlockPlan::new(rate).map_err(stretch_error)?;
-        self.discard = self.stretcher.discard_frames(rate).map_err(stretch_error)?;
+        // Frame `n` of the output is the source at `(n - lag) * rate` from where the feed began;
+        // the first frame kept is the one at `preroll`.
+        self.discard = self.stretcher.discard_frames(rate).map_err(stretch_error)?
+            + (preroll as f64 / rate).round() as usize;
+        self.preroll = preroll as u64;
         self.plan = plan;
         self.stretcher.reset();
         self.input.clear();
@@ -136,7 +160,8 @@ impl StretchStage {
         if !self.active {
             return Ok(());
         }
-        let total = (self.pushed as f64 / self.plan.rate()).round() as u64;
+        let total =
+            (self.pushed.saturating_sub(self.preroll) as f64 / self.plan.rate()).round() as u64;
         while self.emitted < total {
             let need = self.plan.peek_input_frames(BLOCK_FRAMES) * CHANNELS;
             if self.input.len() < need {
@@ -192,7 +217,7 @@ mod tests {
 
     fn run(rate: f64, input: &[f32], step: usize) -> Vec<f32> {
         let mut stage = StretchStage::new(SR).expect("stage");
-        stage.begin(rate).expect("begin");
+        stage.begin(rate, 0).expect("begin");
         let mut out = Vec::new();
         for chunk in input.chunks(step * CHANNELS) {
             stage.push(chunk, &mut out).expect("push");
@@ -231,12 +256,12 @@ mod tests {
         let a = tone(20_000);
         let mut stage = StretchStage::new(SR).expect("stage");
         let mut first = Vec::new();
-        stage.begin(1.25).expect("begin");
+        stage.begin(1.25, 0).expect("begin");
         stage.push(&a, &mut first).expect("push");
         stage.finish(&mut first).expect("finish");
         assert!(!stage.is_active());
 
-        stage.begin(1.25).expect("begin again");
+        stage.begin(1.25, 0).expect("begin again");
         let mut second = Vec::new();
         stage.push(&a, &mut second).expect("push");
         stage.finish(&mut second).expect("finish");
@@ -248,12 +273,12 @@ mod tests {
         let a = tone(20_000);
         let mut stage = StretchStage::new(SR).expect("stage");
         let mut ignored = Vec::new();
-        stage.begin(0.75).expect("begin");
+        stage.begin(0.75, 0).expect("begin");
         stage.push(&a[..8_000], &mut ignored).expect("push");
         stage.stop();
         assert!(!stage.is_active());
         let mut out = Vec::new();
-        stage.begin(0.75).expect("begin");
+        stage.begin(0.75, 0).expect("begin");
         stage.push(&a, &mut out).expect("push");
         stage.finish(&mut out).expect("finish");
         assert_eq!(out, run(0.75, &a, 20_000));
@@ -263,7 +288,7 @@ mod tests {
     fn begin_refuses_a_rate_that_makes_no_sense() {
         let mut stage = StretchStage::new(SR).expect("stage");
         for rate in [0.0, -1.0, f64::NAN] {
-            assert!(stage.begin(rate).is_err(), "rate {rate}");
+            assert!(stage.begin(rate, 0).is_err(), "rate {rate}");
         }
         assert!(!stage.is_active());
     }

@@ -146,6 +146,26 @@ impl TrackReader {
         std::mem::take(&mut self.corrupt_packets)
     }
 
+    /// Position the reader `preroll` frames before `frame`, for a consumer that needs history to
+    /// warm up on (the time stretcher). Returns how many frames of history will precede `frame`:
+    /// `preroll`, or fewer at the start of the track, or none at its end. Errors as
+    /// [`seek`](Self::seek) for a `frame` behind the end, whatever the preroll.
+    pub fn seek_with_preroll(&mut self, frame: u64, preroll: u64) -> Result<u64, PlaybackError> {
+        if self.length.is_some_and(|length| frame > length) {
+            return Err(PlaybackError::SeekOutOfRange { requested: frame });
+        }
+        let preroll = if self.length == Some(frame) {
+            0
+        } else {
+            preroll.min(frame)
+        };
+        // A reader that was just opened is at frame 0 already.
+        if frame > preroll {
+            self.seek(frame - preroll)?;
+        }
+        Ok(preroll)
+    }
+
     /// Seek to `frame` of the trimmed timeline. Lands sample-exact: the container seeks to a packet
     /// at or before the target and the remainder is decoded and dropped.
     ///

@@ -534,11 +534,11 @@ impl Decoder {
             marks.retain(|m| m.start_frame <= consumed);
             at
         };
-        self.sh.rate_flushes.fetch_add(1, Relaxed);
         let Some((item, frame)) = at else {
             // Everything was cleared (a stop that overtook the flush): nothing to resume.
             self.reset_stream(st, false);
             self.finish_queue(st);
+            self.sh.rate_flushes.fetch_add(1, Release);
             return;
         };
         st.cur = st
@@ -551,6 +551,8 @@ impl Decoder {
         if st.cur >= st.queue.len() || !self.open_current(st, frame) {
             self.finish_queue(st);
         }
+        // Last: whoever sees the count has the new rate and the first mark of the new stream.
+        self.sh.rate_flushes.fetch_add(1, Release);
     }
 
     /// Forget the old stream: `keep_marks` keeps the marks already published (a rate restart
@@ -595,29 +597,59 @@ impl Decoder {
         while let Some(track) = st.queue.get(st.cur).cloned() {
             match TrackReader::open(self.opener.as_ref(), &track) {
                 Ok(mut reader) => {
-                    if frame > 0 {
-                        if let Err(error) = reader.seek(self.file_frame(&reader, frame)) {
-                            self.emit(EventKind::SeekFailed {
+                    // The stretcher only touches itself, so it is made ready before the step that
+                    // changes the stream (the resampler), which must be the last thing that can
+                    // fail.
+                    let file_rate = reader.sample_rate();
+                    let stage = match Self::stage_for(st, file_rate) {
+                        Ok(stage) => stage,
+                        Err(error) => {
+                            self.emit(EventKind::TrackFailed {
                                 item: track.id,
-                                frame,
                                 error,
                             });
                             st.cur += 1;
                             frame = 0;
                             continue;
                         }
-                    }
-                    // The stretcher only touches itself, so it comes before the step that changes
-                    // the stream (the resampler), which must be the last thing that can fail.
-                    let file_rate = reader.sample_rate();
-                    if let Err(error) = Self::arm_stretch(st, file_rate) {
-                        self.emit(EventKind::TrackFailed {
-                            item: track.id,
-                            error,
-                        });
-                        st.cur += 1;
-                        frame = 0;
-                        continue;
+                    };
+                    // A stretcher warms up on audio before the start: the reader begins earlier.
+                    let wanted = stage.as_ref().map_or(0, |s| s.preroll_frames() as u64);
+                    let target = if frame > 0 {
+                        self.file_frame(&reader, frame)
+                    } else {
+                        0
+                    };
+                    let preroll = if target > 0 || wanted > 0 {
+                        match reader.seek_with_preroll(target, wanted) {
+                            Ok(preroll) => preroll,
+                            Err(error) => {
+                                // The stage is still unused: keep it for the next track.
+                                st.stretch = stage;
+                                self.emit(EventKind::SeekFailed {
+                                    item: track.id,
+                                    frame,
+                                    error,
+                                });
+                                st.cur += 1;
+                                frame = 0;
+                                continue;
+                            }
+                        }
+                    } else {
+                        0
+                    };
+                    if let Some(mut stage) = stage {
+                        if let Err(error) = stage.begin(st.rate, preroll as usize) {
+                            self.emit(EventKind::TrackFailed {
+                                item: track.id,
+                                error,
+                            });
+                            st.cur += 1;
+                            frame = 0;
+                            continue;
+                        }
+                        st.stretch = Some(stage);
                     }
                     if let Err(error) = self.use_rate(st, file_rate) {
                         if let Some(stage) = st.stretch.as_mut() {
@@ -661,22 +693,20 @@ impl Decoder {
         false
     }
 
-    /// Get the stretch stage ready for a track of `file_rate` that starts now, or idle for rate
-    /// 1.0. The stage is kept from track to track and rebuilt only when the file rate changes.
-    fn arm_stretch(st: &mut State, file_rate: u32) -> Result<(), PlaybackError> {
+    /// The stretch stage for a track of `file_rate` that starts now, taken out of `st` (the caller
+    /// puts it back once it has begun it), or `None` at rate 1.0, where there is no stretching. The
+    /// stage is kept from track to track and rebuilt only when the file rate changes.
+    fn stage_for(st: &mut State, file_rate: u32) -> Result<Option<StretchStage>, PlaybackError> {
         if st.rate == 1.0 {
             if let Some(stage) = st.stretch.as_mut() {
                 stage.stop();
             }
-            return Ok(());
+            return Ok(None);
         }
-        let mut stage = match st.stretch.take() {
-            Some(stage) if stage.sample_rate() == file_rate => stage,
-            _ => StretchStage::new(file_rate)?,
-        };
-        stage.begin(st.rate)?;
-        st.stretch = Some(stage);
-        Ok(())
+        match st.stretch.take() {
+            Some(stage) if stage.sample_rate() == file_rate => Ok(Some(stage)),
+            _ => StretchStage::new(file_rate).map(Some),
+        }
     }
 
     /// `frame` (stream frames) as a frame of the file `reader` is reading.

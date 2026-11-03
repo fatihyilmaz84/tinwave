@@ -160,7 +160,7 @@ fn run(seed: u64, files: &Files, rig: &mut Rig, steps: u32) -> (Vec<String>, Obs
     let mut index = 0usize;
     sample(rig, &mut observed);
     for _ in 0..steps {
-        let op = dice.below(22);
+        let op = dice.below(24);
         trace.push(format!("op {op}"));
         match op {
             0..=2 => {
@@ -212,6 +212,10 @@ fn run(seed: u64, files: &Files, rig: &mut Rig, steps: u32) -> (Vec<String>, Obs
             9 => {
                 let v = dice.below(101) as f32 / 100.0;
                 rig.ctl.set_volume(v, input(&mut dice)).expect("volume");
+            }
+            22 | 23 => {
+                let rate = [0.75, 0.9, 1.0, 1.1, 1.25, 1.5][dice.below(6) as usize];
+                rig.ctl.set_rate(rate, input(&mut dice)).expect("rate");
             }
             10 => rig.ctl.stop().expect("stop"),
             11 => rig.ctl.set_repeat_mode(
@@ -350,6 +354,8 @@ fn check(seed: u64, signals: &[SignalEvent], trace: &[String], observed: &Observ
             SignalPayload::SeekBack(p) => {
                 assert!(p.to_ds.ds() < p.from_ds.ds(), "{}", context());
             }
+            // A gesture that ended where it began is not a change and is not emitted.
+            SignalPayload::RateChanged(p) => assert_ne!(p.from, p.to, "{}", context()),
             // A pause is not always followed by a Resumed signal (a stop or a new queue can end
             // it, and a resume with no track current is not a signal), so no pairing is asserted.
             _ => {}

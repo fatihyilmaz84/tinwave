@@ -115,7 +115,11 @@ mod tests {
         for (rate, per_block) in [(0.75, 768usize), (1.0, 1024), (1.25, 1280), (1.5, 1536)] {
             let mut plan = BlockPlan::new(rate).expect("plan");
             for _ in 0..100 {
-                assert_eq!(plan.next_input_frames(BLOCK_FRAMES), per_block, "rate {rate}");
+                assert_eq!(
+                    plan.next_input_frames(BLOCK_FRAMES),
+                    per_block,
+                    "rate {rate}"
+                );
                 assert_eq!(plan.carry(), 0.0);
             }
         }

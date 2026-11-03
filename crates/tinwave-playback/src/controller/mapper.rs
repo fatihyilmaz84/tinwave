@@ -14,9 +14,8 @@ use tinwave_signals::{
     GestureCoalescer, GestureTick, GestureTime, InputSource, PausedPayload, PlayOrigin,
     PlayStartedPayload, PositionDs, QueueOrigin, QueueReorderedPayload, QueuedPayload, Rate,
     RatePayload, RemovedFromQueuePayload, RepeatMode, RepeatModePayload, ResumedPayload, Section,
-    SeekPayload,
-    SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind, SignalPayload,
-    SkipPayload, View, Volume, VolumePayload,
+    SeekPayload, SessionEndedPayload, SessionStartedPayload, SignalBus, SignalEvent, SignalKind,
+    SignalPayload, SkipPayload, View, Volume, VolumePayload,
 };
 
 use super::session::Session;

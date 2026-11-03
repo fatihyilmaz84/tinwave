@@ -37,6 +37,10 @@ pub struct Renderer {
     seen_data: bool,
     /// Frames of the fade-in that a rate-change flush started, still to apply to the next audio.
     fade_in_left: usize,
+    /// A rate-change flush is fading out the queued audio: `(frames left, frames in all)`. It
+    /// spans as many callbacks as it takes, so a device with a buffer shorter than the fade
+    /// still gets the whole ramp.
+    fade_out: Option<(usize, usize)>,
 }
 
 impl Renderer {
@@ -50,6 +54,7 @@ impl Renderer {
             pause_level,
             seen_data: false,
             fade_in_left: 0,
+            fade_out: None,
         }
     }
 
@@ -113,32 +118,54 @@ impl Renderer {
 
     /// The flush handshake. A plain flush (seek, load, device change) drops everything and
     /// returns silence. A rate-change flush first plays up to 5 ms of the queued audio, fading it
-    /// to zero, so that the old stream ends without a click, and arms the fade-in of the next one.
+    /// to zero (over as many callbacks as that takes, so the ramp is whole whatever the buffer
+    /// size), so that the old stream ends without a click, and arms the fade-in of the next one.
+    /// The decoder is acknowledged when the fade is done.
     fn flush(&mut self, out: &mut [f32], req: u64) -> usize {
         let fade = self.sh.flush_fade.load(Acquire);
         let fade_frames = self.sh.fade_frames.load(Relaxed) as usize;
+        // A callback with no room (the tests' empty acknowledgement) cannot play a fade: cut.
+        if fade
+            && self.fade_out.is_none()
+            && !out.is_empty()
+            && self.pause_level > 0.0
+            && !self.sh.paused.load(Relaxed)
+        {
+            let total = fade_frames.min(self.cons.slots() / CHANNELS);
+            self.fade_out = Some((total, total));
+        }
         let mut played = 0;
-        if fade && self.pause_level > 0.0 && !self.sh.paused.load(Relaxed) {
-            let wanted = fade_frames
-                .min(out.len() / CHANNELS)
-                .min(self.cons.slots() / CHANNELS);
+        if let Some((left, total)) = self.fade_out {
+            let wanted = left.min(out.len() / CHANNELS);
             if wanted > 0 {
                 let (popped, _) = self.cons.pop_partial_slice(&mut out[..wanted * CHANNELS]);
                 played = popped.len() / CHANNELS;
             }
-        }
-        out[played * CHANNELS..].fill(0.0);
-        if played > 0 {
+            let pause_target = if self.sh.paused.load(Relaxed) {
+                0.0
+            } else {
+                1.0
+            };
             let block = &mut out[..played * CHANNELS];
-            self.shape(block, 1.0);
-            // To zero over exactly the frames played: ends at 0 whatever the buffer size.
+            self.shape(block, pause_target);
+            // Frame `j` of the fade has gain `1 - (j + 1) / total`: the last one is silent.
             for (i, frame) in block.chunks_exact_mut(CHANNELS).enumerate() {
-                let g = 1.0 - (i as f32 + 1.0) / played as f32;
+                let g = (left - i - 1) as f32 / total as f32;
                 frame[0] *= g;
                 frame[1] *= g;
             }
-            self.account(played);
+            if played > 0 {
+                self.account(played);
+            }
+            // A ring that ran short ends the fade where the audio ends.
+            let left = if played < wanted { 0 } else { left - played };
+            self.fade_out = (left > 0).then_some((left, total));
+            if left > 0 {
+                out[played * CHANNELS..].fill(0.0);
+                return played;
+            }
         }
+        out[played * CHANNELS..].fill(0.0);
         let queued = self.cons.slots();
         if let Ok(chunk) = self.cons.read_chunk(queued) {
             chunk.commit_all();
@@ -348,8 +375,16 @@ mod tests {
         assert_eq!(r.render(&mut out, 0), 100);
         assert_eq!(sh.flush_ack.load(Relaxed), 1);
         let left: Vec<f32> = out.chunks_exact(2).map(|f| f[0]).collect();
-        assert!(left[..100].windows(2).all(|w| w[1] < w[0]), "monotonic fade");
-        assert!(left[0] > 0.98 && left[99] == 0.0, "{} .. {}", left[0], left[99]);
+        assert!(
+            left[..100].windows(2).all(|w| w[1] < w[0]),
+            "monotonic fade"
+        );
+        assert!(
+            left[0] > 0.98 && left[99] == 0.0,
+            "{} .. {}",
+            left[0],
+            left[99]
+        );
         assert!(left[100..].iter().all(|&s| s == 0.0));
         // Booked as played, at the old rate; everything else was dropped.
         assert_eq!(sh.consumed.load(Relaxed), 100);
@@ -358,18 +393,24 @@ mod tests {
     }
 
     #[test]
-    fn a_rate_flush_in_a_small_buffer_still_ends_at_zero() {
+    fn a_rate_flush_in_a_small_buffer_spans_callbacks_and_still_ends_at_zero() {
         let (sh, mut r) = rate_rig(1.0, 1_000);
         let mut out = [0.0f32; 2 * 40];
         sh.flush_fade.store(true, Release);
         sh.flush_req.fetch_add(1, Release);
-        assert_eq!(r.render(&mut out, 0), 40);
-        assert_eq!(
-            out[2 * 39],
-            0.0,
-            "the fade is as long as the buffer, not cut short"
-        );
-        assert!(out[0] > 0.9);
+        // 100 frames of fade in callbacks of 40: 40, 40, 20. Acknowledged only when it is done.
+        let mut ramp = Vec::new();
+        for (callback, expected) in [(0, 40), (1, 40), (2, 20)] {
+            assert_eq!(r.render(&mut out, 0), expected, "callback {callback}");
+            ramp.extend(out.chunks_exact(2).take(expected).map(|f| f[0]));
+            let acked = sh.flush_ack.load(Relaxed);
+            assert_eq!(acked, u64::from(callback == 2), "callback {callback}");
+        }
+        assert!(ramp.windows(2).all(|w| w[1] < w[0]), "one monotonic ramp");
+        assert!(ramp[0] > 0.98);
+        assert_eq!(ramp[99], 0.0, "ends at zero");
+        assert_eq!(sh.consumed.load(Relaxed), 100);
+        assert_eq!(r.buffered_frames(), 0, "the rest is dropped");
     }
 
     #[test]

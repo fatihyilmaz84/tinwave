@@ -10,7 +10,7 @@ mod controller_support;
 use controller_support::*;
 use tinwave_playback::{LoadIntent, PlaybackError, StreamInfo, StreamMode};
 use tinwave_signals::{
-    Fraction, InputSource, PlayOrigin, PositionDs, QueueOrigin, RepeatMode, Section,
+    Fraction, InputSource, PlayOrigin, PositionDs, QueueOrigin, Rate, RepeatMode, Section,
     SignalCategory, SignalKind, SignalPayload, Volume,
 };
 
@@ -524,6 +524,129 @@ fn a_volume_gesture_is_one_event_with_first_from_last_to_and_the_input() {
 }
 
 #[test]
+fn a_rate_gesture_is_one_event_with_first_from_last_to_and_the_input() {
+    let mut rig = Rig::new("sig-rate");
+    let a = rig.wav("a.wav", 30 * SECOND);
+    let e = rig.entry(1, &a, 30 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.render_exact(5 * SECOND, 4_800);
+    rig.new_signals();
+
+    // 1.05, 1.10 ... 1.50: ten steps of a slider.
+    for step in 1..=10_u8 {
+        rig.ctl
+            .set_rate(1.0 + 0.05 * f64::from(step), InputSource::Keyboard)
+            .expect("rate");
+        rig.clock.advance(50);
+    }
+    rig.clock.advance(549);
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty(), "599 ms after the last tick");
+    rig.clock.advance(1);
+    rig.ctl.poll();
+
+    let fresh = rig.new_signals();
+    assert_eq!(kinds(&fresh), [SignalKind::RateChanged]);
+    let SignalPayload::RateChanged(p) = fresh[0].payload else {
+        panic!("kind");
+    };
+    assert_eq!(p.from, Rate::NORMAL);
+    assert_eq!(p.to, Rate::from_rate(1.5).expect("rate"));
+    assert_eq!(p.input, InputSource::Keyboard);
+    assert_eq!(p.section, Section::UNKNOWN);
+    assert_eq!(fresh[0].recording, Some(recording(1)));
+    assert_eq!(fresh[0].pos_ds, Some(50));
+    assert!((rig.ctl.rate() - 1.5).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_rate_gesture_that_returns_to_where_it_started_is_not_a_change() {
+    let mut rig = Rig::new("sig-rate-back");
+    let a = rig.wav("a.wav", 30 * SECOND);
+    let e = rig.entry(1, &a, 30 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.render_exact(SECOND, 4_800);
+    rig.new_signals();
+    rig.ctl.set_rate(1.25, InputSource::Mouse).expect("rate");
+    rig.clock.advance(100);
+    rig.ctl.set_rate(1.0, InputSource::Mouse).expect("rate");
+    rig.clock.advance(700);
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty());
+}
+
+#[test]
+fn a_rate_gesture_ends_at_a_track_change() {
+    let mut rig = Rig::new("sig-rate-track-change");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let b = rig.wav("b.wav", 10 * SECOND);
+    let entries = vec![
+        entry(1, &a, 10 * SECOND, QueueOrigin::Manual),
+        entry(2, &b, 10 * SECOND, QueueOrigin::Manual),
+    ];
+    rig.select(entries.clone(), 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    rig.new_signals();
+    rig.ctl.set_rate(0.8, InputSource::Mouse).expect("rate");
+    rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
+        .expect("next");
+
+    let fresh = rig.new_signals();
+    assert_eq!(
+        kinds(&fresh),
+        [SignalKind::RateChanged, SignalKind::Skipped]
+    );
+    assert_eq!(fresh[0].recording, Some(recording(1)));
+}
+
+#[test]
+fn a_rate_change_with_no_session_is_applied_but_not_recorded() {
+    let mut rig = Rig::new("sig-rate-no-session");
+    rig.ctl.set_rate(1.25, InputSource::Mouse).expect("rate");
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    assert!(rig.signals().is_empty());
+    assert!((rig.ctl.rate() - 1.25).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_rate_outside_the_range_is_refused_and_silent() {
+    let mut rig = Rig::new("sig-rate-range");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Album, InputSource::Mouse);
+    rig.hear();
+    rig.new_signals();
+    for bad in [0.5, 2.0, f64::NAN] {
+        assert_eq!(
+            rig.ctl.set_rate(bad, InputSource::Mouse),
+            Err(PlaybackError::InvalidArgument(
+                "rate must be within 0.75 to 1.5"
+            ))
+        );
+    }
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    assert!(rig.new_signals().is_empty());
+    assert!((rig.ctl.rate() - 1.0).abs() < f64::EPSILON);
+}
+
+#[test]
+fn a_rate_change_on_a_play_not_yet_heard_is_recorded() {
+    let mut rig = Rig::new("sig-rate-unheard");
+    let a = rig.wav("a.wav", 10 * SECOND);
+    let e = rig.entry(1, &a, 10 * SECOND);
+    rig.select(vec![e], 0, PlayOrigin::Search, InputSource::Mouse);
+    rig.ctl.set_rate(0.75, InputSource::Keyboard).expect("rate");
+    rig.clock.advance(1_000);
+    rig.ctl.poll();
+    assert_eq!(
+        kinds(&rig.signals()),
+        [SignalKind::SessionStarted, SignalKind::RateChanged]
+    );
+}
+
+#[test]
 fn a_volume_gesture_ends_at_a_track_change() {
     let mut rig = Rig::new("sig-volume-track-change");
     let a = rig.wav("a.wav", 10 * SECOND);
@@ -622,6 +745,7 @@ fn disabling_a_category_constructs_nothing_of_it() {
     let settings = rig.bus.settings().clone();
     settings.set_category(SignalCategory::SeekSkipReplay, false);
     settings.set_category(SignalCategory::Volume, false);
+    settings.set_category(SignalCategory::Speed, false);
 
     let a = rig.wav("a.wav", 20 * SECOND);
     let b = rig.wav("b.wav", 20 * SECOND);
@@ -635,6 +759,7 @@ fn disabling_a_category_constructs_nothing_of_it() {
     rig.ctl.resume(InputSource::Mouse);
     rig.ctl.seek_ms(12_000, InputSource::Mouse).expect("seek");
     rig.ctl.set_volume(0.4, InputSource::Mouse).expect("volume");
+    rig.ctl.set_rate(1.25, InputSource::Mouse).expect("rate");
     rig.clock.advance(3_000);
     rig.ctl.poll();
     rig.load_with(entries, 1, LoadIntent::Next, InputSource::Mouse)
