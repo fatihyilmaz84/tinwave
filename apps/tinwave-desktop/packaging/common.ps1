@@ -154,18 +154,111 @@ function Find-QtSbomPackages([string]$DllPath, $Sbom) {
         return @()
     }
     $s = $stem.ToLowerInvariant()
-    # Plugins whose file name is not a prefix of the SBOM package name (QtNetwork's NLMNI / TLS backends).
-    $alias = @{ 'qnetworklistmanager' = 'QNLMNIPlugin'; 'qcertonlybackend' = 'QTlsBackendCertOnlyPlugin'; 'qopensslbackend' = 'QTlsBackendOpenSSLPlugin' }
+    # Plugins whose file name is not the SBOM package name. EXACT file stem -> SBOM package; a stem that is only a prefix of
+    # a package name is NOT matched (qwindows.dll must not also pull in QWindowsDirect2DIntegrationPlugin, T-0051).
+    $alias = @{
+        'qnetworklistmanager' = 'QNLMNIPlugin'; 'qcertonlybackend' = 'QTlsBackendCertOnlyPlugin'
+        'qopensslbackend' = 'QTlsBackendOpenSSLPlugin'; 'qwindows' = 'QWindowsIntegrationPlugin'
+    }
     if ($alias.ContainsKey($s)) { if ($Sbom.ContainsKey($alias[$s])) { return @($Sbom[$alias[$s]]) } else { return @() } }
-    # Tiers: exact name; equal once a trailing "plugin" is dropped; the SBOM name starts with the file stem (qwindows ->
-    # QWindowsIntegrationPlugin). The first tier with a hit wins.
+    # Tiers: exact name; equal once a trailing "plugin" is dropped. The first tier with a hit wins; no hit = no SBOM entry,
+    # which check-bundle and the notices generator treat as a failure.
     $all = @($Sbom.Values | Where-Object { $_.Name -notmatch '_Attribution_' })
     $t1 = @($all | Where-Object { $_.Name.ToLowerInvariant() -eq $s })
     if ($t1.Count -gt 0) { return $t1 }
     $sNo = $s -replace 'plugin$', ''
-    $t2 = @($all | Where-Object { ($_.Name.ToLowerInvariant() -replace 'plugin$', '') -eq $sNo })
-    if ($t2.Count -gt 0) { return $t2 }
-    @($all | Where-Object { $_.Name.ToLowerInvariant().StartsWith($s) })
+    @($all | Where-Object { ($_.Name.ToLowerInvariant() -replace 'plugin$', '') -eq $sNo })
+}
+
+# The SBOM package behind a Qt library named by a build script (`cargo:rustc-link-lib=Qt6Core` -> `Core`). The test-utils
+# modules are listed with a `Private` suffix (QuickTestUtilsPrivate). Returns $null when the SBOM has no such package.
+function Find-QtLibSbomPackage([string]$LibName, $Sbom) {
+    if ($LibName -notmatch '^Qt6(.+)$') { return $null }
+    $m = $Matches[1]
+    if ($Sbom.ContainsKey($m)) { return $Sbom[$m] }
+    if ($Sbom.ContainsKey($m + 'Private')) { return $Sbom[$m + 'Private'] }
+    $null
+}
+
+# `cargo:rustc-link-lib` / `cargo::rustc-link-lib` lines of every build script run so far (target\<profile>\build\*\output).
+# Each result: Kind (static, dylib, ... or ''), Name, Source (the build-script folder), File.
+function Read-RustcLinkLibs([string]$BuildDir) {
+    foreach ($o in (Get-ChildItem $BuildDir -Directory -ErrorAction SilentlyContinue | ForEach-Object { Join-Path $_.FullName 'output' } | Where-Object { Test-Path $_ })) {
+        foreach ($line in [IO.File]::ReadAllLines($o)) {
+            if ($line -match '^cargo::?rustc-link-lib=(?:(?<kind>[^=]+)=)?(?<name>.+?)\s*$') {
+                $kind = if ($Matches['kind']) { ($Matches['kind'] -split ':')[0] } else { '' }
+                [pscustomobject]@{ Kind = $kind; Name = ($Matches['name'] -split ':')[0]; Source = (Split-Path (Split-Path $o -Parent) -Leaf); File = $o }
+            }
+        }
+    }
+}
+
+# --- Qt source offer -------------------------------------------------------------------------------------------------
+# The Qt module repositories (qtbase, qtdeclarative, ...) that the shipped Qt binaries come from, per the kit's SBOM file
+# names. Returns objects: Repo, Modules (the shipped SBOM package names built from it).
+function Get-ShippedQtRepos($BundleFiles, $Sbom) {
+    $byRepo = @{}
+    foreach ($f in $BundleFiles) {
+        if ($f.Name -notlike '*.dll' -or $f.Name -like 'vc*.dll' -or $f.Name -like 'msvcp*.dll' -or $f.Name -like 'concrt*.dll') { continue }
+        foreach ($p in @(Find-QtSbomPackages $f.Path $Sbom)) {
+            if (-not $byRepo.ContainsKey($p.Repo)) { $byRepo[$p.Repo] = New-Object Collections.Generic.SortedSet[string] }
+            [void]$byRepo[$p.Repo].Add($p.Name)
+        }
+    }
+    foreach ($r in ($byRepo.Keys | Sort-Object)) { [pscustomobject]@{ Repo = $r; Modules = @($byRepo[$r]) } }
+}
+
+function Get-QtSourceUrl([string]$Repo, [string]$Version) {
+    $mm = $Version -replace '^(\d+\.\d+)\..*$', '$1'
+    "https://download.qt.io/archive/qt/$mm/$Version/submodules/$Repo-everywhere-src-$Version.tar.xz"
+}
+
+# templates\SOURCE-OFFER-Qt.txt with the version and the list of source archives (one per shipped repository) filled in.
+function New-SourceOffer([string]$TemplatePath, [string]$Version, $Repos, [string]$Contact) {
+    $mm = $Version -replace '^(\d+\.\d+)\..*$', '$1'
+    $list = New-Object Text.StringBuilder
+    foreach ($r in $Repos) {
+        [void]$list.Append("  $($r.Repo)  - source of:`n")
+        $line = '     '
+        foreach ($m in $r.Modules) {
+            if ($line.Length + $m.Length + 2 -gt 110) { [void]$list.Append($line.TrimEnd() + "`n"); $line = '     ' }
+            $line += " $m,"
+        }
+        [void]$list.Append($line.TrimEnd(',') + "`n")
+        [void]$list.Append("    $(Get-QtSourceUrl $r.Repo $Version)`n`n")
+    }
+    (Read-TextFile $TemplatePath).Replace('{{SOURCE_LIST}}', $list.ToString().TrimEnd("`n")).Replace('{{OFFER_CONTACT}}', $Contact).Replace('{{QT_VERSION}}', $Version).Replace('{{QT_MAJMIN}}', $mm)
+}
+
+# --- Release identity (D-0007) ---------------------------------------------------------------------------------------
+# Who holds the copyright of Tinwave's own code and where the Qt written source offer can be answered are PO decisions
+# (work/decisions/D-0007). Until they are made, release-identity.json holds `null` and every generated file carries
+# a marker "[D-0007 PENDING: ...]" instead of an invented name. check-bundle reports the marker and, without -Release, does
+# not fail on it. Deciding = filling in the two values (and adding LICENSE-MIT / LICENSE-APACHE at the repo root).
+function Get-ReleaseIdentity([string]$Path = '') {
+    if (-not $Path) { $Path = Join-Path $script:PackagingDir 'release-identity.json' }
+    $j = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) | ConvertFrom-Json
+    $holder = if ($j.copyrightHolder -and "$($j.copyrightHolder)".Trim()) { "$($j.copyrightHolder)".Trim() } else { $null }
+    $contact = if ($j.offerContact -and "$($j.offerContact)".Trim()) { "$($j.offerContact)".Trim() } else { $null }
+    $pending = New-Object Collections.Generic.List[string]
+    if (-not $holder) { $pending.Add('copyright holder of Tinwave''s own code (release-identity.json copyrightHolder)') }
+    if (-not $contact) { $pending.Add('contact for the Qt written source offer (release-identity.json offerContact)') }
+    foreach ($lf in 'LICENSE-MIT', 'LICENSE-APACHE') {
+        if (-not (Test-Path (Join-Path $script:RepoRoot $lf))) { $pending.Add("$lf at the repository root") }
+    }
+    [pscustomobject]@{
+        Holder = $holder; Contact = $contact; Pending = @($pending)
+        HolderText = $(if ($holder) { $holder } else { '[D-0007 PENDING: copyright holder not decided]' })
+        ContactText = $(if ($contact) { $contact } else { '[D-0007 PENDING: source-offer contact not decided]' })
+    }
+}
+
+# Where a file of the bundle comes from in the Qt kit: windeployqt copies bin\*.dll to the root, plugins\<type>\* to
+# <type>\*, qml\* to qml\*. Returns the kit path or $null.
+function Get-KitCounterpart([string]$Kit, [string]$Rel) {
+    $c = if ($Rel -notlike '*\*') { @("bin\$Rel") } else { @($Rel, "plugins\$Rel") }
+    foreach ($x in $c) { $p = Join-Path $Kit $x; if (Test-Path -LiteralPath $p -PathType Leaf) { return $p } }
+    $null
 }
 
 # --- Bundle inventory ------------------------------------------------------------------------------------------------

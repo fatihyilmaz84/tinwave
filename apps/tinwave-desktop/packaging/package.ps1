@@ -5,20 +5,26 @@
 #   .\package.ps1 -SkipBuild -NoSmoke   # reuse target\release\tinwave-desktop.exe, no window
 #
 # Steps, in order; any failure stops the script with a non-zero exit code and no bundle should be shipped:
-#   1  cargo build --release -p tinwave-desktop --bin tinwave-desktop   (only that binary; image-stress is dev-only)
+#   1  cargo build --release --frozen -p tinwave-desktop --bin tinwave-desktop   (only that binary; image-stress is dev-only;
+#      --frozen: no network at package time)
 #   2  copy tinwave-desktop.exe (and nothing else from target\release), windeployqt with the ADR 0008 flags, drop the
 #      styles the app does not use
 #   3  copy the MSVC runtime DLLs the bundle imports (app-local, from the Visual Studio redistributable folder)
-#   4  legal files: THIRD-PARTY-NOTICES.txt (New-ThirdPartyNotices.ps1), Qt LGPL-3.0/GPL-3.0 texts, Qt source offer
-#   5  check-bundle.ps1: no GPL-only Qt, no static Qt, only the app exe, imports resolve, legal files present
+#   4  legal files: THIRD-PARTY-NOTICES.txt (New-ThirdPartyNotices.ps1), Qt LGPL-3.0/GPL-3.0 texts, Qt source offer (one
+#      source archive per Qt repository that the shipped Qt files come from)
+#   5  check-bundle.ps1: no GPL-only Qt (SBOM + build-script link libs), no static Qt, every Qt file identical to the kit,
+#      only the app exe, imports resolve, legal files and source offer complete
 #   6  smoke-test.ps1: run the bundle with Qt removed from PATH, reach the window, kill it
 # The environment is changed for this process only (QMAKE, PATH) and restored on exit.
+# -OutDir is wiped and rebuilt only when it carries this script's marker file (.tinwave-package) or is empty.
+# -Release: D-0007 (copyright holder, source-offer contact, root LICENSE files) still pending = the check fails, see README.
 param(
     [string]$OutDir = "",
     [string]$QtDir = "",
     [string]$CrtDir = "",
     [switch]$SkipBuild,
-    [switch]$NoSmoke
+    [switch]$NoSmoke,
+    [switch]$Release
 )
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
@@ -29,6 +35,7 @@ $OutDir = [IO.Path]::GetFullPath($OutDir)
 $kit = Resolve-QtKit $QtDir
 $savedQmake = $env:QMAKE; $savedPath = $env:PATH
 $exitCode = 0
+$markerName = '.tinwave-package'
 
 function Invoke-Native([string]$What, [scriptblock]$Cmd) {
     # cargo and windeployqt write progress to stderr: that is not an error, the exit code is.
@@ -44,21 +51,22 @@ try {
     # --- 1 build ---------------------------------------------------------------------------------------------------
     $exeSrc = Join-Path $repo 'target\release\tinwave-desktop.exe'
     if (-not $SkipBuild) {
-        Write-Host "== cargo build --release -p tinwave-desktop --bin tinwave-desktop"
+        Write-Host "== cargo build --release --frozen -p tinwave-desktop --bin tinwave-desktop"
         Push-Location $repo
-        try { Invoke-Native 'cargo build' { cargo build --release --locked -p tinwave-desktop --bin tinwave-desktop } } finally { Pop-Location }
+        try { Invoke-Native 'cargo build' { cargo build --release --frozen -p tinwave-desktop --bin tinwave-desktop } } finally { Pop-Location }
     }
     if (-not (Test-Path $exeSrc)) { throw "Missing $exeSrc (run without -SkipBuild)." }
 
     # --- 2 deploy --------------------------------------------------------------------------------------------------
     if (Test-Path $OutDir) {
         $existing = @(Get-ChildItem $OutDir -Force)
-        if ($existing.Count -gt 0 -and -not (Test-Path (Join-Path $OutDir 'tinwave-desktop.exe'))) {
-            throw "$OutDir exists, is not empty and is not a previous bundle (no tinwave-desktop.exe); refusing to delete it."
+        if ($existing.Count -gt 0 -and -not (Test-Path (Join-Path $OutDir $markerName))) {
+            throw "$OutDir exists, is not empty and does not carry $markerName (the marker this script writes into every folder it creates); refusing to delete it. Choose another -OutDir or remove the folder yourself."
         }
         Remove-Item $OutDir -Recurse -Force
     }
     New-Item -ItemType Directory -Force $OutDir | Out-Null
+    Write-TextFile (Join-Path $OutDir $markerName) "Created by apps/tinwave-desktop/packaging/package.ps1. The script deletes and rebuilds this folder only while this file is here.`n"
     Copy-Item $exeSrc (Join-Path $OutDir 'tinwave-desktop.exe')
 
     Write-Host "== windeployqt ($($kit.Version))"
@@ -134,8 +142,16 @@ try {
     if (-not (Test-Path $qtLicense)) { throw "Qt license file not found: $qtLicense" }
     Copy-Item $qtLicense (Join-Path $lic 'Qt-LGPL-3.0-and-GPL-3.0.txt')
     Copy-Item (Join-Path $PSScriptRoot 'license-texts\Apache-2.0.txt') (Join-Path $lic 'Apache-2.0.txt')
-    $offer = (Read-TextFile (Join-Path $PSScriptRoot 'templates\SOURCE-OFFER-Qt.txt')).Replace('{{QT_VERSION}}', $kit.Version).Replace('{{QT_MAJMIN}}', ($kit.Version -replace '^(\d+\.\d+)\..*$', '$1'))
-    Write-TextFile (Join-Path $OutDir 'SOURCE-OFFER-Qt.txt') $offer
+    # Tinwave's own license files, once D-0007 puts them at the repository root (the holder is named inside them).
+    foreach ($rootLicense in 'LICENSE-MIT', 'LICENSE-APACHE') {
+        $rl = Join-Path $repo $rootLicense
+        if (Test-Path $rl) { Copy-Item $rl (Join-Path $lic "Tinwave-$rootLicense.txt") }
+    }
+    $identity = Get-ReleaseIdentity
+    $repos = @(Get-ShippedQtRepos (Get-BundleFiles $OutDir) (Read-QtSbom $kit.Root))
+    if ($repos.Count -eq 0) { throw "No Qt repository found for the Qt files in $OutDir (SBOM lookup)." }
+    Write-Host ("   Qt source archives in the offer: " + (($repos | ForEach-Object { $_.Repo }) -join ', '))
+    Write-TextFile (Join-Path $OutDir 'SOURCE-OFFER-Qt.txt') (New-SourceOffer (Join-Path $PSScriptRoot 'templates\SOURCE-OFFER-Qt.txt') $kit.Version $repos $identity.ContactText)
     & (Join-Path $PSScriptRoot 'New-ThirdPartyNotices.ps1') -Bundle $OutDir -Out (Join-Path $OutDir 'THIRD-PARTY-NOTICES.txt') -QtDir $kit.Root
     if (-not $?) { throw "New-ThirdPartyNotices.ps1 failed" }
     $committed = Join-Path $PSScriptRoot 'THIRD-PARTY-NOTICES.txt'
@@ -145,7 +161,7 @@ try {
 
     # --- 5 check ---------------------------------------------------------------------------------------------------
     Write-Host "== check-bundle"
-    & (Join-Path $PSScriptRoot 'check-bundle.ps1') -Bundle $OutDir -QtDir $kit.Root
+    & (Join-Path $PSScriptRoot 'check-bundle.ps1') -Bundle $OutDir -QtDir $kit.Root -Release:$Release
     if ($LASTEXITCODE -ne 0) { throw "check-bundle failed: do not ship $OutDir" }
 
     # --- 6 smoke ---------------------------------------------------------------------------------------------------

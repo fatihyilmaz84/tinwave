@@ -7,19 +7,20 @@ networkinformation\) are the unmodified binaries published by The Qt Company for
 Tinwave has not changed Qt.
 
 You are entitled to the complete corresponding source code of exactly this Qt version. It is published by the Qt
-Project and stays available there:
+Project, in the archive of its download site, which keeps every release:
 
-  Qt Base (Core, Gui, Network, OpenGL, platform plugins, image formats, TLS plugins):
-    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtbase-everywhere-src-{{QT_VERSION}}.tar.xz
-  Qt Declarative (Qml, Quick, Quick Controls 2, Quick Layouts, Shapes, Effects):
-    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtdeclarative-everywhere-src-{{QT_VERSION}}.tar.xz
-  Qt SVG (Svg, svg image and icon plugins):
-    https://download.qt.io/official_releases/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/submodules/qtsvg-everywhere-src-{{QT_VERSION}}.tar.xz
+{{SOURCE_LIST}}
 
-  All releases:  https://download.qt.io/archive/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/
-  Git:           https://code.qt.io/cgit/qt/ (tag v{{QT_VERSION}} in qtbase, qtdeclarative, qtsvg)
+  All files of this release: https://download.qt.io/archive/qt/{{QT_MAJMIN}}/{{QT_VERSION}}/
+  Git:                       https://code.qt.io/cgit/qt/ (tag v{{QT_VERSION}} in each repository above)
 
-This offer is valid for as long as Tinwave {{QT_VERSION}}-based releases are distributed and for at least three years after
+The list above is generated from the Qt modules and plugins that are actually in this folder: one source archive per
+Qt repository they are built from.
+
+If you cannot reach those addresses, write to us and we will send you the source on request:
+  Contact for this offer: {{OFFER_CONTACT}}
+
+This offer is valid for as long as Tinwave releases with Qt {{QT_VERSION}} are distributed and for at least three years after
 the last such distribution.
 
 Replacing Qt: the Qt libraries are separate files. You may replace them with your own build of Qt {{QT_VERSION}}
