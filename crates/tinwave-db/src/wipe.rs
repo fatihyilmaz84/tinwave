@@ -1,7 +1,9 @@
 //! User wipes of `signals.db`: [`SignalWiper`].
 //!
-//! Two kinds of wipe live here. **Signal wipes** (a signal category, or everything) are
-//! `SignalWiper::wipe_signal_categories` and `SignalWiper::wipe_everything`; their rule for what is
+//! Two kinds of wipe live here. **Signal wipes** (a signal category, a tier, or everything) are
+//! `SignalWiper::wipe_signal_categories`, `SignalWiper::wipe_signal_tiers` and
+//! `SignalWiper::wipe_everything`; `SignalWiper::wipe_tiers` wipes the signals and the context of a
+//! tier in one transaction. Their rule for what is
 //! derived from what is in `src/signal_wipe.rs` and in the Wipe paragraph of
 //! `docs/rules/privacy-and-signals.md`. The rest of this module is the **context wipe**.
 //!
@@ -174,6 +176,19 @@ pub struct WipeReport {
     pub snapshots_rewritten: usize,
 }
 
+/// How the checkpoint after a wipe ended (`SignalWiper::checkpoint_best_effort`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Checkpoint {
+    /// The WAL was folded into the main file and emptied.
+    Done,
+    /// `TRUNCATE` found the database busy: the signal writer holds the write lock, or a reader
+    /// holds an older snapshot. `main_file_current` is whether `PASSIVE` still copied every frame
+    /// into the main file (the writer case); if not, the main file holds the old content too.
+    Busy { main_file_current: bool },
+    /// SQLite reported an error.
+    Failed,
+}
+
 /// A connection to `signals.db` that wipes context data. Separate from the writer's connection
 /// (like `PersistentSettings`): a wipe waits for the writer's current batch, never blocks it
 /// for longer than its own transaction.
@@ -245,6 +260,63 @@ impl SignalWiper {
         Ok(report)
     }
 
+    /// Wipes the signal events of the `tiers` (every kind whose `SignalKind::tier` is among them)
+    /// and what is derived from them, by the rule of the category wipe
+    /// ([`wipe_signal_categories`](Self::wipe_signal_categories)). One transaction with the same
+    /// fixed number of single-scan statements. A tier without signal kinds (T2 and T3 today)
+    /// changes nothing; the context of a tier is not touched here, see [`wipe_tiers`](Self::wipe_tiers).
+    /// No tiers: nothing changes.
+    ///
+    /// # Errors
+    /// [`DbError::Sqlite`].
+    pub fn wipe_signal_tiers(&mut self, tiers: &[Tier]) -> Result<SignalWipeReport, DbError> {
+        if tiers.is_empty() {
+            return Ok(SignalWipeReport::default());
+        }
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DbError::sqlite("starting the signal tier wipe"))?;
+        let report = signal_wipe::wipe_tiers(&tx, tiers)?;
+        tx.commit()
+            .map_err(DbError::sqlite("committing the signal tier wipe"))?;
+        self.checkpoint_best_effort();
+        Ok(report)
+    }
+
+    /// "Wipe tier": everything the listener collected at the `tiers`, in **one transaction**: the
+    /// signal events and derived data of [`wipe_signal_tiers`](Self::wipe_signal_tiers) and the
+    /// context fields of the tier's categories of [`wipe_context_tier`](Self::wipe_context_tier).
+    /// On error nothing changed. Returns `(signals, context)`.
+    ///
+    /// # Errors
+    /// As [`wipe_context`](Self::wipe_context).
+    pub fn wipe_tiers(
+        &mut self,
+        tiers: &[Tier],
+    ) -> Result<(SignalWipeReport, WipeReport), DbError> {
+        if tiers.is_empty() {
+            return Ok((SignalWipeReport::default(), WipeReport::default()));
+        }
+        let fields = tiers.iter().fold(ContextFieldSet::EMPTY, |set, tier| {
+            set.union(ContextCategory::tier_fields(*tier))
+        });
+        let tx = self
+            .conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(DbError::sqlite("starting the tier wipe"))?;
+        let signals = signal_wipe::wipe_tiers(&tx, tiers)?;
+        let context = if fields.is_empty() {
+            WipeReport::default()
+        } else {
+            wipe_fields_in(&tx, fields)?
+        };
+        tx.commit()
+            .map_err(DbError::sqlite("committing the tier wipe"))?;
+        self.checkpoint_best_effort();
+        Ok((signals, context))
+    }
+
     /// Wipes everything in `signals.db`: events, counters, play records, monthly rollups, context
     /// snapshots, sessions and the dictionaries. The schema and the Signal Center toggles stay, and
     /// the signal writer keeps working. One transaction: on error nothing changed.
@@ -271,10 +343,18 @@ impl SignalWiper {
     /// checkpoint, which the writer would run up to its idle interval later).
     ///
     /// **Best effort, and the wipe is already committed:** a failure here never fails the wipe.
-    /// The busy timeout is zero, so a reader that still has the WAL open (it reports busy) makes
-    /// this skip instead of making the wipe wait; the writer's own `TRUNCATE` checkpoint
-    /// (`SignalStore::checkpoint_if_due`) then folds the WAL in on its next idle interval. In that
-    /// case the deleted content stays readable in the file until then. A skip is logged (no values).
+    /// The busy timeout is zero, so the checkpoint never makes the wipe wait. Two things make
+    /// `TRUNCATE` report busy, and the log says so:
+    ///
+    /// - **the signal writer holds the write lock** (a batch queued behind the wipe, likely right
+    ///   after a long wipe): `PASSIVE` needs no write lock and has already put the pages of the wipe
+    ///   in the main file, so only the WAL file still holds the frames from before the wipe;
+    /// - **a reader holds an older snapshot** of the database: `PASSIVE` cannot copy past it, so
+    ///   the main file is not yet current either.
+    ///
+    /// Either way the writer's own `TRUNCATE` checkpoint (`SignalStore::checkpoint_if_due`) finishes
+    /// on its next idle interval; until then the deleted content stays readable in the WAL file
+    /// (and, in the reader case, in the main file). A skip is logged (no values).
     ///
     /// Two steps. `PASSIVE` copies the bulk of the WAL while the writer keeps committing: a
     /// `TRUNCATE` checkpoint holds the write lock for the whole copy, and a wipe of the reference
@@ -282,29 +362,48 @@ impl SignalWiper {
     /// stalled the signal writer for seconds on top of the wipe itself (its batches fail after the
     /// 5 s busy timeout and are retried). `TRUNCATE` then only has the frames committed since, and
     /// empties the WAL file, which still holds the pages from before the wipe.
-    fn checkpoint_best_effort(&self) {
+    fn checkpoint_best_effort(&self) -> Checkpoint {
+        // `(busy, frames in the WAL, frames copied)` of `PRAGMA wal_checkpoint`.
         let checkpoint = |mode: &str| {
             self.conn
                 .query_row(&format!("PRAGMA wal_checkpoint({mode})"), [], |row| {
-                    row.get::<_, i64>(0)
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
                 })
         };
         let outcome = self.conn.busy_timeout(Duration::ZERO).and_then(|()| {
-            checkpoint("PASSIVE")?;
-            checkpoint("TRUNCATE")
+            let (_, log, copied) = checkpoint("PASSIVE")?;
+            let (busy, ..) = checkpoint("TRUNCATE")?;
+            Ok(if busy == 0 {
+                Checkpoint::Done
+            } else {
+                Checkpoint::Busy {
+                    main_file_current: copied >= log,
+                }
+            })
         });
         if let Err(error) = self.conn.busy_timeout(connection::BUSY_TIMEOUT) {
             tracing::warn!(%error, "could not restore the busy timeout after the wipe checkpoint");
         }
         match outcome {
-            Ok(0) => {}
-            Ok(_) => tracing::warn!(
-                "wipe checkpoint skipped: a reader holds the WAL; the deleted content leaves the main file at the writer's next checkpoint"
-            ),
-            Err(error) => tracing::warn!(
-                %error,
-                "wipe checkpoint failed; the deleted content leaves the main file at the writer's next checkpoint"
-            ),
+            Ok(busy @ Checkpoint::Busy { main_file_current }) => {
+                tracing::warn!(
+                    main_file_current,
+                    "wipe checkpoint could not empty the WAL: the signal writer holds the write lock or a reader holds an older snapshot; the writer's next checkpoint finishes it, until then the deleted content stays in the WAL file (and in the main file too unless main_file_current)"
+                );
+                busy
+            }
+            Ok(other) => other,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "wipe checkpoint failed; the deleted content leaves the files at the writer's next checkpoint"
+                );
+                Checkpoint::Failed
+            }
         }
     }
 
@@ -316,16 +415,20 @@ impl SignalWiper {
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(DbError::sqlite("starting the context wipe"))?;
-        let plays_rewritten = rewrite_keys(&tx, "play", "context_key", fields)?;
-        let snapshots_rewritten = rewrite_keys(&tx, "context_snapshot", "key", fields)?;
+        let report = wipe_fields_in(&tx, fields)?;
         tx.commit()
             .map_err(DbError::sqlite("committing the context wipe"))?;
         self.checkpoint_best_effort();
-        Ok(WipeReport {
-            plays_rewritten,
-            snapshots_rewritten,
-        })
+        Ok(report)
     }
+}
+
+/// Clears `fields` from the context keys of `play` and `context_snapshot`, in `tx`.
+fn wipe_fields_in(tx: &Transaction<'_>, fields: ContextFieldSet) -> Result<WipeReport, DbError> {
+    Ok(WipeReport {
+        plays_rewritten: rewrite_keys(tx, "play", "context_key", fields)?,
+        snapshots_rewritten: rewrite_keys(tx, "context_snapshot", "key", fields)?,
+    })
 }
 
 /// Rewrites `column` of `table` with the `fields` cleared and returns how many rows changed.
@@ -471,5 +574,55 @@ mod tests {
             s.union(ContextCategory::tier_fields(*t))
         });
         assert!(ContextField::ALL.iter().all(|f| all.contains(*f)));
+    }
+
+    /// A wiper on a fresh database, a second connection and rows in the WAL.
+    fn wiper_with_wal() -> (tempfile::TempDir, SignalWiper, Connection) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("signals.db");
+        let wiper = SignalWiper::open(&path).unwrap();
+        let other = Connection::open(&path).unwrap();
+        other
+            .execute_batch("INSERT INTO dict_recording (id, uuid) VALUES (1, x'0a'), (2, x'0b');")
+            .unwrap();
+        (dir, wiper, other)
+    }
+
+    /// The writer holds the write lock: `TRUNCATE` is busy, but `PASSIVE` has already copied every
+    /// frame, so the main file is current (the case the log used to describe as a reader).
+    #[test]
+    fn a_checkpoint_blocked_by_the_writer_reports_a_current_main_file() {
+        let (_dir, wiper, other) = wiper_with_wal();
+        other.execute_batch("BEGIN IMMEDIATE;").unwrap();
+        assert_eq!(
+            wiper.checkpoint_best_effort(),
+            Checkpoint::Busy {
+                main_file_current: true
+            }
+        );
+        other.execute_batch("ROLLBACK;").unwrap();
+        assert_eq!(wiper.checkpoint_best_effort(), Checkpoint::Done);
+    }
+
+    /// A reader with an older snapshot: `PASSIVE` cannot copy past it, so the main file is not
+    /// current either.
+    #[test]
+    fn a_checkpoint_blocked_by_a_reader_reports_a_stale_main_file() {
+        let (_dir, wiper, other) = wiper_with_wal();
+        let reader = Connection::open(other.path().unwrap()).unwrap();
+        reader
+            .execute_batch("BEGIN; SELECT count(*) FROM dict_recording;")
+            .unwrap();
+        other
+            .execute_batch("INSERT INTO dict_recording (id, uuid) VALUES (3, x'0c');")
+            .unwrap();
+        assert_eq!(
+            wiper.checkpoint_best_effort(),
+            Checkpoint::Busy {
+                main_file_current: false
+            }
+        );
+        reader.execute_batch("COMMIT;").unwrap();
+        assert_eq!(wiper.checkpoint_best_effort(), Checkpoint::Done);
     }
 }

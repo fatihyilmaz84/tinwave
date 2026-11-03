@@ -9,7 +9,7 @@ mod common;
 
 use std::time::Instant;
 
-use common::{burn_in_trigger, count, during_a_wipe, Ids, TempDb, T0};
+use common::{burn_in_trigger, count, during_a_wipe, write_batch_when_unlocked, Ids, TempDb, T0};
 use rusqlite::{params, Connection};
 use tinwave_core::{ManualClock, SignalEventId, Tier, UtcMillis};
 use tinwave_db::{
@@ -748,7 +748,7 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
     // The wipe holds the lock for at least the burn of this trigger (it fires once, on the first
     // row it rewrites), so the probe below cannot miss it on a fast machine.
     burn_in_trigger(&db.reader(), "UPDATE ON play");
-    let ((report, wipe_time), (batch, batch_time), lock_seen) = during_a_wipe(
+    let ((report, wipe_time), (batch, contended), lock_seen) = during_a_wipe(
         &db,
         || {
             let started = Instant::now();
@@ -757,20 +757,19 @@ fn a_write_batch_during_a_wipe_of_the_reference_table_is_not_starved() {
                 .unwrap();
             (report, started.elapsed())
         },
-        || {
-            let started = Instant::now();
-            let batch = store.write_batch(&events, &[]);
-            (batch, started.elapsed())
-        },
+        |wipe_end| write_batch_when_unlocked(&mut store, &events, wipe_end),
     );
     assert!(
         lock_seen,
         "the probe never saw the wipe's lock: the contention was not exercised"
     );
+    eprintln!("context wipe {wipe_time:?}, batch {contended:?}");
 
+    // The writer's own retry (not the 5 s busy timeout alone) gets the batch in, within a bound of
+    // the end of the wipe: the batch is not held up by anything but the wipe's lock.
     let batch = batch.unwrap_or_else(|e| {
         panic!(
-            "the batch failed after {batch_time:?} (the wipe took {wipe_time:?}): {}",
+            "the batch was not stored: {contended:?} (the wipe took {wipe_time:?}): {}",
             e.chain()
         )
     });

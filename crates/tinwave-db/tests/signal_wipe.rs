@@ -1,22 +1,30 @@
-//! Wiping a signal category and wiping everything (T-0061). Every test drives the real
-//! `SignalWiper` on a SQLite file; failures are injected from a second connection with a trigger
-//! (as in `context_wipe.rs`), and the contention tests run the real writer path while the wipe
-//! holds the write lock.
+//! Wiping a signal category, a privacy tier and everything (T-0061, T-0064). Every test drives the
+//! real `SignalWiper` on a SQLite file; failures are injected from a second connection with a
+//! trigger (as in `context_wipe.rs`), and the contention tests run the real writer path while the
+//! wipe holds the write lock.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod common;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use common::{burn_in_trigger, count, during_a_wipe, favorited, Ids, TempDb, T0};
+use common::{
+    burn_in_trigger, count, during_a_wipe, favorited, write_batch_when_unlocked, Ids, TempDb,
+    AFTER_WIPE_SLACK, BUSY_TIMEOUT, T0,
+};
 use rusqlite::types::Value;
 use rusqlite::{params, Connection};
+use tinwave_core::Tier;
 use tinwave_db::{
-    PersistentSettings, SignalStore, SignalWipeReport, SignalWiper, SignalWriter, WriterConfig,
+    ContextCategory, PersistentSettings, SignalStore, SignalWipeReport, SignalWiper, SignalWriter,
+    WipeReport, WriterConfig,
 };
-use tinwave_signals::{BusConfig, SignalBus, SignalCategory, SignalKind, SignalSettings};
+use tinwave_signals::{
+    ActivityGuess, BusConfig, ContextKey, Daypart, OutputClass, PlaceSlot, SignalBus,
+    SignalCategory, SignalKind, SignalSettings, TemperatureBand, WeatherCondition, WeekdayType,
+};
 
 /// The tables a wipe may touch, with every column dumped, in a stable order.
 const TABLES: [&str; 12] = [
@@ -539,6 +547,288 @@ fn an_unknown_kind_survives_every_category_wipe_and_not_wipe_everything() {
     assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 0);
 }
 
+// ---------------------------------------------------------------- per tier
+
+/// The event kinds of tier T1 (`WindowState`, `OutputDeviceChanged`), written out from the catalog.
+/// Every other stored kind is T0; no kind is T2 or T3.
+const T1_EVENT_KINDS: [u8; 2] = [69, 81];
+
+/// Each tier deletes exactly its own events and counters and the columns derived from them, and
+/// nothing else in any table.
+#[test]
+fn wiping_a_tier_deletes_exactly_its_events_and_the_data_derived_from_it() {
+    for tier in Tier::ALL {
+        let mut fx = Fixture::new();
+        let before = fx.dump();
+
+        let report = fx.wiper.wipe_signal_tiers(&[tier]).unwrap();
+
+        let conn = fx.db.reader();
+        let after = dump(&conn);
+        match tier {
+            // 36 of the 38 event kinds and all the counters: every T0 signal, so the play starts
+            // too. The two T1 events and the unknown kind stay.
+            Tier::T0 => {
+                assert_eq!(event_kinds(&conn), [69, 81, UNKNOWN_KIND], "T0 events");
+                assert_eq!(count(&conn, "SELECT count(*) FROM ui_counter"), 0);
+                assert_eq!(count(&conn, "SELECT count(*) FROM play"), 0);
+                assert_eq!(count(&conn, "SELECT count(*) FROM rollup_monthly"), 0);
+                assert_eq!(
+                    report,
+                    SignalWipeReport {
+                        events_deleted: 36,
+                        counter_rows_deleted: 3,
+                        plays_deleted: 3,
+                        rollups_deleted: 4,
+                        ..SignalWipeReport::default()
+                    }
+                );
+            }
+            // The two T1 events go. No play column is derived from them; the score, a blend of
+            // every signal, is reset like in every other wipe.
+            Tier::T1 => {
+                let mut expected: Vec<u8> = SignalKind::events()
+                    .map(|k| k.discriminant())
+                    .filter(|k| !T1_EVENT_KINDS.contains(k))
+                    .chain([UNKNOWN_KIND])
+                    .collect();
+                expected.sort_unstable();
+                assert_eq!(event_kinds(&conn), expected, "T1 events");
+                assert_eq!(count(&conn, "SELECT count(*) FROM ui_counter"), 3);
+                assert_eq!(plays(&conn), PLAYS_BEFORE);
+                assert_eq!(
+                    rollups(&conn),
+                    ROLLUPS_BEFORE.map(|r| (r.0, r.1, r.2, r.3, r.4, r.5, r.6, 0.0))
+                );
+                assert_eq!(
+                    report,
+                    SignalWipeReport {
+                        events_deleted: 2,
+                        rollups_cleared: 3,
+                        ..SignalWipeReport::default()
+                    }
+                );
+            }
+            // No signal kind has these tiers: nothing is wiped, in any table.
+            Tier::T2 | Tier::T3 => {
+                assert_eq!(after, before, "{tier:?}");
+                assert_eq!(report, SignalWipeReport::default());
+            }
+        }
+        // Context, sessions, dictionaries and settings are not signals of a tier.
+        for name in [
+            "context_snapshot",
+            "session",
+            "dict_device",
+            "dict_recording",
+            "dict_source",
+            "dict_entity",
+            "signal_settings",
+            "schema_migration",
+        ] {
+            assert_eq!(
+                table(&after, name),
+                table(&before, name),
+                "{tier:?}: {name}"
+            );
+        }
+    }
+}
+
+/// Several tiers do the union (all tiers is what all categories are), a repeated wipe finds
+/// nothing, and no tier is a no-op.
+#[test]
+fn several_tiers_at_once_and_a_repeated_wipe() {
+    let mut by_tiers = Fixture::new();
+    let report = by_tiers
+        .wiper
+        .wipe_signal_tiers(&[Tier::T1, Tier::T0, Tier::T1])
+        .unwrap();
+    assert_eq!(report.events_deleted, 38);
+    assert_eq!(event_kinds(&by_tiers.db.reader()), [UNKNOWN_KIND]);
+    let once = by_tiers.dump();
+    assert_eq!(
+        by_tiers.wiper.wipe_signal_tiers(&Tier::ALL).unwrap(),
+        SignalWipeReport::default()
+    );
+    assert_eq!(
+        by_tiers.wiper.wipe_signal_tiers(&[]).unwrap(),
+        SignalWipeReport::default()
+    );
+    assert_eq!(by_tiers.dump(), once);
+
+    // Every tier wiped is every category wiped: the same rows are left.
+    let mut by_categories = Fixture::new();
+    by_categories
+        .wiper
+        .wipe_signal_categories(&SignalCategory::ALL)
+        .unwrap();
+    assert_eq!(by_categories.dump(), once);
+}
+
+/// A key with the listed fields known (daypart, weekday, condition, temperature, device,
+/// activity, place), from the typed builders and not from the code under test.
+fn key_with(keep: [bool; 7]) -> u32 {
+    let mut key = ContextKey::UNKNOWN;
+    if keep[0] {
+        key = key.with_daypart(Daypart::Evening);
+    }
+    if keep[1] {
+        key = key.with_weekday_type(WeekdayType::Weekend);
+    }
+    if keep[2] {
+        key = key.with_condition(WeatherCondition::Rain);
+    }
+    if keep[3] {
+        key = key.with_temperature(TemperatureBand::Mild);
+    }
+    if keep[4] {
+        key = key.with_device_class(OutputClass::Bluetooth);
+    }
+    if keep[5] {
+        key = key.with_activity(ActivityGuess::Leisure);
+    }
+    if keep[6] {
+        key = key.with_place(PlaceSlot::new(5).unwrap());
+    }
+    key.raw()
+}
+
+fn context_keys(conn: &Connection) -> (Vec<u32>, Vec<u32>) {
+    (
+        ints(conn, "SELECT context_key FROM play ORDER BY id"),
+        ints(conn, "SELECT key FROM context_snapshot ORDER BY id"),
+    )
+}
+
+/// "Wipe tier T2" is one call: the tier's signal events and derived data and the tier's context
+/// fields go together. T2 has no signal kind, so only the context goes (activity and place); T1
+/// takes its two events, the score, and the clock and output fields.
+#[test]
+fn a_tier_wipe_is_one_call_for_the_signals_and_the_context_of_the_tier() {
+    let mut fx = Fixture::new();
+    let conn = fx.db.reader();
+    let full = key_with([true; 7]);
+    conn.execute("UPDATE play SET context_key = ?1", [full])
+        .unwrap();
+    conn.execute("UPDATE context_snapshot SET key = ?1", [full])
+        .unwrap();
+    let before = fx.dump();
+
+    // T2: activity (app) and place.
+    let (signals, context) = fx.wiper.wipe_tiers(&[Tier::T2]).unwrap();
+    assert_eq!(signals, SignalWipeReport::default());
+    assert_eq!(
+        context,
+        WipeReport {
+            plays_rewritten: 3,
+            snapshots_rewritten: 2
+        }
+    );
+    let t2 = key_with([true, true, true, true, true, false, false]);
+    assert_eq!(context_keys(&conn), (vec![t2; 3], vec![t2; 2]));
+    let after = fx.dump();
+    for name in [
+        "signal_event",
+        "ui_counter",
+        "rollup_monthly",
+        "session",
+        "dict_device",
+    ] {
+        assert_eq!(table(&after, name), table(&before, name), "{name}");
+    }
+
+    // T1 and T3 together: the signals of T1, the clock, device and weather fields. Every field of
+    // the key belongs to T1, T2 or T3, so nothing is left.
+    let (signals, context) = fx.wiper.wipe_tiers(&[Tier::T3, Tier::T1]).unwrap();
+    assert_eq!(
+        signals,
+        SignalWipeReport {
+            events_deleted: 2,
+            rollups_cleared: 3,
+            ..SignalWipeReport::default()
+        }
+    );
+    assert_eq!(context.plays_rewritten, 3);
+    assert_eq!(context.snapshots_rewritten, 2);
+    assert_eq!(context_keys(&conn), (vec![0; 3], vec![0; 2]));
+    assert_eq!(
+        event_kinds(&conn).len(),
+        37,
+        "36 T0 events and the unknown kind"
+    );
+
+    // T0 has no context: its wipe is the signals only, and the context columns stay as they are.
+    // (The play rows are deleted with the play starts, so the keys are checked on the snapshots.)
+    conn.execute("UPDATE context_snapshot SET key = ?1", [full])
+        .unwrap();
+    let (signals, context) = fx.wiper.wipe_tiers(&[Tier::T0]).unwrap();
+    assert_eq!(signals.events_deleted, 36);
+    assert_eq!(context, WipeReport::default());
+    assert_eq!(context_keys(&conn).1, vec![full; 2]);
+
+    assert_eq!(
+        fx.wiper.wipe_tiers(&[]).unwrap(),
+        (SignalWipeReport::default(), WipeReport::default())
+    );
+}
+
+/// The wipe of a tier is atomic across its signal part and its context part: a failure in the
+/// context rewrite (the last thing the wipe does) leaves the events, the derived columns and the
+/// keys as they were, and the wipe works once the fault is gone. The signal-only wipe fails the
+/// same way.
+#[test]
+fn a_failed_tier_wipe_changes_nothing_and_works_once_the_fault_is_gone() {
+    for combined in [true, false] {
+        let mut fx = Fixture::new();
+        fx.db
+            .reader()
+            .execute(
+                "UPDATE context_snapshot SET key = ?1",
+                [key_with([true; 7])],
+            )
+            .unwrap();
+        let before = fx.dump();
+        let injector = fx.db.reader();
+        // The signal part runs first (it ends with the rollups); the context part ends with the
+        // snapshots.
+        inject_failure(
+            &injector,
+            if combined {
+                "UPDATE ON context_snapshot"
+            } else {
+                "UPDATE ON rollup_monthly"
+            },
+        );
+
+        let error = if combined {
+            fx.wiper.wipe_tiers(&[Tier::T1]).unwrap_err()
+        } else {
+            fx.wiper.wipe_signal_tiers(&[Tier::T1]).unwrap_err()
+        };
+        assert!(
+            error.chain().contains("injected failure"),
+            "{}",
+            error.chain()
+        );
+        assert_eq!(fx.dump(), before, "combined={combined}: a table changed");
+
+        injector
+            .execute_batch("DROP TRIGGER inject_failure;")
+            .unwrap();
+        let events = if combined {
+            fx.wiper.wipe_tiers(&[Tier::T1]).unwrap().0.events_deleted
+        } else {
+            fx.wiper
+                .wipe_signal_tiers(&[Tier::T1])
+                .unwrap()
+                .events_deleted
+        };
+        assert_eq!(events, 2, "combined={combined}");
+        assert_ne!(fx.dump(), before);
+    }
+}
+
 // ---------------------------------------------------------------- everything
 
 /// Wipe everything empties every signal table, keeps the schema and the toggles, and reports what
@@ -659,9 +949,14 @@ fn a_store_with_warm_caches_writes_consistent_rows_after_a_wipe_of_everything() 
     assert_eq!(count(&conn, "SELECT count(*) FROM dict_recording"), 2);
 }
 
-/// The real writer thread, fed by the bus, runs while everything is wiped: no commit fails, no
-/// event is lost (each is either wiped or stored), and what was written after the wipe is
-/// consistent.
+/// The real writer thread, fed by the bus, runs while everything is wiped: no event is lost (each is
+/// either wiped or stored), what was written after the wipe is consistent, and a commit fails only
+/// if the wipe really held the lock for longer than the busy timeout (the writer retries it).
+///
+/// Nothing here is a count of emitted events or a fixed sleep that a slow machine can outrun: the
+/// emitter waits on conditions (events stored, the wipe returned) with budgets of
+/// [`LOAD_BUDGET`], and the wipe is held open by a burn trigger so the writer's batches do queue
+/// behind it.
 #[test]
 fn the_writer_thread_keeps_working_while_everything_is_wiped() {
     let db = TempDb::new();
@@ -683,44 +978,76 @@ fn the_writer_thread_keeps_working_while_everything_is_wiped() {
     )
     .unwrap();
     let mut wiper = SignalWiper::open(&db.path).unwrap();
+    let emit = || {
+        let _ = bus
+            .emit_with(SignalKind::Favorited, |st| {
+                favorited(device, session, rec, st.id.seq)
+            })
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1));
+    };
+    let deadline = Instant::now() + LOAD_BUDGET;
+    let within_budget = |what: &str| {
+        assert!(Instant::now() < deadline, "{what}: out of budget");
+    };
 
-    const EVENTS: u64 = 600;
-    let report = std::thread::scope(|scope| {
-        let wipe = scope.spawn(|| {
-            let conn = db.reader();
-            // Wipe once the writer has stored a good part of the events.
-            while count(&conn, "SELECT count(*) FROM signal_event") < 100 {
-                std::thread::sleep(Duration::from_millis(1));
+    // Let the writer store a good part of the events first.
+    let conn = db.reader();
+    while count(&conn, "SELECT count(*) FROM signal_event") < 100 {
+        emit();
+        within_budget("waiting for 100 stored events");
+    }
+    // The wipe holds the write lock for at least the burn of this trigger.
+    burn_in_trigger(&conn, "DELETE ON dict_device");
+
+    let ((report, wipe_time), (), lock_seen) = during_a_wipe(
+        &db,
+        || {
+            let started = Instant::now();
+            let report = wiper.wipe_everything().unwrap();
+            (report, started.elapsed())
+        },
+        |wipe_end| {
+            // Events keep coming while the wipe runs, and after it: 50 events that cannot have
+            // been wiped.
+            while wipe_end.get().is_none() {
+                emit();
+                within_budget("waiting for the wipe to return");
             }
-            wiper.wipe_everything().unwrap()
-        });
-        for _ in 0..EVENTS {
-            let _ = bus
-                .emit_with(SignalKind::Favorited, |st| {
-                    favorited(device, session, rec, st.id.seq)
-                })
-                .unwrap();
-            std::thread::sleep(Duration::from_micros(500));
-        }
-        wipe.join().unwrap()
-    });
+            for _ in 0..50 {
+                emit();
+            }
+        },
+    );
+    assert!(
+        lock_seen,
+        "the probe never saw the wipe's lock: the writer was not contended"
+    );
     let accepted = bus.queued_total();
     drop(bus);
     let stats = writer.shutdown().unwrap();
+    eprintln!("wipe everything {wipe_time:?}, writer {stats:?}");
 
-    assert_eq!(accepted, EVENTS);
-    assert_eq!(stats.failed_commits, 0, "a batch had to be retried");
     assert_eq!(stats.events_lost, 0);
     assert_eq!(stats.events_inserted, accepted);
+    // A commit may only fail, and be retried, when the wipe held the lock past the busy timeout.
+    assert!(
+        stats.failed_commits == 0 || wipe_time > BUSY_TIMEOUT,
+        "{} commits failed although the wipe took only {wipe_time:?}",
+        stats.failed_commits
+    );
     let conn = db.reader();
     let remaining = count(&conn, "SELECT count(*) FROM signal_event");
     assert_eq!(
         i64::try_from(report.events_deleted).unwrap() + remaining,
-        i64::try_from(EVENTS).unwrap(),
+        i64::try_from(accepted).unwrap(),
         "every event is either wiped or stored"
     );
     assert!(report.events_deleted >= 100);
-    assert!(remaining > 0, "events written after the wipe are stored");
+    assert!(
+        remaining >= 50,
+        "events written after the wipe are stored ({remaining})"
+    );
     // What was stored after the wipe points at rows that exist and name the right recording.
     let uuids: Vec<Vec<u8>> = {
         let mut stmt = conn
@@ -902,6 +1229,11 @@ fn a_failed_wipe_changes_nothing_and_works_once_the_fault_is_gone() {
 
 // ---------------------------------------------------------------- contention
 
+/// How long a test waits for a condition of the machine (events stored, a wipe returned) before it
+/// calls the wait a failure: far above anything seen with 32 heavy processes on 16 threads, so it
+/// only fires on a hang.
+const LOAD_BUDGET: Duration = Duration::from_secs(120);
+
 /// Inserts a reference listener's tables (3 years of plays, the hot tier of events, counters,
 /// snapshots, a large dictionary) in one transaction.
 fn populate_reference(conn: &Connection) {
@@ -998,12 +1330,66 @@ fn play_batch(ids: &mut Ids) -> Vec<tinwave_signals::SignalEvent> {
     ]
 }
 
-/// A batch the writer sends while the reference-size tables are wiped is stored, within the busy
-/// timeout, for a category wipe (which rewrites the 131 400 play rows) and for wipe everything.
-/// The probe must have seen the wipe's lock, so the contention really happened.
+/// A lock that outlasts the 5 s busy timeout, as a wipe's does under machine load: a bare
+/// `write_batch` gives up with "database is locked", and the retry of the helper (what the writer
+/// thread does with a failed commit) stores the batch once the lock is gone. This is what the
+/// contention tests below stand on; without it they depended on the wipe finishing in under 5 s.
+#[test]
+fn a_batch_that_outwaits_the_busy_timeout_is_stored_by_the_retry() {
+    let db = TempDb::new();
+    let mut store = SignalStore::open(&db.path).unwrap();
+    let mut ids = Ids::new(75);
+    let events = play_batch(&mut ids);
+    let holder = db.reader();
+    holder.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let wipe_end = common::WipeEnd::new();
+
+    let wipe_end_ref = &wipe_end;
+    let (stored, contended) = std::thread::scope(|scope| {
+        scope.spawn(move || {
+            std::thread::sleep(BUSY_TIMEOUT + Duration::from_secs(1));
+            holder.execute_batch("COMMIT").unwrap();
+            wipe_end_ref.set(Instant::now()).unwrap();
+        });
+        write_batch_when_unlocked(&mut store, &events[..1], &wipe_end)
+    });
+
+    let batch = stored.unwrap_or_else(|e| panic!("{contended:?}: {}", e.chain()));
+    assert_eq!(batch.events_inserted, 1);
+    assert!(
+        contended.attempts >= 2,
+        "the first attempt must have run into the busy timeout: {contended:?}"
+    );
+    assert!(contended.waited >= BUSY_TIMEOUT, "{contended:?}");
+    assert!(contended.after_wipe <= AFTER_WIPE_SLACK, "{contended:?}");
+    assert_eq!(count(&db.reader(), "SELECT count(*) FROM signal_event"), 1);
+}
+
+/// What a contention case wipes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Wipe {
+    /// A signal category that rewrites the 131 400 play rows.
+    Category,
+    /// Tiers T1 and T2 in one call: their signals and the context fields of the 131 400 plays.
+    Tiers,
+    /// Everything.
+    Everything,
+}
+
+/// A batch the writer sends while the reference-size tables are wiped is stored: for a category
+/// wipe (which rewrites the 131 400 play rows), a tier wipe (signals and context in one
+/// transaction) and wipe everything. The probe must have seen the wipe's lock, so the contention
+/// really happened.
+///
+/// The writer's batch is offered again when it finds the database locked
+/// ([`write_batch_when_unlocked`], as the writer thread does), because under machine load the
+/// wipe's lock can outlast the 5 s busy timeout (32 heavy processes made this test fail with
+/// "database is locked" after 5.5 s when it relied on the timeout alone). What the test pins
+/// instead is that nothing holds the writer up *after* the wipe: the batch is stored within
+/// [`AFTER_WIPE_SLACK`] of the wipe's return, which is measured, not assumed.
 #[test]
 fn a_write_batch_during_a_wipe_of_the_reference_tables_is_stored() {
-    for everything in [false, true] {
+    for mode in [Wipe::Category, Wipe::Tiers, Wipe::Everything] {
         let db = TempDb::new();
         let mut store = SignalStore::open(&db.path).unwrap();
         populate_reference(&db.reader());
@@ -1016,7 +1402,7 @@ fn a_write_batch_during_a_wipe_of_the_reference_tables_is_stored() {
         // The wipe holds the lock for at least the burn of this trigger.
         burn_in_trigger(
             &db.reader(),
-            if everything {
+            if mode == Wipe::Everything {
                 "DELETE ON dict_device"
             } else {
                 "UPDATE ON play"
@@ -1024,66 +1410,109 @@ fn a_write_batch_during_a_wipe_of_the_reference_tables_is_stored() {
         );
         let rest = events[1..].to_vec();
 
-        let (report, (batch, waited), lock_seen) = during_a_wipe(
+        let ((signals, context, wipe_time), (batch, contended), lock_seen) = during_a_wipe(
             &db,
             || {
-                if everything {
-                    wiper.wipe_everything().unwrap()
-                } else {
-                    wiper
-                        .wipe_signal_categories(&[SignalCategory::SeekSkipReplay])
-                        .unwrap()
-                }
+                let started = Instant::now();
+                let (signals, context) = match mode {
+                    Wipe::Category => (
+                        wiper
+                            .wipe_signal_categories(&[SignalCategory::SeekSkipReplay])
+                            .unwrap(),
+                        WipeReport::default(),
+                    ),
+                    Wipe::Tiers => wiper.wipe_tiers(&[Tier::T1, Tier::T2]).unwrap(),
+                    Wipe::Everything => (wiper.wipe_everything().unwrap(), WipeReport::default()),
+                };
+                (signals, context, started.elapsed())
             },
-            || {
-                let started = std::time::Instant::now();
-                let batch = store.write_batch(&rest, &[]);
-                (batch, started.elapsed())
-            },
+            |wipe_end| write_batch_when_unlocked(&mut store, &rest, wipe_end),
         );
-        assert!(
-            lock_seen,
-            "everything={everything}: the probe never saw the wipe's lock"
-        );
+        eprintln!("{mode:?}: wipe {wipe_time:?}, batch {contended:?}");
+        assert!(lock_seen, "{mode:?}: the probe never saw the wipe's lock");
         let batch = batch.unwrap_or_else(|e| {
             panic!(
-                "everything={everything}: the batch failed after {waited:?}: {}",
+                "{mode:?}: the batch was not stored: {contended:?} (the wipe took {wipe_time:?}): {}",
                 e.chain()
             )
         });
-        assert_eq!(batch.events_inserted, 1, "everything={everything}");
+        assert!(
+            contended.after_wipe <= AFTER_WIPE_SLACK,
+            "{mode:?}: the batch was stored {:?} after the wipe returned",
+            contended.after_wipe
+        );
+        // The writer never waits much longer than the wipe itself: it started waiting after the
+        // wipe started, and gets in at the latest slightly after it returned.
+        assert!(
+            contended.waited <= wipe_time + AFTER_WIPE_SLACK,
+            "{mode:?}: the batch waited {:?} for a wipe of {wipe_time:?}",
+            contended.waited
+        );
+        assert_eq!(batch.events_inserted, 1, "{mode:?}");
 
         let conn = db.reader();
-        if everything {
-            assert_eq!(report.plays_deleted, 131_400);
-            // The PlayStarted was wiped: the skip has no start to pair with.
-            assert_eq!(batch.plays_unpaired, 1);
-            assert_eq!(count(&conn, "SELECT count(*) FROM play"), 0);
-            assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 1);
-            // The writer's caches were stale after the wipe: the row it wrote must still point at
-            // dictionary, session and device rows that exist.
-            assert_eq!(
-                count(
+        match mode {
+            Wipe::Everything => {
+                assert_eq!(signals.plays_deleted, 131_400);
+                // The PlayStarted was wiped: the skip has no start to pair with.
+                assert_eq!(batch.plays_unpaired, 1);
+                assert_eq!(count(&conn, "SELECT count(*) FROM play"), 0);
+                assert_eq!(count(&conn, "SELECT count(*) FROM signal_event"), 1);
+                // The writer's caches were stale after the wipe: the row it wrote must still point
+                // at dictionary, session and device rows that exist.
+                assert_eq!(
+                    count(
+                        &conn,
+                        "SELECT count(*) FROM signal_event e JOIN session s ON s.id = e.session \
+                         JOIN dict_device d ON d.id = s.device \
+                         JOIN dict_recording r ON r.id = e.recording \
+                         JOIN dict_source o ON o.id = e.source"
+                    ),
+                    1
+                );
+            }
+            Wipe::Category => {
+                assert_eq!(signals.plays_cleared, 131_400);
+                assert_eq!(
+                    batch.plays_written, 1,
+                    "the new play is stored after the wipe"
+                );
+                assert_eq!(count(&conn, "SELECT count(*) FROM play"), 131_401);
+                assert_eq!(
+                    count(&conn, "SELECT count(*) FROM play WHERE end_reason = 6"),
+                    131_400,
+                    "the wiped plays have no outcome; the new one keeps its skip"
+                );
+            }
+            Wipe::Tiers => {
+                // T1 and T2 have no signal kind that feeds a play column; the score is reset in the
+                // 20 000 rollups; the keys of the plays lose their clock, device, app and place
+                // fields in the same transaction.
+                assert_eq!(signals.events_deleted, 0);
+                assert_eq!(signals.rollups_cleared, 20_000);
+                let fields = ContextCategory::tier_fields(Tier::T1)
+                    .union(ContextCategory::tier_fields(Tier::T2));
+                let changed = (1..=131_400u32)
+                    .filter(|x| ContextKey::clear_raw(x % 4000, fields) != x % 4000)
+                    .count();
+                assert!(
+                    changed > 100_000,
+                    "the fixture rewrites most keys ({changed})"
+                );
+                assert_eq!(context.plays_rewritten, changed);
+                assert_eq!(batch.plays_written, 1);
+                assert_eq!(count(&conn, "SELECT count(*) FROM play"), 131_401);
+                let keys: Vec<u32> = ints(
                     &conn,
-                    "SELECT count(*) FROM signal_event e JOIN session s ON s.id = e.session \
-                     JOIN dict_device d ON d.id = s.device \
-                     JOIN dict_recording r ON r.id = e.recording \
-                     JOIN dict_source o ON o.id = e.source"
-                ),
-                1
-            );
-        } else {
-            assert_eq!(report.plays_cleared, 131_400);
-            assert_eq!(
-                batch.plays_written, 1,
-                "the new play is stored after the wipe"
-            );
-            assert_eq!(count(&conn, "SELECT count(*) FROM play"), 131_401);
-            assert_eq!(
-                count(&conn, "SELECT count(*) FROM play WHERE end_reason = 6"),
-                131_400,
-                "the wiped plays have no outcome; the new one keeps its skip"
-            );
+                    "SELECT DISTINCT context_key FROM play WHERE id <= 131400 ORDER BY context_key",
+                );
+                let mut expected: Vec<u32> = (0..4000u32)
+                    .map(|k| ContextKey::clear_raw(k, fields))
+                    .collect();
+                expected.sort_unstable();
+                expected.dedup();
+                assert_eq!(keys, expected);
+            }
         }
     }
 }

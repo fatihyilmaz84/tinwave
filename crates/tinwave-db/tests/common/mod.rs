@@ -5,12 +5,15 @@
 #![allow(dead_code, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 use tinwave_core::{
     DeviceId, IdGenerator, ManualClock, RecordingId, Rng, SeededRng, SessionId, SignalEventId,
     SourceId, UtcMillis,
 };
+use tinwave_db::{BatchReport, DbError, SignalStore};
 use tinwave_signals::{
     CompletedPayload, ContextSnapshotId, ElapsedDs, GestureTime, InputSource, PausedPayload,
     PlayOrigin, PlayStartedPayload, PositionDs, QueueOrigin, QueuedPayload, ResumedPayload,
@@ -42,8 +45,7 @@ impl TempDb {
 
 pub fn reader(path: &Path) -> Connection {
     let conn = Connection::open(path).unwrap();
-    conn.busy_timeout(std::time::Duration::from_secs(5))
-        .unwrap();
+    conn.busy_timeout(Duration::from_secs(5)).unwrap();
     conn
 }
 
@@ -431,28 +433,107 @@ pub fn burn_in_trigger(conn: &Connection, on: &str) {
     .unwrap();
 }
 
+/// The busy timeout of every `signals.db` connection (`connection::BUSY_TIMEOUT`, private to the
+/// crate): a statement that waits for a lock longer than this fails with "database is locked".
+pub const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long after a wipe returned a contended batch may still take to be stored: the wipe's lock
+/// is gone, so only SQLite's busy back-off (at most 100 ms a step) and the write itself are left.
+/// Measured (about 480 contended runs: idle, 16 and 32 heavy processes at once on 16 threads): the batch
+/// was stored **before** the wipe returned in every one of them (the wipe's post-commit checkpoint
+/// does not hold the write lock against it), so the figure is 0 s. The bound leaves 5 s for a
+/// scheduling stall and still fails on a lock that outlives the wipe.
+pub const AFTER_WIPE_SLACK: Duration = Duration::from_secs(5);
+
+/// Whether `error` is SQLite's "database is locked": the only failure a contended writer batch may
+/// have, and one that retrying cures.
+pub fn is_busy(error: &DbError) -> bool {
+    matches!(
+        std::error::Error::source(error).and_then(|s| s.downcast_ref::<rusqlite::Error>()),
+        Some(rusqlite::Error::SqliteFailure(failure, _))
+            if failure.code == rusqlite::ErrorCode::DatabaseBusy
+    )
+}
+
+/// The end of a wipe: set by [`during_a_wipe`] the moment the wipe call returned.
+pub type WipeEnd = OnceLock<Instant>;
+
+/// How a contended batch got in.
+#[derive(Debug, Clone, Copy)]
+pub struct Contended {
+    /// Calls of `write_batch` (more than one: the busy timeout ran out and the writer retried).
+    pub attempts: u32,
+    /// From the first call to the stored batch.
+    pub waited: Duration,
+    /// From the end of the wipe to the stored batch; zero when the batch was stored before it.
+    pub after_wipe: Duration,
+}
+
+/// What the writer thread does when a commit fails with a busy database: keep the batch and offer
+/// it again (`writer.rs`, "the batch is kept and retried"). Not a bare `write_batch`: that gives
+/// up after the 5 s busy timeout, and under machine load a wipe's lock (a burn trigger, the
+/// scans, the checkpoint) can legitimately last longer than that.
+///
+/// Retries while the wipe runs and for [`AFTER_WIPE_SLACK`] after `wipe_end` is set; a failure that
+/// is not "database is locked" is returned at once. The returned error is the last one.
+pub fn write_batch_when_unlocked(
+    store: &mut SignalStore,
+    events: &[SignalEvent],
+    wipe_end: &WipeEnd,
+) -> (Result<BatchReport, DbError>, Contended) {
+    let started = Instant::now();
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let result = store.write_batch(events, &[]);
+        let now = Instant::now();
+        let contended = Contended {
+            attempts,
+            waited: now - started,
+            after_wipe: wipe_end
+                .get()
+                .map_or(Duration::ZERO, |end| now.saturating_duration_since(*end)),
+        };
+        match &result {
+            Err(error) if is_busy(error) => {
+                if contended.after_wipe > AFTER_WIPE_SLACK {
+                    return (result, contended);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            _ => return (result, contended),
+        }
+    }
+}
+
 /// Runs `wipe` on a thread and calls `during` once a second connection sees the wipe holding the
 /// write lock (a probe with no busy timeout fails on `BEGIN IMMEDIATE`). Returns both results
 /// and whether the lock was seen; a test must assert it, so a fast machine that finishes the
-/// wipe before the first probe cannot silently skip the contention.
+/// wipe before the first probe cannot silently skip the contention. `during` gets the instant the
+/// wipe returned, once it has.
 pub fn during_a_wipe<W: Send, D>(
     db: &TempDb,
     wipe: impl FnOnce() -> W + Send,
-    during: impl FnOnce() -> D,
+    during: impl FnOnce(&WipeEnd) -> D,
 ) -> (W, D, bool) {
     let probe = db.reader();
-    probe.busy_timeout(std::time::Duration::ZERO).unwrap();
+    probe.busy_timeout(Duration::ZERO).unwrap();
+    let wipe_end = WipeEnd::new();
     std::thread::scope(|scope| {
-        let wipe = scope.spawn(wipe);
+        let wipe = scope.spawn(|| {
+            let result = wipe();
+            wipe_end.set(Instant::now()).unwrap();
+            result
+        });
         let mut seen = false;
         while !wipe.is_finished() {
             if probe.execute_batch("BEGIN IMMEDIATE; ROLLBACK;").is_err() {
                 seen = true;
                 break;
             }
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            std::thread::sleep(Duration::from_millis(1));
         }
-        let result = during();
+        let result = during(&wipe_end);
         (wipe.join().unwrap(), result, seen)
     })
 }
