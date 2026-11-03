@@ -1,0 +1,13 @@
+# cargo-nextest settings (docs/rules/testing.md). Only overrides live here; everything else is
+# nextest's default (a test over 60 s is reported as SLOW, never killed).
+
+# Hard backstop for the storage growth binary (crates/tinwave-db/tests/storage_growth.rs). Its
+# 90-day run is the longest test in the workspace: about 15 s on an idle machine, 70 to 110 s
+# measured with the machine saturated by two parallel workspace runs plus other agents. Killed
+# after 5 x 60 s = 300 s: about 20x the idle time and almost 3x the worst measured, so a loaded
+# machine never trips it, while a deadlock the harness's own 60 s barrier assert cannot see
+# (writer join, a lock) cannot hold a run forever. A longer test added to this binary (the
+# 5-year run with compaction, T-0029) must raise N.
+[[profile.default.overrides]]
+filter = 'binary(storage_growth)'
+slow-timeout = { period = "60s", terminate-after = 5 }

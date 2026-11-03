@@ -4,9 +4,20 @@
 //!
 //! Default run (fast): the P-0010 burst assertion and a 3-day determinism run.
 //!
-//! The 90-day run takes about 15 s (the writer's commits, not the generator, are the cost; a debug
-//! build is as fast because SQLite is compiled optimized), so it is in the default run. The speed
-//! check is on the writer thread's CPU time, not the wall clock, so a busy machine cannot fail it.
+//! The 90-day run takes about 15 s of wall clock (the writer's commits, not the generator, are the
+//! cost), so it is in the default run. The writer's CPU time for it is about 6 s in a debug build
+//! and about 3 s in a release build (the generator and the libraries are optimized in release;
+//! SQLite is optimized in both, which is why debug is only 2x slower, not more).
+//!
+//! The speed check is on the writer thread's CPU time, not the wall clock, so a busy machine cannot
+//! fail it, and it has a separate budget per build profile ([`WRITER_CPU_BUDGET`]). It measures
+//! the writer's CPU work only (batching, SQL, SQLite's own computing): a slowdown that costs
+//! waiting rather than computing (an fsync per commit, a sleep, checkpoint I/O) does not move it.
+//! Those are covered elsewhere: the pragma test
+//! (`connection::tests::a_new_database_gets_every_pragma_of_database_md`) for `synchronous`, and
+//! the `signal_writer` timing tests for latency. The harness raises the checkpoint limits, so
+//! checkpoint cost is not measured here either. A hang is caught by the barrier's 60 s assert and,
+//! for the whole binary, by the `terminate-after` override in `.config/nextest.toml`.
 //! Its report is printed with `--nocapture`:
 //!
 //! ```text
@@ -291,32 +302,43 @@ struct NinetyDays {
 /// stretches 2-3x when other processes (a parallel test run) compete for the cores. CPU time does
 /// not. The process total counts every thread of the test binary; the generator thread (this one)
 /// is read separately, and its share includes the time it spins waiting for the writer at the
-/// barriers, which does grow under load, so it is subtracted and not asserted. What is left is
-/// the writer thread, the only other thread running while `SIMULATION` is held.
-fn writer_cpu<T>(body: impl FnOnce() -> T) -> (T, Duration) {
+/// barriers (sleeping, not spinning, so it is small), is subtracted and not asserted. What is
+/// left is the writer thread, the only other thread running while `SIMULATION` is held.
+fn writer_cpu<T>(body: impl FnOnce() -> T) -> (T, Duration, Duration) {
     let (process_start, thread_start) = (ProcessTime::now(), ThreadTime::now());
     let result = body();
     let (process, generator) = (process_start.elapsed(), thread_start.elapsed());
-    (result, process.saturating_sub(generator))
+    (result, process.saturating_sub(generator), generator)
 }
 
-/// The writer's CPU time for the 90-day run is about 6 s (debug build, the same under load: 6.0
-/// to 6.5 s while the wall clock went from 16 s to 59 s). 15 s is 2.4x that: room for another
-/// machine, a slowdown of 3x or more fails.
-const WRITER_CPU_BUDGET: Duration = Duration::from_secs(15);
+/// The writer's CPU time for the 90-day run depends on the build profile: about 6 s in a debug
+/// build (6.0 to 6.5 s, the same under load while the wall clock went from 16 s to 59 s) and
+/// about 3.2 s in a release build (3.1 to 3.5 s). Each budget is about 2.4x its measured value:
+/// room for another machine, and a slowdown of 3x or more fails in either profile. (One budget
+/// of 15 s would let a release run slow down 4.7x.) `cargo test --release` has
+/// `debug_assertions` off; a profile that sets it differently gets the matching budget.
+///
+/// CPU work only: waiting (fsync, sleeps, checkpoint I/O) is not counted; see the module doc.
+const WRITER_CPU_BUDGET: Duration = if cfg!(debug_assertions) {
+    Duration::from_secs(15)
+} else {
+    Duration::from_secs(8)
+};
 
 /// The 90-day run, shared by the tests below (one run, one report).
 fn ninety_days() -> &'static NinetyDays {
     static RUN: OnceLock<NinetyDays> = OnceLock::new();
     RUN.get_or_init(|| {
         let _alone = SIMULATION.lock().unwrap_or_else(PoisonError::into_inner);
-        let (run, writer_cpu) = writer_cpu(|| run(GrowthConfig::reference(90), &mut |_| {}));
+        let (run, writer_cpu, generator_cpu) =
+            writer_cpu(|| run(GrowthConfig::reference(90), &mut |_| {}));
         let report = measure(&run);
         println!("{}", report.render(&run));
         println!(
-            "speed: writer thread {:.1} s of CPU time (budget {:.0} s); {:.1} s of wall clock, not asserted (it grows with the machine's load)",
+            "speed: writer thread {:.1} s of CPU time (budget {:.0} s); generator thread {:.1} s of CPU time; {:.1} s of wall clock, not asserted (it grows with the machine's load)",
             writer_cpu.as_secs_f64(),
             WRITER_CPU_BUDGET.as_secs_f64(),
+            generator_cpu.as_secs_f64(),
             run.elapsed.as_secs_f64()
         );
         NinetyDays {
