@@ -96,7 +96,7 @@ coalesced gesture (T-0027); `RateSession` is derived from the engine's `RateStat
 |---|---|---|---|---|
 | `OutputDeviceChanged` | T1 | Default or chosen device changes during a live session (playing or paused); not emitted for the device bound at session start | `class` (`Headphones|Speakers|Bluetooth|UsbDac|Hdmi|Builtin|Virtual|Unknown`; `UsbDac` = external DAC, USB or digital out), `transport` (`Bluetooth|Usb|Hda|Virtual|Other`), `form_factor` (OS enum, `u8`), `device_hash` | Splits taste by device: headphone music ≠ speaker music. Class = f(transport, form factor, internal jack) — rule order in ADR 0004. |
 | `EqChanged` | T0 | EQ preset/band change | `preset`, `bass_db`, `treble_db` | Bass boost on a track/genre ⇒ energy preference. |
-| `ExclusiveModeToggled` | T0 | WASAPI exclusive / bit-perfect | `on` | Audiophile session: favor lossless sources. |
+| `ExclusiveModeToggled` | T0 | Listener/setting turns WASAPI exclusive (bit-perfect) on or off. Not a rate reopen; an automatic fallback by the device never emits (T-0057) | `on` | Audiophile session: favor lossless sources. |
 | `CrossfadeChanged` | T0 | Crossfade/gapless setting | `ms` | Party vs album listening style. |
 
 ## 7. Context — "when, where, in what state?"

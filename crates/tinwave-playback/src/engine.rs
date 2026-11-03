@@ -1440,7 +1440,11 @@ mod tests {
             Some(PlaybackError::Busy)
         );
         assert!(handle.is_open(), "the reopened stream still plays");
-        assert_eq!(handle.opens().len(), opens, "no stream was opened or closed");
+        assert_eq!(
+            handle.opens().len(),
+            opens,
+            "no stream was opened or closed"
+        );
         assert!(events.take().is_empty(), "no OutputLost");
 
         // Once the decoder has its ring the reopen is reported and the switch goes through.

@@ -3,12 +3,13 @@ id: T-0069
 title: controller_thread tests wait on conditions, not on how far playback got
 type: chore
 epic: E-01
-status: backlog
+status: ready
 priority: P2
 size: S
 depends_on: [T-0057]
 scope:
   - crates/tinwave-playback/tests/controller_thread.rs
+  - crates/tinwave-playback/tests/controller_support/mod.rs
 owner:
 branch:
 review_round: 0
@@ -27,6 +28,10 @@ got (tests/controller_thread.rs:297, :343).
 - [ ] 0 failures in 120 runs at 40 parallel copies alongside the other playback binaries — measured.
 - [ ] The tests still fail when the behaviour they check is broken (mutation per test).
 - [ ] fmt, clippy, nextest, deny pass.
+
+## Added from T-0057 review-2 (P-0274)
+- `controller_support::Rig::run_until` (30,000 x 100 us) ran out under 40-copy load once (controller_exclusive);
+  wait on buffered audio or an event instead of a fixed iteration budget.
 
 ## Signals & storage
 None.

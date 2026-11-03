@@ -3,7 +3,7 @@ id: T-0057
 title: Exclusive mode reopens the output at the file rate on a rate change (ADR 0005 decision 5)
 type: feature
 epic: E-01
-status: in_review
+status: done
 priority: P1
 size: M
 depends_on: [T-0019]
@@ -12,6 +12,7 @@ scope:
 owner: tw-builder
 branch: t/T-0057-exclusive-reopen-at-file-rate
 review_round: 2
+merge: e1893f5
 created_by: from P-0224 (T-0019 build-1)
 ---
 
@@ -31,6 +32,11 @@ decoder-thread resampler (T-0019) converts to the device rate. Today the engine 
       allocation — tests.
 - [ ] Device refuses the rate: falls back to shared + resampler, reported once — test.
 - [ ] Signals per the catalog (no new kinds); fmt, clippy, tests, deny pass.
+
+## Lead takeover after review-2 (2026-11-03)
+Review-2 blocker (switch_device while a Resume is held back closed the working stream) fixed by the lead on the
+branch (95f57d4): `switch_device` returns Busy while `unsent_resume` is set; test
+`a_device_switch_waits_while_a_resume_is_held_back`, revert-checked (fails without the guard).
 
 ## Signals & storage
 Uses existing OutputReopened / ExclusiveModeToggled mapping (T-0024/T-0034).

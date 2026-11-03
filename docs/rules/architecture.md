@@ -10,6 +10,8 @@ crates/
   tinwave-library     Scanning, tag read/write, file organization (journal, dry-run, recovery).
   tinwave-playback    Playback engine (Symphonia decode → ring → RT renderer), queue, outputs
                       (output/windows = WASAPI, output/cpal), resampler, time-stretch. Emits PlaybackEvents.
+                      In exclusive mode (`AudioOutput::wants_exclusive`) the engine reopens the output at each
+                      file's rate at the track boundary (ADR 0005 decision 5).
                       The render callback never allocates, locks or does IO (ADR 0005).
   tinwave-signals     Signal event schema, bus, batched writer, Signal Center queries.
   tinwave-context     Context providers: clock, holidays, sun, power, idle, audio device,

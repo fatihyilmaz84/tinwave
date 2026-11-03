@@ -50,6 +50,11 @@ without gapless tag), ALAC and AAC-LC, at 48 kHz and 44.1 kHz. Raw output is in 
    continuous resampler across same-rate tracks. Exclusive mode opens at the file rate when the endpoint accepts it
    (bit-perfect) and reopens on a rate change. (The spike itself relied on the OS converter - `AUTOCONVERTPCM` - and
    had no resampler; same-rate tracks were gapless through it, loopback verified.)
+   **Implemented (T-0057, fakes only):** the decoder parks at a boundary whose next file has another rate; the engine
+   reopens once the old stream has played its last frame and its device buffer has drained, so no audio is cut and
+   same-rate boundaries never reopen. A rate the endpoint refuses falls back to the engine rate plus the decoder
+   resampler, reported once (`StreamInfo.fallback`), and is not retried on that device. Positions stay in timeline
+   frames at `EngineConfig::sample_rate` (marks carry `out_rate`/`timeline_rate`).
 
 ## Evidence
 
@@ -138,8 +143,10 @@ sample exact.
   MF encoder. iTunes-style M4A priming, VBR MP3 seeking, HE-AAC and Opus remain unverified.
 - 24-bit exclusive audible quality, ASIO, WASAPI offload, 5.1+ outputs (engine is stereo-only).
 - Sample-rate change between tracks: verified on the fake output (T-0019: 44.1 -> 48 -> 44.1 -> 96 -> 48 kHz with no
-  gap, no callback allocation), not yet listened to on a real endpoint. Exclusive mode still plays every track at
-  the stream rate; reopening at the file rate is T-0057.
+  gap, no callback allocation), not yet listened to on a real endpoint.
+- Exclusive reopen at the file rate (T-0057): implemented and tested on ManualOutput and the fake pump device only. The
+  real gap (old device buffer + exclusive open, ~42 ms in the spike, + first block + up to 10 ms of poll) and a real
+  endpoint refusing 96 kHz are unmeasured; T-0066 adds the device check and PO-RUNBOOK steps.
 
 ## Licenses
 
