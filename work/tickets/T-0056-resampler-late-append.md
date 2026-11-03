@@ -32,3 +32,7 @@ transient at a join that should be gapless (live albums added a track at a time)
 
 ## Signals & storage
 None.
+
+## Added from P-0232 (T-0019 build-2)
+- Make every test that relies on a `replace_after` (tests/pairing.rs:367, tests/queue_edits.rs) assert the verdict with
+  `Harness::expect_edit_applied`, so a lost race fails clearly instead of depending on timing.
