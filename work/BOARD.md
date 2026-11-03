@@ -29,7 +29,7 @@ _Maintained by the lead. Last updated: 2026-11-03._
 ## In progress
 | Ticket | Owner | Branch / worktree |
 |---|---|---|
-| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r1 | `t/T-0057-exclusive-reopen-at-file-rate` · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
+| [T-0057](tickets/T-0057-exclusive-reopen-at-file-rate.md) Exclusive mode reopens at the file rate (P1) | tw-builder r1 (build-1 done; fallback-toggle fix) | `t/T-0057-exclusive-reopen-at-file-rate` · `D:\dev\Tinwave-worktrees\T-0057-exclusive-reopen-at-file-rate` |
 | [T-0065](tickets/T-0065-wipe-follow-ups.md) Wipe follow-ups (P1) | tw-builder r1 | `t/T-0065-wipe-follow-ups` · `D:\dev\Tinwave-worktrees\T-0065-wipe-follow-ups` |
 
 Worktrees are made by the lead with `git worktree add` under `D:\dev\Tinwave-worktrees\` (the Agent tool's built-in
@@ -69,6 +69,7 @@ overlap (work/README.md); the branch merging second merges main first.
 |---|---|
 | [T-0059](tickets/T-0059-play-end-signal-for-stop-and-quit.md) Play-end signal for stops and quits (P1) | T-0029, playback slot (after T-0027) |
 | [T-0063](tickets/T-0063-rate-restart-hardening.md) Rate restart hardening (P2) | playback slot |
+| [T-0066](tickets/T-0066-exclusive-reopen-device-check.md) Exclusive reopen: real-device check, exclusive-only open (P2) | T-0057 |
 | [T-0056](tickets/T-0056-resampler-late-append.md) Resampler continuity across a late append (P2) | playback slot (after T-0057) |
 | [T-0054](tickets/T-0054-release-readiness-packaging.md) Release-readiness packaging checks (P2) | T-0051, D-0007 |
 | [T-0018](tickets/T-0018-gapless-metadata-scanner.md) Gapless metadata in scanner (E-01) | T-0016, scanner ticket |
